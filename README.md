@@ -2,6 +2,10 @@
 
 A node-based visual programming editor built with Rust and egui.
 
+This project is structured as a workspace containing:
+- `nodle-core`: Core node graph library (can be used independently)
+- `nodle-app`: Full visual editor application
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 
@@ -44,12 +48,17 @@ Nodle is a custom node editor implementation featuring a vertical flow design wh
 git clone https://github.com/bsundman/nodle.git
 cd nodle
 
-# Run in development mode
-cargo run
+# Run the application
+cargo run --package nodle
+
+# Or use the shorter alias
+cargo run -p nodle
 
 # Build for release
-cargo build --release
-cargo run --release
+cargo build --release -p nodle
+
+# Test the core library
+cargo test -p nodle-core
 ```
 
 ## Usage
@@ -68,6 +77,41 @@ The editor is built using:
 - **Efficient data structures**: HashMap for nodes, Vec for connections
 
 For detailed technical information, see [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md).
+
+## Using the Library
+
+To use `nodle-core` in your own project, add it to your `Cargo.toml`:
+
+```toml
+[dependencies]
+nodle-core = { git = "https://github.com/bsundman/nodle.git" }
+# Or when published to crates.io:
+# nodle-core = "0.1"
+```
+
+Example usage:
+
+```rust
+use nodle_core::{NodeGraph, Node, Connection};
+use egui::Pos2;
+
+let mut graph = NodeGraph::new();
+
+// Create nodes
+let mut node1 = Node::new(0, "Math", Pos2::new(100.0, 100.0));
+node1.add_input("A").add_input("B").add_output("Result");
+
+let mut node2 = Node::new(0, "Output", Pos2::new(300.0, 100.0));
+node2.add_input("Value");
+
+// Add to graph
+let id1 = graph.add_node(node1);
+let id2 = graph.add_node(node2);
+
+// Connect them
+let connection = Connection::new(id1, 0, id2, 0);
+graph.add_connection(connection).unwrap();
+```
 
 ## Development
 

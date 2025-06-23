@@ -1,0 +1,14 @@
+[package]
+name = "nodle-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Brian Sundman <bsundman@gmail.com>"]
+license = "MIT"
+description = "Core node graph library for visual programming"
+repository = "https://github.com/bsundman/nodle"
+readme = "../README.md"
+keywords = ["node", "graph", "visual", "programming", "dataflow"]
+categories = ["data-structures", "gui", "visualization"]
+
+[dependencies]
+egui = { workspace = true }

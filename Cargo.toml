@@ -1,8 +1,7 @@
-[package]
-name = "nodle"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["nodle-core", "nodle-app"]
+resolver = "2"
 
-[dependencies]
-eframe = "0.29"
+[workspace.dependencies]
 egui = "0.29"
+eframe = "0.29"

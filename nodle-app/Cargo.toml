@@ -1,0 +1,17 @@
+[package]
+name = "nodle"
+version = "0.1.0"
+edition = "2021"
+authors = ["Brian Sundman <bsundman@gmail.com>"]
+license = "MIT"
+description = "Node-based visual programming editor"
+repository = "https://github.com/bsundman/nodle"
+
+[[bin]]
+name = "nodle"
+path = "src/main.rs"
+
+[dependencies]
+nodle-core = { path = "../nodle-core" }
+egui = { workspace = true }
+eframe = { workspace = true }
