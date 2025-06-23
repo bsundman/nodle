@@ -1,386 +1,461 @@
-# Nodle - Node Editor Developer Guide
+# Nōdle - Node Editor Developer Guide
 
 ## Overview
 
-Nodle is a custom node-based visual programming editor built in Rust using the egui/eframe framework. It implements a vertical flow design where connections flow from top to bottom, with input ports on the top of nodes and output ports on the bottom.
+Nōdle (pronounced like "noodle") is a custom node-based visual programming editor built in Rust using the egui/eframe framework. It implements a vertical flow design where connections flow from top to bottom, with input ports on the top of nodes and output ports on the bottom.
 
-## Architecture
+## Project Architecture
 
-### Core Components
+### Workspace Structure
 
-#### 1. Port Structure
+Nōdle is organized as a Rust workspace with two main crates:
+
+```
+nodle/
+├── nodle-core/          # Core library (reusable node graph functionality)
+│   ├── src/
+│   │   ├── lib.rs       # Public API exports
+│   │   ├── graph.rs     # NodeGraph and Connection types
+│   │   ├── node.rs      # Node type and implementation
+│   │   ├── port.rs      # Port type and enums
+│   │   └── math.rs      # Mathematical utilities (bezier curves, etc.)
+│   └── Cargo.toml
+├── nodle-app/           # GUI application
+│   ├── src/
+│   │   ├── main.rs      # Entry point + common traits (NodeFactory, etc.)
+│   │   ├── editor/      # Main editor implementation
+│   │   │   └── mod.rs   # NodeEditor struct and GUI logic
+│   │   ├── math/        # Math node implementations
+│   │   │   ├── mod.rs   # Re-exports
+│   │   │   ├── add.rs   # Addition node
+│   │   │   ├── subtract.rs
+│   │   │   ├── multiply.rs
+│   │   │   └── divide.rs
+│   │   ├── logic/       # Logic node implementations
+│   │   │   ├── mod.rs
+│   │   │   ├── and.rs   # AND gate
+│   │   │   ├── or.rs    # OR gate
+│   │   │   └── not.rs   # NOT gate
+│   │   ├── data/        # Data node implementations
+│   │   │   ├── mod.rs
+│   │   │   ├── constant.rs # Constant value node
+│   │   │   └── variable.rs # Variable storage node
+│   │   └── output/      # Output node implementations
+│   │       ├── mod.rs
+│   │       ├── print.rs # Print to console
+│   │       └── debug.rs # Debug with passthrough
+│   └── Cargo.toml
+├── examples/
+│   └── basic_graph.rs   # Usage example for nodle-core
+├── Cargo.toml           # Workspace configuration
+├── README.md
+├── DEVELOPER_GUIDE.md   # This file
+└── CLAUDE.md            # Development session memory (git excluded)
+```
+
+### Core Library (nodle-core)
+
+The core library provides the fundamental data structures and algorithms for node graphs:
+
+#### Port Structure
 ```rust
 #[derive(Debug, Clone)]
-struct Port {
-    id: usize,           // Unique identifier within the node
-    name: String,        // Display name (e.g., "A", "B", "Result")
-    is_input: bool,      // true for input ports, false for output ports
-    position: Pos2,      // World coordinates of the port center
+pub struct Port {
+    pub id: usize,           // Unique identifier within the node
+    pub name: String,        // Display name (e.g., "A", "B", "Result")
+    pub port_type: PortType, // Input or Output
+    pub position: Pos2,      // World coordinates of the port center
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortType {
+    Input,
+    Output,
 }
 ```
 
-#### 2. Node Structure
-```rust
-#[derive(Debug, Clone)]  
-struct Node {
-    id: usize,                // Unique node identifier
-    title: String,            // Display title
-    position: Pos2,           // Top-left corner position
-    size: Vec2,              // Width and height (width=150, height=30)
-    inputs: Vec<Port>,        // Input ports (positioned on top edge)
-    outputs: Vec<Port>,       // Output ports (positioned on bottom edge)
-    color: Color32,          // Node background color
-}
-```
-
-#### 3. Connection Structure
+#### Node Structure
 ```rust
 #[derive(Debug, Clone)]
-struct Connection {
-    from_node: usize,     // Source node ID
-    from_port: usize,     // Source port index
-    to_node: usize,       // Target node ID  
-    to_port: usize,       // Target port index
+pub struct Node {
+    pub id: NodeId,             // Unique node identifier
+    pub title: String,          // Display title
+    pub position: Pos2,         // Top-left corner position
+    pub size: Vec2,            // Width and height
+    pub inputs: Vec<Port>,      // Input ports (positioned on top edge)
+    pub outputs: Vec<Port>,     // Output ports (positioned on bottom edge)
+    pub color: Color32,        // Node background color
 }
 ```
 
-#### 4. NodeEditor (Main State)
+#### Connection Structure
 ```rust
-struct NodeEditor {
-    nodes: HashMap<usize, Node>,           // All nodes by ID
-    connections: Vec<Connection>,          // All connections
-    next_node_id: usize,                  // ID counter for new nodes
-    connecting_from: Option<(usize, usize, bool)>, // Active connection: (node_id, port_id, is_input)
-    selected_nodes: HashSet<usize>,       // Currently selected nodes
-    selected_connection: Option<usize>,   // Currently selected connection index
-    context_menu_pos: Option<Pos2>,       // Right-click menu position
-    pan_offset: Vec2,                     // Camera pan offset
-    zoom: f32,                           // Camera zoom level (0.1 to 5.0)
-    box_selection_start: Option<Pos2>,    // Box selection start point
-    box_selection_end: Option<Pos2>,      // Box selection end point
-    drag_offsets: HashMap<usize, Vec2>,   // Node drag offsets
+#[derive(Debug, Clone)]
+pub struct Connection {
+    pub from_node: NodeId,      // Source node ID
+    pub from_port: usize,       // Source port index
+    pub to_node: NodeId,        // Target node ID
+    pub to_port: usize,         // Target port index
 }
 ```
 
-## Key Systems
-
-### 1. Coordinate System & Transforms
-
-The editor uses two coordinate systems:
-- **World Coordinates**: The logical space where nodes exist
-- **Screen Coordinates**: The rendered space after pan/zoom transforms
-
+#### NodeGraph
 ```rust
-// Transform world coordinates to screen coordinates
-let transform_pos = |pos: Pos2| -> Pos2 {
-    Pos2::new(
-        pos.x * zoom + pan_offset.x,
-        pos.y * zoom + pan_offset.y,
-    )
-};
-
-// Transform screen coordinates to world coordinates  
-let inverse_transform_pos = |pos: Pos2| -> Pos2 {
-    Pos2::new(
-        (pos.x - pan_offset.x) / zoom,
-        (pos.y - pan_offset.y) / zoom,
-    )
-};
-```
-
-### 2. Port Positioning (Vertical Flow)
-
-Ports are positioned automatically when nodes are updated:
-
-```rust
-fn update_port_positions(&mut self) {
-    let port_spacing = 30.0;
-    
-    // Input ports on TOP edge (y = 0)
-    let input_start_x = if self.inputs.len() > 1 {
-        (self.size.x - (self.inputs.len() - 1) as f32 * port_spacing) / 2.0
-    } else {
-        self.size.x / 2.0  // Center single port
-    };
-    
-    for (i, input) in self.inputs.iter_mut().enumerate() {
-        input.position = self.position + Vec2::new(
-            input_start_x + i as f32 * port_spacing, 
-            0.0  // Top edge
-        );
-    }
-    
-    // Output ports on BOTTOM edge (y = node_height)
-    let output_start_x = if self.outputs.len() > 1 {
-        (self.size.x - (self.outputs.len() - 1) as f32 * port_spacing) / 2.0
-    } else {
-        self.size.x / 2.0  // Center single port
-    };
-    
-    for (i, output) in self.outputs.iter_mut().enumerate() {
-        output.position = self.position + Vec2::new(
-            output_start_x + i as f32 * port_spacing,
-            self.size.y  // Bottom edge
-        );
-    }
+pub struct NodeGraph {
+    pub nodes: HashMap<NodeId, Node>,
+    pub connections: Vec<Connection>,
+    next_id: NodeId,
 }
 ```
 
-### 3. Connection System
+### GUI Application (nodle-app)
 
-#### Single-Click Connection Workflow:
-1. **First Click**: Click on any port to start connection (sets `connecting_from`)
-2. **Second Click**: Click on compatible port to complete connection
-3. **ESC Key**: Cancel connection in progress
-
-#### Connection Compatibility:
-- **Output → Input**: Valid connection
-- **Input → Output**: Valid connection (automatically reverses to output→input)
-- **Same Node**: Invalid (prevented)
-- **Same Port Type**: Invalid (input→input, output→output)
-
-#### Connection Rendering:
-Connections use cubic Bézier curves for smooth vertical flow:
-
+#### NodeEditor (Main GUI State)
 ```rust
-// Calculate control points for vertical bezier curve
-let vertical_distance = (to_pos.y - from_pos.y).abs();
-let control_offset = if vertical_distance > 10.0 {
-    vertical_distance * 0.4  // Proportional curve
-} else {
-    60.0 * zoom  // Minimum curve for short connections
-};
-
-let points = [
-    from_pos,                                    // Start point
-    from_pos + Vec2::new(0.0, control_offset),   // First control point (down)
-    to_pos - Vec2::new(0.0, control_offset),     // Second control point (up from target)
-    to_pos,                                      // End point
-];
+pub struct NodeEditor {
+    graph: NodeGraph,                              // The node graph from core
+    dragging_node: Option<NodeId>,                 // Currently dragging node
+    drag_offset: Vec2,                             // Drag offset for smooth dragging
+    connecting_from: Option<(NodeId, PortId, bool)>, // Connection state (node, port, is_input)
+    selected_nodes: HashSet<NodeId>,               // Multi-selection support
+    selected_connection: Option<usize>,            // Selected connection index
+    context_menu_pos: Option<Pos2>,               // Right-click menu position
+    open_submenu: Option<String>,                  // Current submenu name
+    submenu_pos: Option<Pos2>,                     // Submenu position
+    pan_offset: Vec2,                              // Camera pan offset
+    zoom: f32,                                     // Camera zoom level
+    box_selection_start: Option<Pos2>,            // Box selection start
+    box_selection_end: Option<Pos2>,              // Box selection end
+    drag_offsets: HashMap<NodeId, Vec2>,          // Multi-node drag offsets
+}
 ```
 
-### 4. Input Handling
+## Node Factory System
 
-#### Mouse Controls:
-- **Left Click**: Select nodes/ports, complete connections
-- **Left Click + Drag**: Move selected nodes, box selection
-- **Middle Mouse + Drag**: Pan camera
-- **Right Click**: Context menu (on empty space)
-- **Mouse Wheel**: Zoom (centered on cursor)
+### NodeFactory Trait
 
-#### Keyboard Controls:
-- **Delete**: Delete selected nodes/connections
-- **ESC**: Cancel connection in progress
-- **Ctrl/Cmd + Click**: Multi-select nodes
-
-#### Event Processing Order:
-1. **Right-Click Context Menu**: Handled first to prevent interference
-2. **Pan/Zoom**: Middle mouse and wheel events
-3. **Port Interactions**: Click/drag on ports for connections
-4. **Node Selection/Dragging**: Click/drag on nodes
-5. **Box Selection**: Click/drag on empty space
-6. **Keyboard Input**: Delete and ESC keys
-
-### 5. Node Types & Colors
-
-The editor supports predefined node types with specific colors:
+Each node type implements a standardized interface:
 
 ```rust
-match node_type {
-    // Math nodes - Green (80, 120, 80)
-    "Add" | "Subtract" | "Multiply" | "Divide" => {
+pub trait NodeFactory {
+    fn node_type() -> &'static str where Self: Sized;     // "Add", "Subtract", etc.
+    fn display_name() -> &'static str where Self: Sized;  // Human-readable name
+    fn category() -> NodeCategory where Self: Sized;      // Math, Logic, Data, Output
+    fn color() -> Color32 where Self: Sized;             // Node color
+    fn create(position: Pos2) -> Node where Self: Sized; // Create instance
+    fn add_to_graph(graph: &mut NodeGraph, position: Pos2) -> NodeId where Self: Sized;
+}
+```
+
+### Node Categories
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeCategory {
+    Math,    // Mathematical operations
+    Logic,   // Boolean logic gates
+    Data,    // Constants and variables
+    Output,  // Print and debug nodes
+}
+```
+
+### Example Node Implementation
+
+```rust
+// src/math/add.rs
+pub struct AddNode;
+
+impl NodeFactory for AddNode {
+    fn node_type() -> &'static str { "Add" }
+    fn display_name() -> &'static str { "Add" }
+    fn category() -> NodeCategory { NodeCategory::Math }
+    fn color() -> Color32 { Color32::from_rgb(160, 170, 160) }
+    
+    fn create(position: Pos2) -> Node {
+        let mut node = Node::new(0, Self::node_type(), position)
+            .with_color(Self::color());
         node.add_input("A").add_input("B").add_output("Result");
-        node.color = Color32::from_rgb(80, 120, 80);
-    }
-    
-    // Logic nodes - Blue (80, 80, 120)  
-    "AND" | "OR" => {
-        node.add_input("A").add_input("B").add_output("Result");
-        node.color = Color32::from_rgb(80, 80, 120);
-    }
-    "NOT" => {
-        node.add_input("Input").add_output("Result");
-        node.color = Color32::from_rgb(80, 80, 120);
-    }
-    
-    // Data nodes - Purple (120, 80, 120)
-    "Constant" => {
-        node.add_output("Value");
-        node.color = Color32::from_rgb(120, 80, 120);
-    }
-    "Variable" => {
-        node.add_input("Set").add_output("Get");
-        node.color = Color32::from_rgb(120, 80, 120);
-    }
-    
-    // Output nodes - Red (120, 80, 80)
-    "Print" => {
-        node.add_input("Value");
-        node.color = Color32::from_rgb(120, 80, 80);
-    }
-    "Debug" => {
-        node.add_input("Value").add_output("Pass");
-        node.color = Color32::from_rgb(120, 80, 80);
+        node
     }
 }
 ```
-
-## Rendering Pipeline
-
-### 1. Coordinate Transformation
-All world coordinates are transformed to screen coordinates using pan/zoom.
-
-### 2. Connection Rendering
-- Connections rendered first (behind nodes)
-- Cubic Bézier curves for smooth vertical flow
-- Selected connections highlighted in orange
-- Connection preview shown in bright yellow during creation
-
-### 3. Node Rendering
-- Node background with rounded corners
-- Border highlighting for selected nodes (orange)
-- Title text centered horizontally, 15 pixels from top
-- Port circles with different colors:
-  - Input ports: Green (100, 150, 100)
-  - Output ports: Red (150, 100, 100)
-- Port labels positioned above inputs, below outputs
-
-### 4. UI Overlays
-- Box selection rectangle (blue with transparency)
-- Context menu (popup with node creation options)
-- Connection preview during creation
-
-## Performance Considerations
-
-### Efficient Rendering
-- Uses egui's retained mode GUI system
-- Transform calculations cached during render loop
-- Connection hit-testing uses line segment approximation
-- Port interaction uses simple distance checks (< 10 pixels)
-
-### Memory Management
-- Nodes stored in HashMap for O(1) lookup by ID
-- Connections stored in Vec for sequential processing
-- Selected nodes stored in HashSet for O(1) membership testing
-
-## Development Patterns
 
 ### Adding New Node Types
 
-1. **Add to match statement** in `create_node()`:
+1. Create new file (e.g., `src/math/power.rs`)
+2. Implement `NodeFactory` trait
+3. Add to category's `mod.rs`:
+   ```rust
+   mod power;
+   pub use power::PowerNode;
+   ```
+4. Add to `NodeRegistry::create_node()` in `main.rs`:
+   ```rust
+   "Power" => Some(math::PowerNode::create(position)),
+   ```
+
+## Core Algorithms
+
+### Port Positioning
+
+Ports are automatically positioned when nodes are created or moved:
+
 ```rust
-"NewNodeType" => {
-    node.add_input("Input1").add_output("Output1");
-    node.color = Color32::from_rgb(r, g, b);
+// Input ports: evenly distributed along top edge
+fn update_input_positions(&mut self) {
+    let count = self.inputs.len();
+    for (i, port) in self.inputs.iter_mut().enumerate() {
+        let x_offset = if count == 1 {
+            self.size.x / 2.0  // Center single port
+        } else {
+            (i as f32 * self.size.x) / (count - 1) as f32  // Distribute multiple
+        };
+        port.position = self.position + Vec2::new(x_offset, 0.0);
+    }
+}
+
+// Output ports: evenly distributed along bottom edge  
+fn update_output_positions(&mut self) {
+    let count = self.outputs.len();
+    for (i, port) in self.outputs.iter_mut().enumerate() {
+        let x_offset = if count == 1 {
+            self.size.x / 2.0
+        } else {
+            (i as f32 * self.size.x) / (count - 1) as f32
+        };
+        port.position = self.position + Vec2::new(x_offset, self.size.y);
+    }
 }
 ```
 
-2. **Add to context menu** in the UI rendering section:
+### Connection Rendering
+
+Connections are drawn as cubic Bézier curves:
+
 ```rust
-if ui.button("NewNodeType").clicked() {
-    self.create_node("NewNodeType", menu_world_pos);
-    self.context_menu_pos = None;
+fn draw_connection(painter: &Painter, from: Pos2, to: Pos2, zoom: f32) {
+    let vertical_distance = (to.y - from.y).abs();
+    let control_offset = if vertical_distance > 10.0 {
+        vertical_distance * 0.4  // Proportional to distance
+    } else {
+        60.0 * zoom  // Minimum offset for short connections
+    };
+    
+    let points = [
+        from,                                    // Start point
+        from + Vec2::new(0.0, control_offset),   // Control point 1
+        to - Vec2::new(0.0, control_offset),     // Control point 2  
+        to,                                      // End point
+    ];
+    
+    painter.add(egui::Shape::CubicBezier(egui::epaint::CubicBezierShape {
+        points,
+        closed: false,
+        fill: Color32::TRANSPARENT,
+        stroke: Stroke::new(2.0 * zoom, Color32::from_rgb(150, 150, 150)),
+    }));
 }
 ```
 
-### Modifying Interaction Behavior
+### Coordinate Transforms
 
-Input handling follows a clear priority order. To modify:
+The editor uses two coordinate systems:
 
-1. **High Priority**: Modify context menu handling
-2. **Medium Priority**: Modify pan/zoom in main event loop
-3. **Low Priority**: Modify node/port interactions
-
-### Debugging Tips
-
-1. **Print coordinates**: Add debug prints to understand world vs screen coords
-2. **Visual debugging**: Draw debug rectangles/circles for hit-testing areas
-3. **State inspection**: Print `connecting_from` state to debug connection issues
-4. **Transform testing**: Verify coordinate transformations with known points
-
-## Common Issues & Solutions
-
-### Issue: Connections not appearing
-**Solution**: Check that port positions are updated after node movement via `update_port_positions()`
-
-### Issue: Incorrect click detection
-**Solution**: Ensure using correct coordinate system (world vs screen) for hit-testing
-
-### Issue: Pan/zoom feeling wrong
-**Solution**: Verify `zoom_at_point()` correctly transforms mouse position to world coordinates before applying zoom
-
-### Issue: Node selection not working
-**Solution**: Check event processing order - ensure port clicks don't interfere with node selection
-
-## Future Extension Points
-
-### 1. Node Persistence
-Add serialization/deserialization for saving/loading node graphs:
 ```rust
-#[derive(Serialize, Deserialize)]
-struct NodeGraph {
-    nodes: HashMap<usize, Node>,
-    connections: Vec<Connection>,
+// World coordinates: logical space where nodes exist
+// Screen coordinates: visual space after pan/zoom transforms
+
+fn transform_pos(world_pos: Pos2, pan: Vec2, zoom: f32) -> Pos2 {
+    Pos2::new(
+        world_pos.x * zoom + pan.x,
+        world_pos.y * zoom + pan.y
+    )
+}
+
+fn inverse_transform_pos(screen_pos: Pos2, pan: Vec2, zoom: f32) -> Pos2 {
+    Pos2::new(
+        (screen_pos.x - pan.x) / zoom,
+        (screen_pos.y - pan.y) / zoom
+    )
 }
 ```
 
-### 2. Node Execution Engine
-Add a system to actually execute the node graph logic:
+## User Interface
+
+### Input Handling
+
+#### Mouse Controls
+- **Left Click**: Select nodes, click ports to connect
+- **Left Drag**: Move selected nodes, box selection on empty space
+- **Middle Drag**: Pan the camera
+- **Right Click**: Context menu
+- **Scroll Wheel**: Zoom (centered at mouse cursor)
+
+#### Keyboard Controls
+- **Delete**: Remove selected nodes and connections
+- **Escape**: Cancel connection in progress, close menus
+- **Ctrl/Cmd + Click**: Multi-select nodes
+
+### Connection System
+
+The connection system supports two interaction modes:
+
+#### Click-to-Click Mode
+1. Click an output port → connection preview appears
+2. Click an input port → connection created
+3. ESC to cancel
+
+#### Drag Mode
+1. Click and drag from any port
+2. Release on compatible port → connection created
+3. Release elsewhere → connection cancelled
+
+### Context Menu System
+
+The context menu uses a hierarchical structure:
+
+#### Main Menu
+- **Math** ▶
+- **Logic** ▶  
+- **Data** ▶
+- **Output** ▶
+
+#### Submenus
+Each category opens a submenu with specific node types:
+- **Math**: Add, Subtract, Multiply, Divide
+- **Logic**: AND, OR, NOT
+- **Data**: Constant, Variable
+- **Output**: Print, Debug
+
+#### Implementation Details
+- Custom rendering using `allocate_exact_size()` for full-width hover areas
+- No rounded corners (rectangular highlighting)
+- Arrow indicators (▶) show submenu availability
+- Smart positioning and closing behavior
+
+## Visual Design
+
+### Color Scheme (Dark Theme)
+
 ```rust
-trait NodeExecutor {
-    fn execute(&self, inputs: &[Value]) -> Vec<Value>;
-}
+// Background
+const BACKGROUND: Color32 = Color32::from_rgb(40, 40, 40);
+
+// Node colors (light grey with category tints)
+const MATH_COLOR: Color32 = Color32::from_rgb(160, 170, 160);    // Green tint
+const LOGIC_COLOR: Color32 = Color32::from_rgb(160, 160, 170);   // Blue tint  
+const DATA_COLOR: Color32 = Color32::from_rgb(170, 160, 170);    // Purple tint
+const OUTPUT_COLOR: Color32 = Color32::from_rgb(170, 160, 160);  // Red tint
+
+// UI elements
+const SELECTED_BORDER: Color32 = Color32::from_rgb(255, 200, 100); // Orange
+const CONNECTION_COLOR: Color32 = Color32::from_rgb(150, 150, 150); // Grey
+const PREVIEW_COLOR: Color32 = Color32::from_rgb(255, 255, 100);    // Yellow
 ```
 
-### 3. Custom Node Types
-Allow runtime definition of new node types through a plugin system.
+### Node Dimensions
+- **Width**: 150 pixels
+- **Height**: 30 pixels (compact design)
+- **Port Radius**: 5 pixels
+- **Port Spacing**: Evenly distributed along edges
 
-### 4. Minimap
-Add a minimap for large node graphs:
-- Render entire graph at small scale
-- Show current viewport bounds
-- Allow click-to-navigate
+## Building and Running
 
-### 5. Undo/Redo System
-Implement command pattern for undoable operations:
-```rust
-trait Command {
-    fn execute(&mut self, editor: &mut NodeEditor);
-    fn undo(&mut self, editor: &mut NodeEditor);
-}
-```
-
-## Dependencies
-
-- **eframe 0.29**: Main GUI framework and application runner
-- **egui 0.29**: Immediate mode GUI library
-- **std::collections**: HashMap and HashSet for efficient data structures
-
-## Build & Run
-
+### Development
 ```bash
-# Development build
-cargo run
+# Run the application
+cargo run -p nodle
 
-# Release build  
-cargo build --release
-cargo run --release
+# Run with release optimizations
+cargo run -p nodle --release
+
+# Run core library tests
+cargo test -p nodle-core
+
+# Run example
+cargo run --example basic_graph
 ```
 
-## Testing
+### Project Setup
+```bash
+# Clone repository
+git clone https://github.com/bsundman/nodle.git
+cd nodle
 
-The application includes test nodes created automatically in `add_test_nodes()`. These demonstrate:
-- Different node types and colors
-- Various port configurations
-- Pre-made connections showing the connection system
+# Build entire workspace
+cargo build
 
-## Code Style
+# Check for issues
+cargo check
+cargo clippy
+```
 
-- **Structs**: PascalCase (`NodeEditor`, `Connection`)
-- **Functions**: snake_case (`create_node`, `update_port_positions`)  
-- **Constants**: SCREAMING_SNAKE_CASE (not many used)
-- **Variables**: snake_case (`connecting_from`, `selected_nodes`)
-- **Comments**: Explain the "why" not the "what"
-- **Error Handling**: Currently minimal, could be expanded
+## Architecture Decisions
 
-This guide covers the essential architecture and patterns needed to understand, maintain, and extend the Nodle node editor.
+### Why Workspace Structure?
+- **Separation of Concerns**: Core logic separate from GUI
+- **Reusability**: Other applications can use `nodle-core`
+- **Testing**: Core can be tested independently
+- **Documentation**: Clear API boundaries
+
+### Why Individual Node Files?
+- **Maintainability**: Each node type is self-contained
+- **Extensibility**: Easy to add new nodes without touching existing code
+- **Testing**: Each node can have its own tests
+- **Collaboration**: Multiple developers can work on different nodes
+
+### Why Trait-Based Factory Pattern?
+- **Consistency**: All nodes follow the same interface
+- **Type Safety**: Compile-time guarantees
+- **Flexibility**: Easy to extend with new functionality
+- **Performance**: Zero-cost abstractions
+
+### Why Custom Menu Rendering?
+- **User Experience**: Full-width hover areas feel more natural
+- **Visual Design**: No rounded corners for clean appearance
+- **Control**: Complete control over interaction behavior
+- **Performance**: Minimal allocations during rendering
+
+## Future Enhancements
+
+### Execution Engine
+- Add ability to execute node graphs
+- Type system for port compatibility
+- Value propagation through connections
+- Real-time execution visualization
+
+### Serialization
+- Save/load node graphs to files
+- JSON or binary format
+- Version compatibility
+- Import/export functionality
+
+### Plugin System
+- Dynamic node loading
+- Lua or WASM scripting
+- Custom node categories
+- Third-party node packages
+
+### Advanced Features
+- Undo/redo system
+- Minimap for large graphs
+- Node grouping/comments
+- Performance profiling
+- Connection routing algorithms
+
+## Contributing
+
+### Code Style
+- Follow Rust conventions (rustfmt, clippy)
+- Add documentation for public APIs
+- Include tests for new functionality
+- Keep commits focused and atomic
+
+### Adding Features
+1. Discuss design in issues first
+2. Create feature branch
+3. Implement with tests
+4. Update documentation
+5. Submit pull request
+
+This guide covers the essential architecture and patterns needed to understand, maintain, and extend the Nōdle node editor.

@@ -1,4 +1,4 @@
-# Nodle
+# Nōdle
 
 A node-based visual programming editor built with Rust and egui.
 
@@ -11,7 +11,7 @@ This project is structured as a workspace containing:
 
 ## Overview
 
-Nodle is a custom node editor implementation featuring a vertical flow design where connections flow from top to bottom. It provides an intuitive interface for creating and connecting nodes in a visual programming environment.
+Nōdle is a custom node editor implementation featuring a vertical flow design where connections flow from top to bottom. It provides an intuitive interface for creating and connecting nodes in a visual programming environment.
 
 ## Features
 

@@ -12,3 +12,7 @@ categories = ["data-structures", "gui", "visualization"]
 
 [dependencies]
 egui = { workspace = true }
+
+[[example]]
+name = "basic_graph"
+path = "../examples/basic_graph.rs"
