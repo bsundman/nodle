@@ -2,6 +2,7 @@
 
 use eframe::egui;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
+use egui_wgpu;
 use nodle_core::{
     graph::NodeGraph,
     node::NodeId,
@@ -10,6 +11,7 @@ use nodle_core::{
 use std::collections::{HashMap, HashSet};
 use crate::context::{ContextManager, ContextMenuItem};
 use crate::contexts::materialx::MaterialXContext;
+use crate::gpu_renderer::NodeRenderCallback;
 
 /// Main application state for the node editor
 pub struct NodeEditor {
@@ -26,6 +28,12 @@ pub struct NodeEditor {
     box_selection_end: Option<Pos2>,
     drag_offsets: HashMap<NodeId, Vec2>,
     context_manager: ContextManager,
+    // Performance tracking
+    show_performance_info: bool,
+    frame_times: Vec<f32>,
+    last_frame_time: std::time::Instant,
+    // GPU rendering toggle
+    use_gpu_rendering: bool,
 }
 
 impl NodeEditor {
@@ -792,7 +800,7 @@ impl NodeEditor {
         // Register MaterialX context
         context_manager.register_context(Box::new(MaterialXContext::new()));
         
-        let editor = Self {
+        let mut editor = Self {
             graph: NodeGraph::new(),
             connecting_from: None,
             selected_nodes: HashSet::new(),
@@ -806,9 +814,15 @@ impl NodeEditor {
             box_selection_end: None,
             drag_offsets: HashMap::new(),
             context_manager,
+            // Performance tracking
+            show_performance_info: false,
+            frame_times: Vec::new(),
+            last_frame_time: std::time::Instant::now(),
+            // GPU rendering
+            use_gpu_rendering: true, // Start with GPU rendering enabled
         };
 
-        // Start with empty node graph
+        // Start with empty node graph - use F2/F3/F4 to add test nodes
 
         editor
     }
@@ -925,12 +939,104 @@ impl NodeEditor {
         }
     }
 
+    /// Add benchmark nodes in a grid pattern for performance testing
+    fn add_benchmark_nodes(&mut self, count: usize) {
+        println!("Adding {} benchmark nodes", count);
+        
+        let node_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
+        let spacing = 120.0;
+        let grid_cols = (count as f32).sqrt().ceil() as usize;
+        
+        for i in 0..count {
+            let col = i % grid_cols;
+            let row = i / grid_cols;
+            let x = 50.0 + col as f32 * spacing;
+            let y = 100.0 + row as f32 * spacing;
+            let node_type = node_types[i % node_types.len()];
+            
+            if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
+                self.graph.add_node(node);
+            }
+        }
+    }
+
+    /// Add a large number of nodes with many connections for serious performance stress testing
+    fn add_performance_stress_test(&mut self, count: usize) {
+        println!("Creating performance stress test with {} nodes and many connections", count);
+        
+        let start_time = std::time::Instant::now();
+        let node_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
+        
+        // Calculate grid that fits in reasonable space with compact spacing
+        let spacing = 80.0; // Tighter spacing for 1000 nodes
+        let grid_cols = (count as f32).sqrt().ceil() as usize;
+        
+        // Create all nodes first
+        let mut node_ids = Vec::new();
+        for i in 0..count {
+            let col = i % grid_cols;
+            let row = i / grid_cols;
+            let x = 50.0 + col as f32 * spacing;
+            let y = 100.0 + row as f32 * spacing;
+            let node_type = node_types[i % node_types.len()];
+            
+            if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
+                let node_id = self.graph.add_node(node);
+                node_ids.push(node_id);
+            }
+        }
+        
+        let node_creation_time = start_time.elapsed();
+        println!("Created {} nodes in {:?}", node_ids.len(), node_creation_time);
+        
+        // Create many connections for performance testing
+        let connection_start = std::time::Instant::now();
+        let connection_count = (count / 2).min(500); // Create up to 500 connections
+        
+        for i in 0..connection_count {
+            if i + 1 < node_ids.len() {
+                let from_id = node_ids[i];
+                let to_id = node_ids[i + 1];
+                
+                // Try to create a connection (may fail if ports don't match)
+                let connection = nodle_core::Connection::new(from_id, 0, to_id, 0);
+                let _ = self.graph.add_connection(connection); // Ignore errors for stress test
+            }
+            
+            // Also create some random long-distance connections
+            if i % 10 == 0 && i + 20 < node_ids.len() {
+                let from_id = node_ids[i];
+                let to_id = node_ids[i + 20];
+                let connection = nodle_core::Connection::new(from_id, 0, to_id, 0);
+                let _ = self.graph.add_connection(connection);
+            }
+        }
+        
+        let connection_time = connection_start.elapsed();
+        let total_time = start_time.elapsed();
+        
+        println!("Stress test complete: {} nodes, {} connections", 
+                 self.graph.nodes.len(), self.graph.connections.len());
+        println!("Total time: {:?} (nodes: {:?}, connections: {:?})", 
+                 total_time, node_creation_time, connection_time);
+    }
+
 }
 
 impl eframe::App for NodeEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Request repaint for smooth updates
         ctx.request_repaint();
+
+        // Track frame time for performance monitoring
+        let current_time = std::time::Instant::now();
+        let frame_time = current_time.duration_since(self.last_frame_time).as_secs_f32();
+        self.last_frame_time = current_time;
+        
+        self.frame_times.push(frame_time);
+        if self.frame_times.len() > 60 { // Keep last 60 frames (1 second at 60fps)
+            self.frame_times.remove(0);
+        }
         
         // Set dark theme for window decorations
         ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
@@ -1334,6 +1440,37 @@ impl eframe::App for NodeEditor {
                 self.connecting_from = None;
             }
 
+            // Handle F1 to toggle performance info
+            if ui.input(|i| i.key_pressed(egui::Key::F1)) {
+                self.show_performance_info = !self.show_performance_info;
+            }
+
+            // Handle F2-F4 to add different numbers of nodes
+            if ui.input(|i| i.key_pressed(egui::Key::F2)) {
+                self.add_benchmark_nodes(10);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::F3)) {
+                self.add_benchmark_nodes(25);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::F4)) {
+                self.add_performance_stress_test(1000);
+            }
+
+            // Handle F5 to clear all nodes
+            if ui.input(|i| i.key_pressed(egui::Key::F5)) {
+                self.graph.nodes.clear();
+                self.graph.connections.clear();
+                self.selected_nodes.clear();
+                self.connecting_from = None;
+                println!("Cleared all nodes");
+            }
+
+            // Handle F6 to toggle GPU/CPU rendering
+            if ui.input(|i| i.key_pressed(egui::Key::F6)) {
+                self.use_gpu_rendering = !self.use_gpu_rendering;
+                println!("Switched to {} rendering", if self.use_gpu_rendering { "GPU" } else { "CPU" });
+            }
+
             // Handle right-click for context menu first (before other input handling)
             if response.secondary_clicked() {
                 if let Some(screen_pos) = response.interact_pointer_pos() {
@@ -1560,180 +1697,268 @@ impl eframe::App for NodeEditor {
             // Update port positions
             self.graph.update_all_port_positions();
 
-            // Draw nodes
-            for (node_id, node) in &self.graph.nodes {
-                // Transform node rectangle
-                let node_rect = node.get_rect();
-                let transformed_rect =
-                    Rect::from_two_pos(transform_pos(node_rect.min), transform_pos(node_rect.max));
-
-                // NODE BODY COMPONENTS
-                let radius = 5.0 * zoom;
+            // Draw nodes - GPU vs CPU rendering
+            if self.use_gpu_rendering && !self.graph.nodes.is_empty() {
+                println!("GPU: Using actual GPU callback rendering for {} node bodies", self.graph.nodes.len());
                 
-                // BACKGROUND: Inner gradient mesh (0.5 to 0.25)
-                let background_top_color = Color32::from_rgb(127, 127, 127); // 0.5 grey
-                let background_bottom_color = Color32::from_rgb(64, 64, 64); // 0.25 grey
-                
-                // BEVEL: Outer gradient mesh with grid and fans (0.65 to 0.15)
-                let bevel_rect = transformed_rect; // Same size as original rect
-                let bevel_top_color = Color32::from_rgb(166, 166, 166); // 0.65 grey  
-                let bevel_bottom_color = Color32::from_rgb(38, 38, 38); // 0.15 grey
-                
-                let bevel_mesh = Self::create_rounded_gradient_mesh_optimized(
-                    bevel_rect,
-                    radius,
-                    bevel_top_color,
-                    bevel_bottom_color,
+                // GPU mode indicator  
+                painter.rect_filled(
+                    Rect::from_min_size(Pos2::new(10.0, 50.0), Vec2::new(100.0, 20.0)),
+                    0.0,
+                    Color32::BLUE
                 );
-                
-                painter.add(egui::Shape::mesh(bevel_mesh));
-                
-                // BORDER: Selection stroke
-                let is_selected = self.selected_nodes.contains(&node_id);
-                let border_color = if is_selected {
-                    Color32::from_rgb(100, 150, 255) // Blue for selected
-                } else {
-                    Color32::from_rgb(64, 64, 64) // 0.25 grey for unselected
-                };
-                
-                painter.rect_stroke(
-                    transformed_rect,
-                    radius,
-                    Stroke::new(1.0 * zoom, border_color),
-                );
-                
-                // BACKGROUND: Inner gradient mesh with grid and fans (0.5 to 0.25)
-                // Shrunk by 2px to fit inside border
-                let background_shrink_offset = 2.0;
-                let background_rect = Rect::from_min_max(
-                    transformed_rect.min + Vec2::splat(background_shrink_offset),
-                    transformed_rect.max - Vec2::splat(background_shrink_offset),
-                );
-                let background_mesh = Self::create_rounded_gradient_mesh_optimized(
-                    background_rect,
-                    radius - background_shrink_offset, // Also shrink the radius
-                    background_top_color,
-                    background_bottom_color,
-                );
-                
-                painter.add(egui::Shape::mesh(background_mesh));
-
-                // Title
                 painter.text(
-                    transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
+                    Pos2::new(60.0, 60.0),
                     egui::Align2::CENTER_CENTER,
-                    &node.title,
-                    egui::FontId::proportional(12.0 * zoom),
+                    "GPU-SHADER",
+                    egui::FontId::proportional(12.0),
                     Color32::WHITE,
                 );
-
-                // Draw ports
-                let port_radius = 5.0 * zoom;
-                let hover_radius = 10.0; // Radius for hover detection (larger than visual port)
-
-                // Get mouse position for hover detection
-                let mouse_pos = response.hover_pos().map(|pos| inverse_transform_pos(pos));
-
-                // Input ports (on top)
-                for (port_idx, input) in node.inputs.iter().enumerate() {
-                    // Check if this port is being used for an active connection
-                    let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.connecting_from {
-                        from_node == *node_id && from_port == port_idx && from_is_input
-                    } else {
-                        false
-                    };
-                    
-                    // Draw port border (2px larger) - blue if connecting, grey otherwise
-                    let port_border_color = if is_connecting_port {
-                        Color32::from_rgb(100, 150, 255) // Blue selection color
-                    } else {
-                        Color32::from_rgb(64, 64, 64) // Unselected node border color
-                    };
-                    
-                    painter.circle_filled(
-                        transform_pos(input.position),
-                        port_radius + 2.0 * zoom,
-                        port_border_color,
+                
+                // Calculate viewport bounds for GPU callback
+                let viewport_rect = response.rect;
+                
+                // Create GPU callback for node body rendering  
+                // Use the full screen size, not just the response rect size, to match GPU viewport
+                let screen_size = Vec2::new(
+                    ui.ctx().screen_rect().width(),
+                    ui.ctx().screen_rect().height()
+                );
+                let gpu_callback = NodeRenderCallback::new(
+                    self.graph.nodes.clone(),
+                    &self.selected_nodes,
+                    self.connecting_from,
+                    self.pan_offset,
+                    self.zoom,
+                    screen_size,
+                );
+                
+                // Add the GPU paint callback using egui_wgpu::Callback - this will trigger prepare() and paint() methods
+                painter.add(egui_wgpu::Callback::new_paint_callback(
+                    viewport_rect,
+                    gpu_callback,
+                ));
+                
+                // Render node titles using CPU (GPU handles node bodies and ports)
+                for (node_id, node) in &self.graph.nodes {
+                    // Node titles (CPU-rendered text)
+                    painter.text(
+                        transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
+                        egui::Align2::CENTER_CENTER,
+                        &node.title,
+                        egui::FontId::proportional(12.0 * self.zoom),
+                        Color32::WHITE,
                     );
                     
-                    // Draw port bevel (1px larger) - use node bevel bottom color
-                    painter.circle_filled(
-                        transform_pos(input.position),
-                        port_radius + 1.0 * zoom,
-                        Color32::from_rgb(38, 38, 38), // Node bevel bottom color (0.15)
-                    );
-                    
-                    // Draw port background (main port)
-                    painter.circle_filled(
-                        transform_pos(input.position),
-                        port_radius,
-                        Color32::from_rgb(70, 120, 90), // Darker green for input ports
-                    );
-                    
-                    // Only draw port name if hovering over it
+                    // Port names on hover (CPU-rendered text)
+                    let mouse_pos = response.hover_pos().map(|pos| inverse_transform_pos(pos));
                     if let Some(mouse_world_pos) = mouse_pos {
-                        if (input.position - mouse_world_pos).length() < hover_radius {
-                            painter.text(
-                                transform_pos(input.position - Vec2::new(0.0, 15.0)),
-                                egui::Align2::CENTER_BOTTOM,
-                                &input.name,
-                                egui::FontId::proportional(10.0 * zoom),
-                                Color32::from_gray(255), // Brighter when hovering
-                            );
+                        // Input port names
+                        for input in &node.inputs {
+                            if (input.position - mouse_world_pos).length() < 10.0 {
+                                painter.text(
+                                    transform_pos(input.position - Vec2::new(0.0, 15.0)),
+                                    egui::Align2::CENTER_BOTTOM,
+                                    &input.name,
+                                    egui::FontId::proportional(10.0 * self.zoom),
+                                    Color32::WHITE,
+                                );
+                            }
+                        }
+                        
+                        // Output port names
+                        for output in &node.outputs {
+                            if (output.position - mouse_world_pos).length() < 10.0 {
+                                painter.text(
+                                    transform_pos(output.position + Vec2::new(0.0, 15.0)),
+                                    egui::Align2::CENTER_TOP,
+                                    &output.name,
+                                    egui::FontId::proportional(10.0 * self.zoom),
+                                    Color32::WHITE,
+                                );
+                            }
                         }
                     }
                 }
+                
+            } else if !self.graph.nodes.is_empty() {
+                // CPU rendering path - fallback mode
+                for (node_id, node) in &self.graph.nodes {
+                    // Transform node rectangle
+                    let node_rect = node.get_rect();
+                    let transformed_rect =
+                        Rect::from_two_pos(transform_pos(node_rect.min), transform_pos(node_rect.max));
+                    
 
-                // Output ports (on bottom)
-                for (port_idx, output) in node.outputs.iter().enumerate() {
-                    // Check if this port is being used for an active connection
-                    let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.connecting_from {
-                        from_node == *node_id && from_port == port_idx && !from_is_input
+                    // NODE BODY COMPONENTS
+                    let radius = 5.0 * zoom;
+                    
+                    // BACKGROUND: Inner gradient mesh (0.5 to 0.25)
+                    let background_top_color = Color32::from_rgb(127, 127, 127); // 0.5 grey
+                    let background_bottom_color = Color32::from_rgb(64, 64, 64); // 0.25 grey
+                    
+                    // BEVEL: Outer gradient mesh with grid and fans (0.65 to 0.15)
+                    let bevel_rect = transformed_rect; // Same size as original rect
+                    let bevel_top_color = Color32::from_rgb(166, 166, 166); // 0.65 grey  
+                    let bevel_bottom_color = Color32::from_rgb(38, 38, 38); // 0.15 grey
+                    
+                    let bevel_mesh = Self::create_rounded_gradient_mesh_optimized(
+                        bevel_rect,
+                        radius,
+                        bevel_top_color,
+                        bevel_bottom_color,
+                    );
+                    
+                    painter.add(egui::Shape::mesh(bevel_mesh));
+                    
+                    // BORDER: Selection stroke
+                    let is_selected = self.selected_nodes.contains(&node_id);
+                    let border_color = if is_selected {
+                        Color32::from_rgb(100, 150, 255) // Blue for selected
                     } else {
-                        false
+                        Color32::from_rgb(64, 64, 64) // 0.25 grey for unselected
                     };
                     
-                    // Draw port border (2px larger) - blue if connecting, grey otherwise
-                    let port_border_color = if is_connecting_port {
-                        Color32::from_rgb(100, 150, 255) // Blue selection color
-                    } else {
-                        Color32::from_rgb(64, 64, 64) // Unselected node border color
-                    };
-                    
-                    painter.circle_filled(
-                        transform_pos(output.position),
-                        port_radius + 2.0 * zoom,
-                        port_border_color,
+                    painter.rect_stroke(
+                        transformed_rect,
+                        radius,
+                        Stroke::new(1.0 * zoom, border_color),
                     );
                     
-                    // Draw port bevel (1px larger) - use node bevel bottom color
-                    painter.circle_filled(
-                        transform_pos(output.position),
-                        port_radius + 1.0 * zoom,
-                        Color32::from_rgb(38, 38, 38), // Node bevel bottom color (0.15)
+                    // BACKGROUND: Inner gradient mesh with grid and fans (0.5 to 0.25)
+                    // Shrunk by 2px to fit inside border
+                    let background_shrink_offset = 2.0;
+                    let background_rect = Rect::from_min_max(
+                        transformed_rect.min + Vec2::splat(background_shrink_offset),
+                        transformed_rect.max - Vec2::splat(background_shrink_offset),
+                    );
+                    let background_mesh = Self::create_rounded_gradient_mesh_optimized(
+                        background_rect,
+                        radius - background_shrink_offset, // Also shrink the radius
+                        background_top_color,
+                        background_bottom_color,
                     );
                     
-                    // Draw port background (main port)
-                    painter.circle_filled(
-                        transform_pos(output.position),
-                        port_radius,
-                        Color32::from_rgb(120, 70, 70), // Darker red for output ports
+                    painter.add(egui::Shape::mesh(background_mesh));
+
+                    // Title
+                    painter.text(
+                        transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
+                        egui::Align2::CENTER_CENTER,
+                        &node.title,
+                        egui::FontId::proportional(12.0 * zoom),
+                        Color32::WHITE,
                     );
-                    
-                    // Only draw port name if hovering over it
-                    if let Some(mouse_world_pos) = mouse_pos {
-                        if (output.position - mouse_world_pos).length() < hover_radius {
-                            painter.text(
-                                transform_pos(output.position + Vec2::new(0.0, 15.0)),
-                                egui::Align2::CENTER_TOP,
-                                &output.name,
-                                egui::FontId::proportional(10.0 * zoom),
-                                Color32::from_gray(255), // Brighter when hovering
-                            );
+
+                    // Draw ports
+                    let port_radius = 5.0 * zoom;
+                    let hover_radius = 10.0; // Radius for hover detection (larger than visual port)
+
+                    // Get mouse position for hover detection
+                    let mouse_pos = response.hover_pos().map(|pos| inverse_transform_pos(pos));
+
+                    // Input ports (on top)
+                    for (port_idx, input) in node.inputs.iter().enumerate() {
+                        // Check if this port is being used for an active connection
+                        let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.connecting_from {
+                            from_node == *node_id && from_port == port_idx && from_is_input
+                        } else {
+                            false
+                        };
+                        
+                        // Draw port border (2px larger) - blue if connecting, grey otherwise
+                        let port_border_color = if is_connecting_port {
+                            Color32::from_rgb(100, 150, 255) // Blue selection color
+                        } else {
+                            Color32::from_rgb(64, 64, 64) // Unselected node border color
+                        };
+                        
+                        painter.circle_filled(
+                            transform_pos(input.position),
+                            port_radius + 2.0 * zoom,
+                            port_border_color,
+                        );
+                        
+                        // Draw port bevel (1px larger) - use node bevel bottom color
+                        painter.circle_filled(
+                            transform_pos(input.position),
+                            port_radius + 1.0 * zoom,
+                            Color32::from_rgb(38, 38, 38), // Node bevel bottom color (0.15)
+                        );
+                        
+                        // Draw port background (main port)
+                        painter.circle_filled(
+                            transform_pos(input.position),
+                            port_radius,
+                            Color32::from_rgb(70, 120, 90), // Darker green for input ports
+                        );
+                        
+                        // Only draw port name if hovering over it
+                        if let Some(mouse_world_pos) = mouse_pos {
+                            if (input.position - mouse_world_pos).length() < hover_radius {
+                                painter.text(
+                                    transform_pos(input.position - Vec2::new(0.0, 15.0)),
+                                    egui::Align2::CENTER_BOTTOM,
+                                    &input.name,
+                                    egui::FontId::proportional(10.0 * zoom),
+                                    Color32::from_gray(255), // Brighter when hovering
+                                );
+                            }
+                        }
+                    }
+
+                    // Output ports (on bottom)
+                    for (port_idx, output) in node.outputs.iter().enumerate() {
+                        // Check if this port is being used for an active connection
+                        let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.connecting_from {
+                            from_node == *node_id && from_port == port_idx && !from_is_input
+                        } else {
+                            false
+                        };
+                        
+                        // Draw port border (2px larger) - blue if connecting, grey otherwise
+                        let port_border_color = if is_connecting_port {
+                            Color32::from_rgb(100, 150, 255) // Blue selection color
+                        } else {
+                            Color32::from_rgb(64, 64, 64) // Unselected node border color
+                        };
+                        
+                        painter.circle_filled(
+                            transform_pos(output.position),
+                            port_radius + 2.0 * zoom,
+                            port_border_color,
+                        );
+                        
+                        // Draw port bevel (1px larger) - use node bevel bottom color
+                        painter.circle_filled(
+                            transform_pos(output.position),
+                            port_radius + 1.0 * zoom,
+                            Color32::from_rgb(38, 38, 38), // Node bevel bottom color (0.15)
+                        );
+                        
+                        // Draw port background (main port)
+                        painter.circle_filled(
+                            transform_pos(output.position),
+                            port_radius,
+                            Color32::from_rgb(120, 70, 70), // Darker red for output ports
+                        );
+                        
+                        // Only draw port name if hovering over it
+                        if let Some(mouse_world_pos) = mouse_pos {
+                            if (output.position - mouse_world_pos).length() < hover_radius {
+                                painter.text(
+                                    transform_pos(output.position + Vec2::new(0.0, 15.0)),
+                                    egui::Align2::CENTER_TOP,
+                                    &output.name,
+                                    egui::FontId::proportional(10.0 * zoom),
+                                    Color32::from_gray(255), // Brighter when hovering
+                                );
+                            }
                         }
                     }
                 }
-            }
+            } // End of CPU rendering mode
+            
 
             // Draw connections
             for (idx, connection) in self.graph.connections.iter().enumerate() {
@@ -1850,6 +2075,31 @@ impl eframe::App for NodeEditor {
                     0.0,
                     Stroke::new(1.0 * zoom, Color32::from_rgb(100, 150, 255)),
                 );
+            }
+
+            // Performance info overlay
+            if self.show_performance_info && !self.frame_times.is_empty() {
+                let avg_frame_time = self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32;
+                let fps = 1.0 / avg_frame_time;
+                let rendering_mode = if self.use_gpu_rendering { "GPU" } else { "CPU" };
+                
+                egui::Window::new("Performance")
+                    .default_pos([10.0, 10.0])
+                    .default_size([200.0, 100.0])
+                    .resizable(false)
+                    .show(ui.ctx(), |ui| {
+                        ui.label(format!("FPS: {:.1}", fps));
+                        ui.label(format!("Frame time: {:.2}ms", avg_frame_time * 1000.0));
+                        ui.label(format!("Rendering: {}", rendering_mode));
+                        ui.label(format!("Nodes: {}", self.graph.nodes.len()));
+                        ui.separator();
+                        ui.label("F1: Toggle performance info");
+                        ui.label("F2: Add 10 nodes");
+                        ui.label("F3: Add 25 nodes");
+                        ui.label("F4: Stress test (1000 nodes + connections)");
+                        ui.label("F5: Clear all nodes");
+                        ui.label("F6: Toggle GPU/CPU rendering");
+                    });
             }
         });
     }

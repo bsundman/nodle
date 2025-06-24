@@ -8,6 +8,7 @@ mod editor;
 mod nodes;
 mod contexts;
 mod context;
+mod gpu_renderer;
 
 use editor::NodeEditor;
 
@@ -133,7 +134,17 @@ fn main() -> Result<(), eframe::Error> {
             .with_decorations(true)
             .with_title_shown(true),
         multisampling: 4, // Enable 4x multisampling antialiasing
-        renderer: eframe::Renderer::Glow, // Use Glow renderer for better antialiasing support
+        renderer: eframe::Renderer::Wgpu, // Use wgpu renderer for GPU acceleration
+        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
+            supported_backends: wgpu::Backends::all(),
+            device_descriptor: std::sync::Arc::new(|_adapter| wgpu::DeviceDescriptor {
+                label: Some("Nōdle Device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
+            }),
+            ..Default::default()
+        },
         ..Default::default()
     };
 

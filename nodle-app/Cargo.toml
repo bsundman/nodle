@@ -14,4 +14,7 @@ path = "src/main.rs"
 [dependencies]
 nodle-core = { path = "../nodle-core" }
 egui = { workspace = true }
-eframe = { workspace = true }
+eframe = { workspace = true, features = ["wgpu"] }
+egui-wgpu = "0.29"
+wgpu = "22"
+bytemuck = { version = "1.14", features = ["derive"] }
