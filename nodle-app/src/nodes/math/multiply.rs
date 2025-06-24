@@ -1,34 +1,35 @@
-//! NOT logic gate node implementation
+//! Multiplication node implementation
 
 use egui::{Color32, Pos2};
 use nodle_core::node::Node;
 use crate::{NodeFactory, NodeCategory};
 
-/// NOT logic gate node that inverts the input boolean value
-pub struct NotNode;
+/// Multiplication node that takes two inputs and produces their product
+pub struct MultiplyNode;
 
-impl NodeFactory for NotNode {
+impl NodeFactory for MultiplyNode {
     fn node_type() -> &'static str {
-        "NOT"
+        "Multiply"
     }
     
     fn display_name() -> &'static str {
-        "NOT"
+        "Multiply"
     }
     
     fn category() -> NodeCategory {
-        NodeCategory::Logic
+        NodeCategory::Math
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(160, 160, 170) // Light grey with subtle blue tint
+        Color32::from_rgb(45, 55, 65) // Dark blue-grey to match terminal
     }
     
     fn create(position: Pos2) -> Node {
         let mut node = Node::new(0, Self::node_type(), position)
             .with_color(Self::color());
         
-        node.add_input("Input")
+        node.add_input("A")
+            .add_input("B")
             .add_output("Result");
             
         node
@@ -41,12 +42,13 @@ mod tests {
     use egui::Pos2;
 
     #[test]
-    fn test_not_node_creation() {
-        let node = NotNode::create(Pos2::new(100.0, 100.0));
-        assert_eq!(node.title, "NOT");
-        assert_eq!(node.inputs.len(), 1);
+    fn test_multiply_node_creation() {
+        let node = MultiplyNode::create(Pos2::new(100.0, 100.0));
+        assert_eq!(node.title, "Multiply");
+        assert_eq!(node.inputs.len(), 2);
         assert_eq!(node.outputs.len(), 1);
-        assert_eq!(node.inputs[0].name, "Input");
+        assert_eq!(node.inputs[0].name, "A");
+        assert_eq!(node.inputs[1].name, "B");
         assert_eq!(node.outputs[0].name, "Result");
     }
 }

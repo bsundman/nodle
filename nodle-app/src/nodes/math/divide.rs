@@ -1,27 +1,27 @@
-//! AND logic gate node implementation
+//! Division node implementation
 
 use egui::{Color32, Pos2};
 use nodle_core::node::Node;
 use crate::{NodeFactory, NodeCategory};
 
-/// AND logic gate node that outputs true only when both inputs are true
-pub struct AndNode;
+/// Division node that takes two inputs and produces their quotient
+pub struct DivideNode;
 
-impl NodeFactory for AndNode {
+impl NodeFactory for DivideNode {
     fn node_type() -> &'static str {
-        "AND"
+        "Divide"
     }
     
     fn display_name() -> &'static str {
-        "AND"
+        "Divide"
     }
     
     fn category() -> NodeCategory {
-        NodeCategory::Logic
+        NodeCategory::Math
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(160, 160, 170) // Light grey with subtle blue tint
+        Color32::from_rgb(45, 55, 65) // Dark blue-grey to match terminal
     }
     
     fn create(position: Pos2) -> Node {
@@ -42,9 +42,9 @@ mod tests {
     use egui::Pos2;
 
     #[test]
-    fn test_and_node_creation() {
-        let node = AndNode::create(Pos2::new(100.0, 100.0));
-        assert_eq!(node.title, "AND");
+    fn test_divide_node_creation() {
+        let node = DivideNode::create(Pos2::new(100.0, 100.0));
+        assert_eq!(node.title, "Divide");
         assert_eq!(node.inputs.len(), 2);
         assert_eq!(node.outputs.len(), 1);
         assert_eq!(node.inputs[0].name, "A");

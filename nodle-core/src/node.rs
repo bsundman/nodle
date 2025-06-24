@@ -85,4 +85,10 @@ impl Node {
         self.color = color;
         self
     }
+
+    /// Sets the size of the node
+    pub fn with_size(mut self, size: Vec2) -> Self {
+        self.size = size;
+        self
+    }
 }

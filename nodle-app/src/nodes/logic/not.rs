@@ -1,35 +1,34 @@
-//! Division node implementation
+//! NOT logic gate node implementation
 
 use egui::{Color32, Pos2};
 use nodle_core::node::Node;
 use crate::{NodeFactory, NodeCategory};
 
-/// Division node that takes two inputs and produces their quotient
-pub struct DivideNode;
+/// NOT logic gate node that inverts the input boolean value
+pub struct NotNode;
 
-impl NodeFactory for DivideNode {
+impl NodeFactory for NotNode {
     fn node_type() -> &'static str {
-        "Divide"
+        "NOT"
     }
     
     fn display_name() -> &'static str {
-        "Divide"
+        "NOT"
     }
     
     fn category() -> NodeCategory {
-        NodeCategory::Math
+        NodeCategory::Logic
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(160, 170, 160) // Light grey with subtle green tint
+        Color32::from_rgb(40, 50, 70) // Dark blue-grey for logic nodes
     }
     
     fn create(position: Pos2) -> Node {
         let mut node = Node::new(0, Self::node_type(), position)
             .with_color(Self::color());
         
-        node.add_input("A")
-            .add_input("B")
+        node.add_input("Input")
             .add_output("Result");
             
         node
@@ -42,13 +41,12 @@ mod tests {
     use egui::Pos2;
 
     #[test]
-    fn test_divide_node_creation() {
-        let node = DivideNode::create(Pos2::new(100.0, 100.0));
-        assert_eq!(node.title, "Divide");
-        assert_eq!(node.inputs.len(), 2);
+    fn test_not_node_creation() {
+        let node = NotNode::create(Pos2::new(100.0, 100.0));
+        assert_eq!(node.title, "NOT");
+        assert_eq!(node.inputs.len(), 1);
         assert_eq!(node.outputs.len(), 1);
-        assert_eq!(node.inputs[0].name, "A");
-        assert_eq!(node.inputs[1].name, "B");
+        assert_eq!(node.inputs[0].name, "Input");
         assert_eq!(node.outputs[0].name, "Result");
     }
 }

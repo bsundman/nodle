@@ -1,35 +1,35 @@
-//! Debug node implementation
+//! Variable node implementation
 
 use egui::{Color32, Pos2};
 use nodle_core::node::Node;
 use crate::{NodeFactory, NodeCategory};
 
-/// Debug node that outputs values for debugging and passes them through
-pub struct DebugNode;
+/// Variable node that can store and retrieve values
+pub struct VariableNode;
 
-impl NodeFactory for DebugNode {
+impl NodeFactory for VariableNode {
     fn node_type() -> &'static str {
-        "Debug"
+        "Variable"
     }
     
     fn display_name() -> &'static str {
-        "Debug"
+        "Variable"
     }
     
     fn category() -> NodeCategory {
-        NodeCategory::Output
+        NodeCategory::Data
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(170, 160, 160) // Light grey with subtle red tint
+        Color32::from_rgb(55, 45, 65) // Dark purple-grey for data nodes
     }
     
     fn create(position: Pos2) -> Node {
         let mut node = Node::new(0, Self::node_type(), position)
             .with_color(Self::color());
         
-        node.add_input("Value")
-            .add_output("Pass");
+        node.add_input("Set")
+            .add_output("Get");
             
         node
     }
@@ -41,12 +41,12 @@ mod tests {
     use egui::Pos2;
 
     #[test]
-    fn test_debug_node_creation() {
-        let node = DebugNode::create(Pos2::new(100.0, 100.0));
-        assert_eq!(node.title, "Debug");
+    fn test_variable_node_creation() {
+        let node = VariableNode::create(Pos2::new(100.0, 100.0));
+        assert_eq!(node.title, "Variable");
         assert_eq!(node.inputs.len(), 1);
         assert_eq!(node.outputs.len(), 1);
-        assert_eq!(node.inputs[0].name, "Value");
-        assert_eq!(node.outputs[0].name, "Pass");
+        assert_eq!(node.inputs[0].name, "Set");
+        assert_eq!(node.outputs[0].name, "Get");
     }
 }

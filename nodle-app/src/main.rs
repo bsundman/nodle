@@ -5,10 +5,9 @@ use egui::{Color32, Pos2};
 use nodle_core::{graph::NodeGraph, node::Node};
 
 mod editor;
-mod math;
-mod logic;
-mod data;
-mod output;
+mod nodes;
+mod contexts;
+mod context;
 
 use editor::NodeEditor;
 
@@ -59,41 +58,70 @@ impl NodeCategory {
 pub struct NodeRegistry;
 
 impl NodeRegistry {
-    /// Create a node by type name
+    /// Create a node by type name (includes both generic and context-specific nodes)
     pub fn create_node(node_type: &str, position: Pos2) -> Option<Node> {
+        // Try generic nodes first
         match node_type {
-            "Add" => Some(math::AddNode::create(position)),
-            "Subtract" => Some(math::SubtractNode::create(position)),
-            "Multiply" => Some(math::MultiplyNode::create(position)),
-            "Divide" => Some(math::DivideNode::create(position)),
-            "AND" => Some(logic::AndNode::create(position)),
-            "OR" => Some(logic::OrNode::create(position)),
-            "NOT" => Some(logic::NotNode::create(position)),
-            "Constant" => Some(data::ConstantNode::create(position)),
-            "Variable" => Some(data::VariableNode::create(position)),
-            "Print" => Some(output::PrintNode::create(position)),
-            "Debug" => Some(output::DebugNode::create(position)),
+            "Add" => Some(nodes::math::AddNode::create(position)),
+            "Subtract" => Some(nodes::math::SubtractNode::create(position)),
+            "Multiply" => Some(nodes::math::MultiplyNode::create(position)),
+            "Divide" => Some(nodes::math::DivideNode::create(position)),
+            "AND" => Some(nodes::logic::AndNode::create(position)),
+            "OR" => Some(nodes::logic::OrNode::create(position)),
+            "NOT" => Some(nodes::logic::NotNode::create(position)),
+            "Constant" => Some(nodes::data::ConstantNode::create(position)),
+            "Variable" => Some(nodes::data::VariableNode::create(position)),
+            "Print" => Some(nodes::output::PrintNode::create(position)),
+            "Debug" => Some(nodes::output::DebugNode::create(position)),
             _ => None,
         }
+    }
+    
+    /// Create a context-specific node
+    pub fn create_context_node(context: &dyn context::Context, node_type: &str, position: Pos2) -> Option<Node> {
+        context.create_context_node(node_type, position)
     }
 }
 
 /// Creates test nodes for demonstration using the modular system
 pub fn create_test_nodes(graph: &mut NodeGraph) {
-    math::AddNode::add_to_graph(graph, Pos2::new(100.0, 100.0));
-    math::SubtractNode::add_to_graph(graph, Pos2::new(100.0, 200.0));
-    math::MultiplyNode::add_to_graph(graph, Pos2::new(300.0, 100.0));
-    math::DivideNode::add_to_graph(graph, Pos2::new(300.0, 200.0));
+    // Create generic nodes for testing
+    if let Some(node) = NodeRegistry::create_node("Add", Pos2::new(100.0, 100.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("Subtract", Pos2::new(100.0, 200.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("Multiply", Pos2::new(300.0, 100.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("Divide", Pos2::new(300.0, 200.0)) {
+        graph.add_node(node);
+    }
     
-    logic::AndNode::add_to_graph(graph, Pos2::new(500.0, 100.0));
-    logic::OrNode::add_to_graph(graph, Pos2::new(500.0, 200.0));
-    logic::NotNode::add_to_graph(graph, Pos2::new(700.0, 150.0));
+    if let Some(node) = NodeRegistry::create_node("AND", Pos2::new(500.0, 100.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("OR", Pos2::new(500.0, 200.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("NOT", Pos2::new(700.0, 150.0)) {
+        graph.add_node(node);
+    }
     
-    data::ConstantNode::add_to_graph(graph, Pos2::new(100.0, 350.0));
-    data::VariableNode::add_to_graph(graph, Pos2::new(300.0, 350.0));
+    if let Some(node) = NodeRegistry::create_node("Constant", Pos2::new(100.0, 350.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("Variable", Pos2::new(300.0, 350.0)) {
+        graph.add_node(node);
+    }
     
-    output::PrintNode::add_to_graph(graph, Pos2::new(500.0, 350.0));
-    output::DebugNode::add_to_graph(graph, Pos2::new(700.0, 350.0));
+    if let Some(node) = NodeRegistry::create_node("Print", Pos2::new(500.0, 350.0)) {
+        graph.add_node(node);
+    }
+    if let Some(node) = NodeRegistry::create_node("Debug", Pos2::new(700.0, 350.0)) {
+        graph.add_node(node);
+    }
 }
 
 /// Application entry point
@@ -103,17 +131,20 @@ fn main() -> Result<(), eframe::Error> {
             .with_inner_size([800.0, 600.0])
             .with_app_id("com.nodle.editor")
             .with_decorations(true)
-            .with_title_shown(false),
+            .with_title_shown(true),
+        multisampling: 4, // Enable 4x multisampling antialiasing
+        renderer: eframe::Renderer::Glow, // Use Glow renderer for better antialiasing support
         ..Default::default()
     };
 
     eframe::run_native(
-        "Nōdle",
+        "Nōdle - Node Editor",
         options,
         Box::new(|cc| {
             // Set dark theme
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
             cc.egui_ctx.set_theme(egui::Theme::Dark);
+            
             Ok(Box::new(NodeEditor::new()))
         }),
     )

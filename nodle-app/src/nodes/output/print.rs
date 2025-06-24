@@ -21,7 +21,7 @@ impl NodeFactory for PrintNode {
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(170, 160, 160) // Light grey with subtle red tint
+        Color32::from_rgb(65, 45, 45) // Dark red-grey for output nodes
     }
     
     fn create(position: Pos2) -> Node {

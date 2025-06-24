@@ -335,20 +335,54 @@ Each category opens a submenu with specific node types:
 
 ## Visual Design
 
-### Color Scheme (Dark Theme)
+### Node Rendering System (June 24, 2025)
 
+Nodes use a sophisticated gradient-based rendering system with three layers:
+
+#### Layer Architecture
+1. **BEVEL** (Bottom Layer)
+   - Gradient: 0.65 grey (top) to 0.15 grey (bottom)
+   - Purpose: Creates depth and inner shadow effect
+   - Implementation: 4x4 grid mesh with triangle fans
+
+2. **BORDER** (Middle Layer)
+   - Selected: Blue (100, 150, 255)
+   - Unselected: 0.25 grey (64, 64, 64)
+   - Thickness: 1px (scales with zoom)
+   - Type: Solid stroke, not gradient
+
+3. **BACKGROUND** (Top Layer)
+   - Gradient: 0.5 grey (top) to 0.25 grey (bottom)
+   - Size: Shrunk by 3px to fit inside border
+   - Purpose: Main node visual body
+
+#### Technical Implementation
 ```rust
-// Background
-const BACKGROUND: Color32 = Color32::from_rgb(40, 40, 40);
+// Optimized mesh creation with rounded corners
+fn create_rounded_gradient_mesh_optimized(
+    rect: Rect,
+    radius: f32,
+    top_color: Color32,
+    bottom_color: Color32,
+) -> egui::Mesh {
+    // 4x4 grid positioned at corner radius boundaries
+    // Corner polygons made transparent
+    // Triangle fans for smooth rounded corners (6 segments each)
+    // Total: ~52 vertices per node
+}
+```
 
-// Node colors (light grey with category tints)
-const MATH_COLOR: Color32 = Color32::from_rgb(160, 170, 160);    // Green tint
-const LOGIC_COLOR: Color32 = Color32::from_rgb(160, 160, 170);   // Blue tint  
-const DATA_COLOR: Color32 = Color32::from_rgb(170, 160, 170);    // Purple tint
-const OUTPUT_COLOR: Color32 = Color32::from_rgb(170, 160, 160);  // Red tint
+#### Gradient Color Reference
+```rust
+// Gradient values (0.0 = black, 1.0 = white)
+const BEVEL_TOP: Color32 = Color32::from_rgb(166, 166, 166);     // 0.65
+const BEVEL_BOTTOM: Color32 = Color32::from_rgb(38, 38, 38);     // 0.15
+const BACKGROUND_TOP: Color32 = Color32::from_rgb(127, 127, 127); // 0.5
+const BACKGROUND_BOTTOM: Color32 = Color32::from_rgb(64, 64, 64); // 0.25
 
 // UI elements
-const SELECTED_BORDER: Color32 = Color32::from_rgb(255, 200, 100); // Orange
+const SELECTED_BORDER: Color32 = Color32::from_rgb(100, 150, 255); // Blue
+const UNSELECTED_BORDER: Color32 = Color32::from_rgb(64, 64, 64);  // 0.25 grey
 const CONNECTION_COLOR: Color32 = Color32::from_rgb(150, 150, 150); // Grey
 const PREVIEW_COLOR: Color32 = Color32::from_rgb(255, 255, 100);    // Yellow
 ```
@@ -356,8 +390,15 @@ const PREVIEW_COLOR: Color32 = Color32::from_rgb(255, 255, 100);    // Yellow
 ### Node Dimensions
 - **Width**: 150 pixels
 - **Height**: 30 pixels (compact design)
+- **Corner Radius**: 5 pixels (scales with zoom)
 - **Port Radius**: 5 pixels
 - **Port Spacing**: Evenly distributed along edges
+
+### Performance Optimizations
+- **Antialiasing**: 4x MSAA enabled in `main.rs`
+- **Vertex Count**: ~52 vertices per node (optimized from ~500)
+- **Mesh Caching**: Potential for future implementation
+- **Culling**: Off-screen nodes can be skipped
 
 ## Building and Running
 

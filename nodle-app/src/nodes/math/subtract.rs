@@ -21,7 +21,7 @@ impl NodeFactory for SubtractNode {
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(160, 170, 160) // Light grey with subtle green tint
+        Color32::from_rgb(45, 55, 65) // Dark blue-grey to match terminal
     }
     
     fn create(position: Pos2) -> Node {

@@ -1,27 +1,27 @@
-//! Addition node implementation
+//! OR logic gate node implementation
 
 use egui::{Color32, Pos2};
 use nodle_core::node::Node;
 use crate::{NodeFactory, NodeCategory};
 
-/// Addition node that takes two inputs and produces their sum
-pub struct AddNode;
+/// OR logic gate node that outputs true when either input is true
+pub struct OrNode;
 
-impl NodeFactory for AddNode {
+impl NodeFactory for OrNode {
     fn node_type() -> &'static str {
-        "Add"
+        "OR"
     }
     
     fn display_name() -> &'static str {
-        "Add"
+        "OR"
     }
     
     fn category() -> NodeCategory {
-        NodeCategory::Math
+        NodeCategory::Logic
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(160, 170, 160) // Light grey with subtle green tint
+        Color32::from_rgb(40, 50, 70) // Dark blue-grey for logic nodes
     }
     
     fn create(position: Pos2) -> Node {
@@ -42,9 +42,9 @@ mod tests {
     use egui::Pos2;
 
     #[test]
-    fn test_add_node_creation() {
-        let node = AddNode::create(Pos2::new(100.0, 100.0));
-        assert_eq!(node.title, "Add");
+    fn test_or_node_creation() {
+        let node = OrNode::create(Pos2::new(100.0, 100.0));
+        assert_eq!(node.title, "OR");
         assert_eq!(node.inputs.len(), 2);
         assert_eq!(node.outputs.len(), 1);
         assert_eq!(node.inputs[0].name, "A");

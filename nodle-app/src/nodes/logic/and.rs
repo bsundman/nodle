@@ -1,19 +1,19 @@
-//! OR logic gate node implementation
+//! AND logic gate node implementation
 
 use egui::{Color32, Pos2};
 use nodle_core::node::Node;
 use crate::{NodeFactory, NodeCategory};
 
-/// OR logic gate node that outputs true when either input is true
-pub struct OrNode;
+/// AND logic gate node that outputs true only when both inputs are true
+pub struct AndNode;
 
-impl NodeFactory for OrNode {
+impl NodeFactory for AndNode {
     fn node_type() -> &'static str {
-        "OR"
+        "AND"
     }
     
     fn display_name() -> &'static str {
-        "OR"
+        "AND"
     }
     
     fn category() -> NodeCategory {
@@ -21,7 +21,7 @@ impl NodeFactory for OrNode {
     }
     
     fn color() -> Color32 {
-        Color32::from_rgb(160, 160, 170) // Light grey with subtle blue tint
+        Color32::from_rgb(40, 50, 70) // Dark blue-grey for logic nodes
     }
     
     fn create(position: Pos2) -> Node {
@@ -42,9 +42,9 @@ mod tests {
     use egui::Pos2;
 
     #[test]
-    fn test_or_node_creation() {
-        let node = OrNode::create(Pos2::new(100.0, 100.0));
-        assert_eq!(node.title, "OR");
+    fn test_and_node_creation() {
+        let node = AndNode::create(Pos2::new(100.0, 100.0));
+        assert_eq!(node.title, "AND");
         assert_eq!(node.inputs.len(), 2);
         assert_eq!(node.outputs.len(), 1);
         assert_eq!(node.inputs[0].name, "A");
