@@ -138,11 +138,11 @@ impl NodeEditor {
         }
         
         // Create vertices using non-uniform grid
-        for (row_idx, &row_t) in row_positions.iter().enumerate() {
+        for (_row_idx, &row_t) in row_positions.iter().enumerate() {
             let mut row_vertices = Vec::new();
             let y = rect.top() + row_t * rect.height();
             
-            for (col_idx, &col_t) in col_positions.iter().enumerate() {
+            for (_col_idx, &col_t) in col_positions.iter().enumerate() {
                 let x = rect.left() + col_t * rect.width();
                 
                 if is_inside_rounded_rect(x, y) {
@@ -1570,18 +1570,11 @@ impl eframe::App for NodeEditor {
                 // NODE BODY COMPONENTS
                 let radius = 5.0 * zoom;
                 
-                // BACKGROUND: Main node gradient (0.5 to 0.25)
+                // BACKGROUND: Inner gradient mesh (0.5 to 0.25)
                 let background_top_color = Color32::from_rgb(127, 127, 127); // 0.5 grey
                 let background_bottom_color = Color32::from_rgb(64, 64, 64); // 0.25 grey
                 
-                // Create the simple gradient mesh (not currently used)
-                let simple_gradient_mesh = Self::create_simple_gradient_mesh(
-                    transformed_rect,
-                    background_top_color,
-                    background_bottom_color,
-                );
-                
-                // BEVEL: Inner gradient mesh with grid and fans (0.65 to 0.15)
+                // BEVEL: Outer gradient mesh with grid and fans (0.65 to 0.15)
                 let bevel_rect = transformed_rect; // Same size as original rect
                 let bevel_top_color = Color32::from_rgb(166, 166, 166); // 0.65 grey  
                 let bevel_bottom_color = Color32::from_rgb(38, 38, 38); // 0.15 grey
@@ -1609,9 +1602,9 @@ impl eframe::App for NodeEditor {
                     Stroke::new(1.0 * zoom, border_color),
                 );
                 
-                // BACKGROUND: Outer gradient mesh with grid and fans (0.5 to 0.25)
-                // Shrunk by 3px to fit inside border and provide more spacing
-                let background_shrink_offset = 3.0;
+                // BACKGROUND: Inner gradient mesh with grid and fans (0.5 to 0.25)
+                // Shrunk by 2px to fit inside border
+                let background_shrink_offset = 2.0;
                 let background_rect = Rect::from_min_max(
                     transformed_rect.min + Vec2::splat(background_shrink_offset),
                     transformed_rect.max - Vec2::splat(background_shrink_offset),
@@ -1642,7 +1635,35 @@ impl eframe::App for NodeEditor {
                 let mouse_pos = response.hover_pos().map(|pos| inverse_transform_pos(pos));
 
                 // Input ports (on top)
-                for input in &node.inputs {
+                for (port_idx, input) in node.inputs.iter().enumerate() {
+                    // Check if this port is being used for an active connection
+                    let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.connecting_from {
+                        from_node == *node_id && from_port == port_idx && from_is_input
+                    } else {
+                        false
+                    };
+                    
+                    // Draw port border (2px larger) - blue if connecting, grey otherwise
+                    let port_border_color = if is_connecting_port {
+                        Color32::from_rgb(100, 150, 255) // Blue selection color
+                    } else {
+                        Color32::from_rgb(64, 64, 64) // Unselected node border color
+                    };
+                    
+                    painter.circle_filled(
+                        transform_pos(input.position),
+                        port_radius + 2.0 * zoom,
+                        port_border_color,
+                    );
+                    
+                    // Draw port bevel (1px larger) - use node bevel bottom color
+                    painter.circle_filled(
+                        transform_pos(input.position),
+                        port_radius + 1.0 * zoom,
+                        Color32::from_rgb(38, 38, 38), // Node bevel bottom color (0.15)
+                    );
+                    
+                    // Draw port background (main port)
                     painter.circle_filled(
                         transform_pos(input.position),
                         port_radius,
@@ -1664,7 +1685,35 @@ impl eframe::App for NodeEditor {
                 }
 
                 // Output ports (on bottom)
-                for output in &node.outputs {
+                for (port_idx, output) in node.outputs.iter().enumerate() {
+                    // Check if this port is being used for an active connection
+                    let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.connecting_from {
+                        from_node == *node_id && from_port == port_idx && !from_is_input
+                    } else {
+                        false
+                    };
+                    
+                    // Draw port border (2px larger) - blue if connecting, grey otherwise
+                    let port_border_color = if is_connecting_port {
+                        Color32::from_rgb(100, 150, 255) // Blue selection color
+                    } else {
+                        Color32::from_rgb(64, 64, 64) // Unselected node border color
+                    };
+                    
+                    painter.circle_filled(
+                        transform_pos(output.position),
+                        port_radius + 2.0 * zoom,
+                        port_border_color,
+                    );
+                    
+                    // Draw port bevel (1px larger) - use node bevel bottom color
+                    painter.circle_filled(
+                        transform_pos(output.position),
+                        port_radius + 1.0 * zoom,
+                        Color32::from_rgb(38, 38, 38), // Node bevel bottom color (0.15)
+                    );
+                    
+                    // Draw port background (main port)
                     painter.circle_filled(
                         transform_pos(output.position),
                         port_radius,
@@ -1750,17 +1799,26 @@ impl eframe::App for NodeEditor {
                         let transformed_to = mouse_pos;
 
                         // Draw bezier curve for connection preview (vertical flow)
-                        let vertical_distance = (transformed_to.y - transformed_from.y).abs();
-                        let control_offset = if vertical_distance > 10.0 {
-                            vertical_distance * 0.4
+                        // Use fixed control offset to prevent popping when curve goes horizontal
+                        let control_offset = 60.0 * zoom;
+
+                        // Control points should aim in the correct direction based on port type
+                        let from_control = if from_is_input {
+                            transformed_from - Vec2::new(0.0, control_offset) // Input ports: aim up
                         } else {
-                            60.0 * zoom
+                            transformed_from + Vec2::new(0.0, control_offset) // Output ports: aim down
+                        };
+                        
+                        let to_control = if from_is_input {
+                            transformed_to + Vec2::new(0.0, control_offset) // When connecting from input: aim up from mouse
+                        } else {
+                            transformed_to - Vec2::new(0.0, control_offset) // When connecting from output: aim down to mouse
                         };
 
                         let points = [
                             transformed_from,
-                            transformed_from + Vec2::new(0.0, control_offset),
-                            transformed_to - Vec2::new(0.0, control_offset),
+                            from_control,
+                            to_control,
                             transformed_to,
                         ];
 

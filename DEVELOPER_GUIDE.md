@@ -394,9 +394,34 @@ const PREVIEW_COLOR: Color32 = Color32::from_rgb(255, 255, 100);    // Yellow
 - **Port Radius**: 5 pixels
 - **Port Spacing**: Evenly distributed along edges
 
+### Port Rendering System
+Each port uses a 3-layer architecture matching the node design:
+
+1. **BORDER** (Outermost Layer)
+   - Size: port_radius + 2.0px
+   - Color: Blue (100, 150, 255) when connecting, Grey (64, 64, 64) otherwise
+   - Purpose: Visual feedback for connection state
+
+2. **BEVEL** (Middle Layer) 
+   - Size: port_radius + 1.0px
+   - Color: Node bevel bottom color (38, 38, 38) - 0.15 grey
+   - Purpose: Consistent styling with node bevel
+
+3. **BACKGROUND** (Core Port)
+   - Size: port_radius (base size)
+   - Color: Green (70, 120, 90) for inputs, Red (120, 70, 70) for outputs
+   - Purpose: Port type identification
+
+### Connection System
+- **Bezier Curves**: Fixed control offset (60px * zoom) prevents handle popping
+- **Curve Direction**: Input ports curve upward, output ports curve downward
+- **Connection State**: Active ports show blue border during connection
+- **Cancellation**: Background clicks cancel ongoing connections
+
 ### Performance Optimizations
 - **Antialiasing**: 4x MSAA enabled in `main.rs`
 - **Vertex Count**: ~52 vertices per node (optimized from ~500)
+- **Port Rendering**: 3 circles per port with efficient drawing order
 - **Mesh Caching**: Potential for future implementation
 - **Culling**: Off-screen nodes can be skipped
 
