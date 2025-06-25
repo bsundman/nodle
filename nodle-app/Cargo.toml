@@ -18,3 +18,4 @@ eframe = { workspace = true, features = ["wgpu"] }
 egui-wgpu = "0.29"
 wgpu = "22"
 bytemuck = { version = "1.14", features = ["derive"] }
+once_cell = "1.19"

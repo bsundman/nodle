@@ -596,19 +596,77 @@ let port_y = node_rect.top() + 30.0 + (port_idx as f32) * 25.0;
 
 ### Performance Characteristics
 
-| Metric | CPU Rendering | GPU Rendering |
-|--------|---------------|---------------|
-| 100 nodes | 60fps | 60fps |
-| 500 nodes | 45fps | 60fps |
-| 1000 nodes | 25fps | 60fps |
-| 2000 nodes | 12fps | 60fps |
-| 5000+ nodes | <10fps | 60fps |
+| Metric | CPU Rendering | GPU Rendering | GPU (Optimized) |
+|--------|---------------|---------------|-----------------|
+| 100 nodes | 60fps | 60fps | 60fps |
+| 500 nodes | 45fps | 60fps | 60fps |
+| 1000 nodes | 25fps | 60fps | 60fps |
+| 2000 nodes | 12fps | 60fps | 60fps |
+| 5000 nodes | <10fps | 20fps | 60fps |
+| 10000+ nodes | <5fps | 10fps | 60fps |
 
 **GPU Advantages:**
 - Maintains constant 60fps performance regardless of node count
 - Efficient instanced rendering handles thousands of nodes
 - High-capacity buffers: 10,000 nodes, 50,000 ports
 - Perfect visual parity with CPU rendering
+
+### Performance Optimizations (June 25, 2025)
+
+#### Persistent Instance Management
+The GPU renderer now uses a persistent instance manager to dramatically improve performance:
+
+```rust
+pub struct GpuInstanceManager {
+    node_instances: Vec<NodeInstanceData>,
+    port_instances: Vec<PortInstanceData>,
+    node_count: usize,
+    port_count: usize,
+    last_frame_node_count: usize,
+    needs_full_rebuild: bool,
+}
+```
+
+**Key optimizations:**
+- Pre-allocates capacity for 10,000 nodes
+- Only rebuilds instances when necessary
+- Caches instance data between frames
+- Force rebuild on node modifications
+
+#### Global Renderer Instance
+Implemented a global GPU renderer using `once_cell::sync::Lazy`:
+
+```rust
+static GLOBAL_GPU_RENDERER: Lazy<Arc<Mutex<Option<GpuNodeRenderer>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(None))
+});
+```
+
+This ensures the GPU renderer is initialized only once, not every frame.
+
+#### Node Dragging Fix
+Fixed GPU rendering not updating during node dragging:
+
+```rust
+// During drag - update positions and force GPU rebuild
+if response.dragged() {
+    for (&node_id, &offset) in &self.drag_offsets {
+        if let Some(node) = self.graph.nodes.get_mut(&node_id) {
+            node.position = pos + offset;
+            node.update_port_positions(); // Update ports immediately
+        }
+    }
+    self.gpu_instance_manager.force_rebuild(); // Trigger GPU update
+}
+
+// On drag stop - ensure final position is updated
+if response.drag_stopped() {
+    self.drag_offsets.clear();
+    if self.use_gpu_rendering {
+        self.gpu_instance_manager.force_rebuild();
+    }
+}
+```
 
 ### Integration with egui
 

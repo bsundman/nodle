@@ -5,6 +5,7 @@ use nodle_core::{Node, NodeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
+use once_cell::sync::Lazy;
 
 /// Instance data for a single node in GPU memory
 #[repr(C)]
@@ -158,9 +159,6 @@ impl Uniforms {
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ];
-        
-        println!("GPU: Creating uniforms with screen_size: {:?}, pan_offset: {:?}, zoom: {}", 
-                 screen_size, pan_offset, zoom);
         
         Self {
             view_matrix: identity_matrix,
@@ -561,12 +559,115 @@ impl GpuNodeRenderer {
     }
 }
 
+/// Global GPU renderer instance shared across all callbacks
+static GLOBAL_GPU_RENDERER: Lazy<Arc<Mutex<Option<GpuNodeRenderer>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(None))
+});
+
 /// Paint callback for GPU node and port rendering
 pub struct NodeRenderCallback {
     pub nodes: Vec<NodeInstanceData>,
     pub ports: Vec<PortInstanceData>,
     pub uniforms: Uniforms,
-    pub renderer: Arc<Mutex<Option<GpuNodeRenderer>>>,
+}
+
+/// Persistent GPU instance manager for optimal performance
+pub struct GpuInstanceManager {
+    node_instances: Vec<NodeInstanceData>,
+    port_instances: Vec<PortInstanceData>,
+    node_count: usize,
+    port_count: usize,
+    last_frame_node_count: usize,
+    last_frame_port_count: usize,
+    // Optimization: only rebuild when needed
+    needs_full_rebuild: bool,
+}
+
+impl GpuInstanceManager {
+    pub fn new() -> Self {
+        Self {
+            node_instances: Vec::with_capacity(10000),
+            port_instances: Vec::with_capacity(50000),
+            node_count: 0,
+            port_count: 0,
+            last_frame_node_count: 0,
+            last_frame_port_count: 0,
+            needs_full_rebuild: true,
+        }
+    }
+    
+    pub fn update_instances(
+        &mut self,
+        nodes: &HashMap<NodeId, Node>,
+        selected_nodes: &std::collections::HashSet<NodeId>,
+        connecting_from: Option<(NodeId, usize, bool)>,
+    ) -> (&[NodeInstanceData], &[PortInstanceData]) {
+        let current_node_count = nodes.len();
+        let estimated_port_count = current_node_count * 3; // Rough estimate
+        
+        // Only rebuild if node count changed significantly or forced rebuild
+        if self.needs_full_rebuild || 
+           current_node_count != self.last_frame_node_count ||
+           (current_node_count > 0 && (self.last_frame_node_count as f32 / current_node_count as f32 - 1.0).abs() > 0.1) {
+            
+            // Only log rebuilds for significant changes
+            if current_node_count > 1000 || self.last_frame_node_count > 1000 {
+                println!("GPU Instance Manager: Rebuilding instances for {} nodes (was {} nodes)", 
+                         current_node_count, self.last_frame_node_count);
+            }
+            self.rebuild_all_instances(nodes, selected_nodes, connecting_from);
+            self.last_frame_node_count = current_node_count;
+            self.needs_full_rebuild = false;
+        }
+        
+        (&self.node_instances[..self.node_count], &self.port_instances[..self.port_count])
+    }
+    
+    fn rebuild_all_instances(
+        &mut self,
+        nodes: &HashMap<NodeId, Node>,
+        selected_nodes: &std::collections::HashSet<NodeId>,
+        connecting_from: Option<(NodeId, usize, bool)>,
+    ) {
+        self.node_instances.clear();
+        self.port_instances.clear();
+        
+        for (id, node) in nodes {
+            let selected = selected_nodes.contains(id);
+            let instance = NodeInstanceData::from_node(node, selected, 1.0); // Don't apply zoom here
+            self.node_instances.push(instance);
+            
+            // Add port instances for this node
+            for (port_idx, port) in node.inputs.iter().enumerate() {
+                let is_connecting = if let Some((conn_node, conn_port, is_input)) = connecting_from {
+                    conn_node == *id && conn_port == port_idx && is_input
+                } else {
+                    false
+                };
+                
+                let port_instance = PortInstanceData::from_port(port.position, 5.0, is_connecting, true);
+                self.port_instances.push(port_instance);
+            }
+            
+            for (port_idx, port) in node.outputs.iter().enumerate() {
+                let is_connecting = if let Some((conn_node, conn_port, is_input)) = connecting_from {
+                    conn_node == *id && conn_port == port_idx && !is_input
+                } else {
+                    false
+                };
+                
+                let port_instance = PortInstanceData::from_port(port.position, 5.0, is_connecting, false);
+                self.port_instances.push(port_instance);
+            }
+        }
+        
+        self.node_count = self.node_instances.len();
+        self.port_count = self.port_instances.len();
+    }
+    
+    pub fn force_rebuild(&mut self) {
+        self.needs_full_rebuild = true;
+    }
 }
 
 impl NodeRenderCallback {
@@ -625,14 +726,28 @@ impl NodeRenderCallback {
         }
         
         let uniforms = Uniforms::new(pan_offset, zoom, screen_size);
-        println!("GPU: Created callback with {} nodes, {} ports", 
-                 node_instances.len(), port_instances.len());
         
         Self {
             nodes: node_instances,
             ports: port_instances,
             uniforms,
-            renderer: Arc::new(Mutex::new(None)),
+        }
+    }
+    
+    /// Create from pre-built instances (optimized path)
+    pub fn from_instances(
+        node_instances: &[NodeInstanceData],
+        port_instances: &[PortInstanceData],
+        pan_offset: Vec2,
+        zoom: f32,
+        screen_size: Vec2,
+    ) -> Self {
+        let uniforms = Uniforms::new(pan_offset, zoom, screen_size);
+        
+        Self {
+            nodes: node_instances.to_vec(),
+            ports: port_instances.to_vec(),
+            uniforms,
         }
     }
 }
@@ -646,29 +761,25 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         _callback_resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        println!("🟢 GPU: prepare() CALLED with {} nodes!", self.nodes.len());
-        println!("🟢 GPU: Screen descriptor - size: {:?}, pixels_per_point: {}", 
-                 screen_descriptor.size_in_pixels, screen_descriptor.pixels_per_point);
+        // Reduce debug output for performance
+        if self.nodes.len() >= 1000 {
+            println!("🟢 GPU: prepare() CALLED with {} nodes!", self.nodes.len());
+        }
         
-        // Get or create the renderer
-        let mut renderer_lock = self.renderer.lock().unwrap();
+        // Get or create the global renderer
+        let mut renderer_lock = GLOBAL_GPU_RENDERER.lock().unwrap();
         if renderer_lock.is_none() {
             // Use the format that matches egui's surface format
             let format = wgpu::TextureFormat::Bgra8Unorm; // Match egui's surface format
-            println!("🟢 GPU: Initializing renderer with format: {:?}", format);
+            println!("🟢 GPU: Initializing GLOBAL renderer with format: {:?}", format);
             *renderer_lock = Some(GpuNodeRenderer::new(device, format));
         }
         
         if let Some(renderer) = renderer_lock.as_ref() {
-            println!("🟢 GPU: Updating uniforms, {} nodes, {} ports", self.nodes.len(), self.ports.len());
             renderer.update_uniforms(queue, &self.uniforms);
             renderer.update_node_instances(queue, &self.nodes);
             renderer.update_port_instances(queue, &self.ports);
-        } else {
-            println!("🔴 GPU: No renderer available in prepare()!");
         }
-        
-        println!("🟢 GPU: prepare() completed successfully");
         Vec::new()
     }
     
@@ -678,15 +789,10 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         _callback_resources: &egui_wgpu::CallbackResources,
     ) {
-        println!("🎨 GPU: paint() CALLED with {} nodes, {} ports!", self.nodes.len(), self.ports.len());
+        // Reduce debug output for performance
         
-        let renderer_lock = self.renderer.lock().unwrap();
+        let renderer_lock = GLOBAL_GPU_RENDERER.lock().unwrap();
         if let Some(renderer) = renderer_lock.as_ref() {
-            // Debug viewport info
-            println!("🎨 GPU: Viewport info - clip_rect: min({}, {}), size({}, {})", 
-                     info.clip_rect.min.x, info.clip_rect.min.y,
-                     info.clip_rect.width(), info.clip_rect.height());
-            
             // Set viewport to match the clip rect
             render_pass.set_viewport(
                 info.clip_rect.min.x,
@@ -702,10 +808,6 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
             
             // Render ports on top
             renderer.render_ports(render_pass, self.ports.len() as u32);
-            
-            println!("🎨 GPU: Rendered {} nodes and {} ports", self.nodes.len(), self.ports.len());
-        } else {
-            println!("🔴 GPU: No renderer available in paint()!");
         }
     }
 }

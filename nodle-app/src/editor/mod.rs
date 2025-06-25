@@ -11,7 +11,7 @@ use nodle_core::{
 use std::collections::{HashMap, HashSet};
 use crate::context::{ContextManager, ContextMenuItem};
 use crate::contexts::materialx::MaterialXContext;
-use crate::gpu_renderer::NodeRenderCallback;
+use crate::gpu_renderer::{NodeRenderCallback, GpuInstanceManager};
 
 /// Main application state for the node editor
 pub struct NodeEditor {
@@ -34,6 +34,8 @@ pub struct NodeEditor {
     last_frame_time: std::time::Instant,
     // GPU rendering toggle
     use_gpu_rendering: bool,
+    // Persistent GPU instance manager
+    gpu_instance_manager: GpuInstanceManager,
 }
 
 impl NodeEditor {
@@ -820,6 +822,8 @@ impl NodeEditor {
             last_frame_time: std::time::Instant::now(),
             // GPU rendering
             use_gpu_rendering: true, // Start with GPU rendering enabled
+            // Persistent GPU instance manager
+            gpu_instance_manager: GpuInstanceManager::new(),
         };
 
         // Start with empty node graph - use F2/F3/F4 to add test nodes
@@ -929,6 +933,8 @@ impl NodeEditor {
         if let Some(context) = self.context_manager.get_active_context() {
             if let Some(node) = crate::NodeRegistry::create_context_node(context, internal_node_type, position) {
                 self.graph.add_node(node);
+            self.gpu_instance_manager.force_rebuild();
+                self.gpu_instance_manager.force_rebuild();
                 return;
             }
         }
@@ -936,6 +942,7 @@ impl NodeEditor {
         // Fall back to generic nodes
         if let Some(node) = crate::NodeRegistry::create_node(internal_node_type, position) {
             self.graph.add_node(node);
+            self.gpu_instance_manager.force_rebuild();
         }
     }
 
@@ -956,6 +963,8 @@ impl NodeEditor {
             
             if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
                 self.graph.add_node(node);
+            self.gpu_instance_manager.force_rebuild();
+                self.gpu_instance_manager.force_rebuild();
             }
         }
     }
@@ -1019,6 +1028,9 @@ impl NodeEditor {
                  self.graph.nodes.len(), self.graph.connections.len());
         println!("Total time: {:?} (nodes: {:?}, connections: {:?})", 
                  total_time, node_creation_time, connection_time);
+        
+        // Force GPU instance rebuild after adding many nodes
+        self.gpu_instance_manager.force_rebuild();
     }
 
 }
@@ -1344,8 +1356,12 @@ impl eframe::App for NodeEditor {
                             for (&node_id, &offset) in &self.drag_offsets {
                                 if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                     node.position = pos + offset;
+                                    // Update port positions immediately when node moves
+                                    node.update_port_positions();
                                 }
                             }
+                            // Force GPU instance manager to rebuild when nodes are moved
+                            self.gpu_instance_manager.force_rebuild();
                         } else if self.box_selection_start.is_some() {
                             // Update box selection
                             self.box_selection_end = Some(pos);
@@ -1396,6 +1412,10 @@ impl eframe::App for NodeEditor {
 
                 if response.drag_stopped() {
                     self.drag_offsets.clear();
+                    // Ensure final positions are updated in GPU
+                    if self.use_gpu_rendering {
+                        self.gpu_instance_manager.force_rebuild();
+                    }
 
                     // Complete box selection
                     if let (Some(start), Some(end)) =
@@ -1429,6 +1449,7 @@ impl eframe::App for NodeEditor {
                         self.graph.remove_node(node_id);
                     }
                     self.selected_nodes.clear();
+                    self.gpu_instance_manager.force_rebuild();
                 } else if let Some(conn_idx) = self.selected_connection {
                     self.graph.remove_connection(conn_idx);
                     self.selected_connection = None;
@@ -1453,7 +1474,7 @@ impl eframe::App for NodeEditor {
                 self.add_benchmark_nodes(25);
             }
             if ui.input(|i| i.key_pressed(egui::Key::F4)) {
-                self.add_performance_stress_test(1000);
+                self.add_performance_stress_test(5000);
             }
 
             // Handle F5 to clear all nodes
@@ -1461,6 +1482,7 @@ impl eframe::App for NodeEditor {
                 self.graph.nodes.clear();
                 self.graph.connections.clear();
                 self.selected_nodes.clear();
+                self.gpu_instance_manager.force_rebuild();
                 self.connecting_from = None;
                 println!("Cleared all nodes");
             }
@@ -1699,8 +1721,6 @@ impl eframe::App for NodeEditor {
 
             // Draw nodes - GPU vs CPU rendering
             if self.use_gpu_rendering && !self.graph.nodes.is_empty() {
-                println!("GPU: Using actual GPU callback rendering for {} node bodies", self.graph.nodes.len());
-                
                 // GPU mode indicator  
                 painter.rect_filled(
                     Rect::from_min_size(Pos2::new(10.0, 50.0), Vec2::new(100.0, 20.0)),
@@ -1724,10 +1744,17 @@ impl eframe::App for NodeEditor {
                     ui.ctx().screen_rect().width(),
                     ui.ctx().screen_rect().height()
                 );
-                let gpu_callback = NodeRenderCallback::new(
-                    self.graph.nodes.clone(),
+                
+                // Use persistent instance manager for optimal performance
+                let (node_instances, port_instances) = self.gpu_instance_manager.update_instances(
+                    &self.graph.nodes,
                     &self.selected_nodes,
                     self.connecting_from,
+                );
+                
+                let gpu_callback = NodeRenderCallback::from_instances(
+                    node_instances,
+                    port_instances,
                     self.pan_offset,
                     self.zoom,
                     screen_size,
@@ -2096,7 +2123,7 @@ impl eframe::App for NodeEditor {
                         ui.label("F1: Toggle performance info");
                         ui.label("F2: Add 10 nodes");
                         ui.label("F3: Add 25 nodes");
-                        ui.label("F4: Stress test (1000 nodes + connections)");
+                        ui.label("F4: Stress test (5000 nodes + connections)");
                         ui.label("F5: Clear all nodes");
                         ui.label("F6: Toggle GPU/CPU rendering");
                     });
