@@ -37,10 +37,15 @@ pub struct InputState {
     pub context_menu_pos: Option<Pos2>,
     pub right_click_world_pos: Option<Pos2>,
     
-    // Connection cutting state
+    // Connection cutting state (X key)
     pub is_cutting_mode: bool,
-    pub cut_paths: Vec<Vec<Pos2>>, // Multiple cut paths while C is held
+    pub cut_paths: Vec<Vec<Pos2>>, // Multiple cut paths while X is held
     pub current_cut_path: Vec<Pos2>, // Current path being drawn
+    
+    // Connection drawing state (C key)
+    pub is_connecting_mode: bool,
+    pub connect_paths: Vec<Vec<Pos2>>, // Multiple connection paths while C is held
+    pub current_connect_path: Vec<Pos2>, // Current connection path being drawn
 }
 
 impl InputState {
@@ -68,6 +73,9 @@ impl InputState {
             is_cutting_mode: false,
             cut_paths: Vec::new(),
             current_cut_path: Vec::new(),
+            is_connecting_mode: false,
+            connect_paths: Vec::new(),
+            current_connect_path: Vec::new(),
         }
     }
 
@@ -126,15 +134,15 @@ impl InputState {
             self.context_menu_pos = None;
         }
         
-        // Handle cutting mode
-        let c_key_down = ui.input(|i| i.key_down(egui::Key::C));
+        // Handle cutting mode (X key)
+        let x_key_down = ui.input(|i| i.key_down(egui::Key::X));
         
-        if c_key_down && !self.is_cutting_mode {
+        if x_key_down && !self.is_cutting_mode {
             // Start cutting mode
             self.is_cutting_mode = true;
             self.cut_paths.clear();
             self.current_cut_path.clear();
-        } else if !c_key_down && self.is_cutting_mode {
+        } else if !x_key_down && self.is_cutting_mode {
             // End cutting mode - finalize current path if any
             if !self.current_cut_path.is_empty() {
                 self.cut_paths.push(self.current_cut_path.clone());
@@ -155,6 +163,39 @@ impl InputState {
                 if !self.current_cut_path.is_empty() {
                     self.cut_paths.push(self.current_cut_path.clone());
                     self.current_cut_path.clear();
+                }
+            }
+        }
+        
+        // Handle connecting mode (C key)
+        let c_key_down = ui.input(|i| i.key_down(egui::Key::C));
+        
+        if c_key_down && !self.is_connecting_mode {
+            // Start connecting mode
+            self.is_connecting_mode = true;
+            self.connect_paths.clear();
+            self.current_connect_path.clear();
+        } else if !c_key_down && self.is_connecting_mode {
+            // End connecting mode - finalize current path if any
+            if !self.current_connect_path.is_empty() {
+                self.connect_paths.push(self.current_connect_path.clone());
+                self.current_connect_path.clear();
+            }
+            self.is_connecting_mode = false;
+        }
+        
+        // Update connecting path when in connecting mode
+        if self.is_connecting_mode {
+            if response.dragged() {
+                // Add points to current path while dragging
+                if let Some(world_pos) = self.mouse_world_pos {
+                    self.current_connect_path.push(world_pos);
+                }
+            } else if response.drag_stopped() {
+                // Finish current path and start a new one
+                if !self.current_connect_path.is_empty() {
+                    self.connect_paths.push(self.current_connect_path.clone());
+                    self.current_connect_path.clear();
                 }
             }
         }
@@ -551,6 +592,97 @@ impl InputState {
     pub fn clear_cut_paths(&mut self) {
         self.cut_paths.clear();
         self.current_cut_path.clear();
+    }
+    
+    // === CONNECTION DRAWING ===
+    
+    /// Check if we're in connecting mode
+    pub fn is_connecting_mode(&self) -> bool {
+        self.is_connecting_mode
+    }
+    
+    /// Get all connect paths for rendering
+    pub fn get_connect_paths(&self) -> &Vec<Vec<Pos2>> {
+        &self.connect_paths
+    }
+    
+    /// Get current connect path being drawn
+    pub fn get_current_connect_path(&self) -> &Vec<Pos2> {
+        &self.current_connect_path
+    }
+    
+    /// Find the nearest port to a given position within a search radius
+    pub fn find_nearest_port(&self, graph: &NodeGraph, position: Pos2, search_radius: f32) -> Option<(NodeId, usize, bool)> {
+        let mut nearest_port = None;
+        let mut min_distance = search_radius;
+        
+        for (node_id, node) in &graph.nodes {
+            // Check output ports
+            for (port_idx, port) in node.outputs.iter().enumerate() {
+                let distance = (port.position - position).length();
+                if distance < min_distance {
+                    min_distance = distance;
+                    nearest_port = Some((*node_id, port_idx, false)); // false = output
+                }
+            }
+            
+            // Check input ports
+            for (port_idx, port) in node.inputs.iter().enumerate() {
+                let distance = (port.position - position).length();
+                if distance < min_distance {
+                    min_distance = distance;
+                    nearest_port = Some((*node_id, port_idx, true)); // true = input
+                }
+            }
+        }
+        
+        nearest_port
+    }
+    
+    /// Create connections from drawn paths to nearest ports
+    pub fn create_connections_from_paths(&self, graph: &NodeGraph) -> Vec<Connection> {
+        let mut connections = Vec::new();
+        let search_radius = 50.0; // Search within 50 pixels for nearest port
+        
+        // Process all completed paths plus current path
+        let mut all_paths = self.connect_paths.clone();
+        if !self.current_connect_path.is_empty() {
+            all_paths.push(self.current_connect_path.clone());
+        }
+        
+        for path in &all_paths {
+            if path.len() < 2 {
+                continue; // Need at least start and end points
+            }
+            
+            let start_pos = path[0];
+            let end_pos = path[path.len() - 1];
+            
+            // Find nearest ports to start and end positions
+            if let Some((start_node, start_port, start_is_input)) = self.find_nearest_port(graph, start_pos, search_radius) {
+                if let Some((end_node, end_port, end_is_input)) = self.find_nearest_port(graph, end_pos, search_radius) {
+                    // Only create connection if we have different nodes and valid port types
+                    if start_node != end_node && start_is_input != end_is_input {
+                        let connection = if start_is_input {
+                            // Start from input, end at output: reverse the connection
+                            Connection::new(end_node, end_port, start_node, start_port)
+                        } else {
+                            // Start from output, end at input: normal connection
+                            Connection::new(start_node, start_port, end_node, end_port)
+                        };
+                        connections.push(connection);
+                    }
+                }
+            }
+        }
+        
+        connections
+    }
+    
+    /// Clear all connect paths (called when connecting mode ends and connections are applied)
+    pub fn clear_connect_paths(&mut self) {
+        self.connect_paths.clear();
+        self.current_connect_path.clear();
     }
 }
 

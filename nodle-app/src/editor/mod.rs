@@ -369,9 +369,11 @@ impl eframe::App for NodeEditor {
 
             let response = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
             
-            // Set cursor based on cutting mode
+            // Set cursor based on special modes
             if self.input_state.is_cutting_mode() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); // Use crosshair as close to scissors
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); // Use crosshair for cutting (X key)
+            } else if self.input_state.is_connecting_mode() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); // Use pointing hand for connecting (C key)
             }
             
             // Handle context menu before creating the painter (to avoid borrow conflicts)
@@ -419,10 +421,13 @@ impl eframe::App for NodeEditor {
                 }
             }
 
-            // Handle cutting mode
+            // Handle special modes (cutting and connecting)
             if self.input_state.is_cutting_mode() {
                 // In cutting mode - skip normal interactions
                 // Cutting is handled in the input state update
+            } else if self.input_state.is_connecting_mode() {
+                // In connecting mode - skip normal interactions
+                // Connecting is handled in the input state update
             } else if let Some(pos) = self.input_state.mouse_world_pos {
                 // Skip node interaction if we're panning
                 if !self.input_state.is_panning {
@@ -603,9 +608,9 @@ impl eframe::App for NodeEditor {
                 self.gpu_instance_manager.force_rebuild();
             }
 
-            // Handle connection cutting when C key is released
+            // Handle connection cutting when X key is released
             if !self.input_state.is_cutting_mode() && (!self.input_state.get_cut_paths().is_empty() || !self.input_state.get_current_cut_path().is_empty()) {
-                // C key was just released - apply cuts
+                // X key was just released - apply cuts
                 let cut_connections = self.input_state.find_cut_connections(&self.graph, self.viewport.zoom);
                 
                 if !cut_connections.is_empty() {
@@ -622,6 +627,29 @@ impl eframe::App for NodeEditor {
                 
                 // Clear cut paths after applying
                 self.input_state.clear_cut_paths();
+            }
+
+            // Handle connection drawing when C key is released
+            if !self.input_state.is_connecting_mode() && (!self.input_state.get_connect_paths().is_empty() || !self.input_state.get_current_connect_path().is_empty()) {
+                // C key was just released - create connections from drawn paths
+                let new_connections = self.input_state.create_connections_from_paths(&self.graph);
+                
+                if !new_connections.is_empty() {
+                    for connection in new_connections {
+                        // Check if target is an input port and already has a connection
+                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(&self.graph, connection.to_node, connection.to_port) {
+                            // Remove existing connection to input port
+                            self.graph.remove_connection(existing_idx);
+                        }
+                        
+                        let _ = self.graph.add_connection(connection);
+                    }
+                    
+                    self.gpu_instance_manager.force_rebuild();
+                }
+                
+                // Clear connect paths after applying
+                self.input_state.clear_connect_paths();
             }
 
             // Handle F1 to toggle performance info
@@ -931,6 +959,19 @@ impl eframe::App for NodeEditor {
                 // Draw current cut path being drawn
                 if !self.input_state.get_current_cut_path().is_empty() {
                     self.draw_dashed_path(&painter, self.input_state.get_current_cut_path(), &transform_pos, zoom, Color32::from_rgb(255, 150, 150));
+                }
+            }
+
+            // Draw connect paths (dashed lines)
+            if self.input_state.is_connecting_mode() {
+                // Draw completed connect paths
+                for connect_path in self.input_state.get_connect_paths() {
+                    self.draw_dashed_path(&painter, connect_path, &transform_pos, zoom, Color32::from_rgb(100, 255, 100));
+                }
+                
+                // Draw current connect path being drawn
+                if !self.input_state.get_current_connect_path().is_empty() {
+                    self.draw_dashed_path(&painter, self.input_state.get_current_connect_path(), &transform_pos, zoom, Color32::from_rgb(150, 255, 150));
                 }
             }
 
