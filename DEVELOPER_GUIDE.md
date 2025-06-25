@@ -2,56 +2,85 @@
 
 ## Overview
 
-Nōdle (pronounced like "noodle") is a custom node-based visual programming editor built in Rust using the egui/eframe framework. It implements a vertical flow design where connections flow from top to bottom, with input ports on the top of nodes and output ports on the bottom.
+Nōdle (pronounced like "noodle") is a modular, high-performance node-based visual programming editor built in Rust using the egui/eframe framework. It implements a vertical flow design with GPU-accelerated rendering and an extensible architecture supporting unlimited node types and specialized contexts.
 
-## Project Architecture
+## ✅ Fully Modularized Architecture (June 2025)
 
-### Workspace Structure
+Nōdle has undergone complete 4-phase modularization, transforming from a monolithic codebase into a clean, scalable architecture:
 
-Nōdle is organized as a Rust workspace with two main crates:
+### Project Structure
 
 ```
-nodle/
-├── nodle-core/          # Core library (reusable node graph functionality)
+nodle-wgpu/
+├── nodle-app/           # Single binary crate (merged nodle-core for simplicity)
 │   ├── src/
-│   │   ├── lib.rs       # Public API exports
-│   │   ├── graph.rs     # NodeGraph and Connection types
-│   │   ├── node.rs      # Node type and implementation
-│   │   ├── port.rs      # Port type and enums
-│   │   └── math.rs      # Mathematical utilities (bezier curves, etc.)
-│   └── Cargo.toml
-├── nodle-app/           # GUI application
-│   ├── src/
-│   │   ├── main.rs      # Entry point + common traits (NodeFactory, etc.)
-│   │   ├── editor/      # Main editor implementation
-│   │   │   └── mod.rs   # NodeEditor struct and GUI logic
-│   │   ├── math/        # Math node implementations
-│   │   │   ├── mod.rs   # Re-exports
-│   │   │   ├── add.rs   # Addition node
-│   │   │   ├── subtract.rs
-│   │   │   ├── multiply.rs
-│   │   │   └── divide.rs
-│   │   ├── logic/       # Logic node implementations
-│   │   │   ├── mod.rs
-│   │   │   ├── and.rs   # AND gate
-│   │   │   ├── or.rs    # OR gate
-│   │   │   └── not.rs   # NOT gate
-│   │   ├── data/        # Data node implementations
-│   │   │   ├── mod.rs
-│   │   │   ├── constant.rs # Constant value node
-│   │   │   └── variable.rs # Variable storage node
-│   │   └── output/      # Output node implementations
-│   │       ├── mod.rs
-│   │       ├── print.rs # Print to console
-│   │       └── debug.rs # Debug with passthrough
-│   └── Cargo.toml
+│   │   ├── main.rs      # Application entry point
+│   │   ├── editor/      # 🔄 Phase 1: Modular editor components
+│   │   │   ├── mod.rs           # Main NodeEditor (clean, focused)
+│   │   │   ├── input.rs         # Input handling & event management
+│   │   │   ├── viewport.rs      # Pan/zoom operations & transforms
+│   │   │   ├── interaction.rs   # Node selection, dragging, connections
+│   │   │   ├── menus.rs         # Context menu system
+│   │   │   └── rendering.rs     # CPU mesh creation & drawing
+│   │   ├── gpu/         # 🔄 Phase 2: Modular GPU system  
+│   │   │   ├── mod.rs           # Public GPU API
+│   │   │   ├── renderer.rs      # Core GPU pipeline & rendering
+│   │   │   ├── instance.rs      # GPU instance management  
+│   │   │   ├── callback.rs      # egui integration & paint callbacks
+│   │   │   └── shaders/         # GPU shaders
+│   │   │       ├── node.wgsl    # Node vertex/fragment shaders
+│   │   │       └── port.wgsl    # Port rendering shaders
+│   │   ├── nodes/       # 🔄 Phase 3: Enhanced node system
+│   │   │   ├── mod.rs           # Core types (Node, NodeGraph, etc.)
+│   │   │   ├── factory.rs       # Enhanced factory system & registry
+│   │   │   ├── graph.rs         # NodeGraph and Connection types
+│   │   │   ├── node.rs          # Node type & implementation
+│   │   │   ├── port.rs          # Port type & enums
+│   │   │   ├── math_utils.rs    # Mathematical utilities
+│   │   │   ├── math/            # Enhanced math nodes
+│   │   │   │   ├── mod.rs       # Module exports
+│   │   │   │   ├── add_enhanced.rs    # Addition with rich metadata
+│   │   │   │   ├── subtract_enhanced.rs, multiply_enhanced.rs, etc.
+│   │   │   ├── logic/           # Enhanced logic nodes  
+│   │   │   │   ├── and_enhanced.rs, or_enhanced.rs, not_enhanced.rs
+│   │   │   ├── data/            # Enhanced data nodes
+│   │   │   │   ├── constant_enhanced.rs, variable_enhanced.rs
+│   │   │   └── output/          # Enhanced output nodes
+│   │   │       ├── print_enhanced.rs, debug_enhanced.rs
+│   │   ├── contexts/    # 🔄 Phase 4: Modular context system
+│   │   │   ├── mod.rs           # Context module coordination
+│   │   │   ├── base.rs          # BaseContext (all generic nodes)
+│   │   │   ├── materialx.rs     # MaterialX context (shader-specific)
+│   │   │   ├── registry.rs      # Context auto-registration system
+│   │   │   └── test_phase4.rs   # Comprehensive context tests
+│   │   ├── context.rs   # Context trait definition
+│   │   └── contexts.rs  # Legacy import compatibility
+│   └── Cargo.toml       # Application configuration
 ├── examples/
-│   └── basic_graph.rs   # Usage example for nodle-core
 ├── Cargo.toml           # Workspace configuration
 ├── README.md
 ├── DEVELOPER_GUIDE.md   # This file
-└── CLAUDE.md            # Development session memory (git excluded)
+└── CLAUDE.md           # Development session memory (git-excluded)
 ```
+
+## 🚀 Enhanced Architecture Features
+
+### Performance
+- **60fps GPU Rendering**: Maintains constant performance with 5000+ nodes
+- **Scalable Design**: From 11 hardcoded nodes to unlimited extensible libraries
+- **Modular GPU System**: Instance management, pipeline optimization, egui integration
+
+### Enhanced Node Factory System
+- **Rich Metadata**: Self-documenting nodes with descriptions and typed ports
+- **Dynamic Registry**: Self-registering nodes replace hardcoded match statements
+- **Type Safety**: DataType validation (Float, Vector3, Color, String, Boolean, Any)
+- **Hierarchical Categories**: Organized menus (Math, Logic, MaterialX > Shading/Texture)
+
+### Context System
+- **Unlimited Contexts**: Support for specialized domains (Generic, MaterialX, GameDev, etc.)
+- **Smart Filtering**: Context-aware node compatibility and menu organization
+- **MaterialX Integration**: 6 sophisticated shader nodes with PBR workflow
+- **Auto-Registration**: Contexts register automatically without core changes
 
 ### Core Library (nodle-core)
 
@@ -285,30 +314,62 @@ fn inverse_transform_pos(screen_pos: Pos2, pan: Vec2, zoom: f32) -> Pos2 {
 ### Input Handling
 
 #### Mouse Controls
-- **Left Click**: Select nodes, click ports to connect
+- **Left Click**: Select nodes/connections, click ports to connect
 - **Left Drag**: Move selected nodes, box selection on empty space
 - **Middle Drag**: Pan the camera
 - **Right Click**: Context menu
 - **Scroll Wheel**: Zoom (centered at mouse cursor)
+- **Ctrl/Cmd + Click**: Multi-select nodes and connections
 
 #### Keyboard Controls
 - **Delete**: Remove selected nodes and connections
 - **Escape**: Cancel connection in progress, close menus
-- **Ctrl/Cmd + Click**: Multi-select nodes
+- **C Key (Hold)**: Enter connection cutting mode with scissor cursor
 
-### Connection System
+### Advanced Connection Management
 
-The connection system supports two interaction modes:
+Nōdle features a comprehensive connection system with professional-grade tools:
 
-#### Click-to-Click Mode
+#### Connection Creation
+**Click-to-Click Mode:**
 1. Click an output port → connection preview appears
 2. Click an input port → connection created
 3. ESC to cancel
 
-#### Drag Mode
+**Drag Mode:**
 1. Click and drag from any port
 2. Release on compatible port → connection created
 3. Release elsewhere → connection cancelled
+
+#### Input Port Constraint
+- **One connection per input**: Input ports can only have one connection (industry standard)
+- **Auto-replacement**: Connecting to occupied input port removes old connection
+- **Smart rewiring**: Click/drag connected input ports to disconnect and rewire
+
+#### Connection Selection & Deletion
+**Single Selection:**
+- Click any connection curve to select it (8px detection radius)
+- Selected connections highlight in blue
+- Delete key removes selected connections
+
+**Multi-Selection:**
+- Ctrl/Cmd + Click to add/remove connections from selection
+- Box selection works for both nodes and connections simultaneously
+- Delete key removes all selected connections safely
+
+#### Connection Cutting Tool
+**Professional freehand cutting:**
+1. **Hold C key** - Enter cutting mode, cursor changes to crosshair (scissor mode)
+2. **Drag mouse** - Draw freehand dashed red curves across connections
+3. **Release mouse** - Finish current cut, can start new cuts while C is held
+4. **Multiple cuts** - Draw several cut paths while C key is held
+5. **Release C key** - Apply all cuts, disconnect intersected connections
+
+**Features:**
+- Real-time dashed curve visualization (red lines)
+- Accurate bezier curve intersection detection (20-point sampling)
+- Batch processing when C key is released
+- Works across multiple connections simultaneously
 
 ### Context Menu System
 

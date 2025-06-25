@@ -192,11 +192,7 @@ impl GpuInstanceManager {
            current_node_count != self.last_frame_node_count ||
            (current_node_count > 0 && (self.last_frame_node_count as f32 / current_node_count as f32 - 1.0).abs() > 0.1) {
             
-            // Only log rebuilds for significant changes
-            if current_node_count > 1000 || self.last_frame_node_count > 1000 {
-                println!("GPU Instance Manager: Rebuilding instances for {} nodes (was {} nodes)", 
-                         current_node_count, self.last_frame_node_count);
-            }
+            // Rebuild instances without debug output
             self.rebuild_all_instances(nodes, selected_nodes, connecting_from);
             self.last_frame_node_count = current_node_count;
             self.needs_full_rebuild = false;

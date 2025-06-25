@@ -100,17 +100,14 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         _callback_resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        // Reduce debug output for performance
-        if self.nodes.len() >= 1000 {
-            println!("🟢 GPU: prepare() CALLED with {} nodes!", self.nodes.len());
-        }
+        // Update GPU resources
         
         // Get or create the global renderer
         let mut renderer_lock = GLOBAL_GPU_RENDERER.lock().unwrap();
         if renderer_lock.is_none() {
             // Use the format that matches egui's surface format
             let format = wgpu::TextureFormat::Bgra8Unorm; // Match egui's surface format
-            println!("🟢 GPU: Initializing GLOBAL renderer with format: {:?}", format);
+            // Initialize global renderer
             *renderer_lock = Some(super::GpuNodeRenderer::new(device, format));
         }
         

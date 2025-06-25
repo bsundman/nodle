@@ -36,6 +36,11 @@ pub struct InputState {
     // Context menu state
     pub context_menu_pos: Option<Pos2>,
     pub right_click_world_pos: Option<Pos2>,
+    
+    // Connection cutting state
+    pub is_cutting_mode: bool,
+    pub cut_paths: Vec<Vec<Pos2>>, // Multiple cut paths while C is held
+    pub current_cut_path: Vec<Pos2>, // Current path being drawn
 }
 
 impl InputState {
@@ -60,6 +65,9 @@ impl InputState {
             connecting_from: None,
             context_menu_pos: None,
             right_click_world_pos: None,
+            is_cutting_mode: false,
+            cut_paths: Vec::new(),
+            current_cut_path: Vec::new(),
         }
     }
 
@@ -116,6 +124,39 @@ impl InputState {
         // Close context menu on click (if not right-click)
         if self.clicked_this_frame {
             self.context_menu_pos = None;
+        }
+        
+        // Handle cutting mode
+        let c_key_down = ui.input(|i| i.key_down(egui::Key::C));
+        
+        if c_key_down && !self.is_cutting_mode {
+            // Start cutting mode
+            self.is_cutting_mode = true;
+            self.cut_paths.clear();
+            self.current_cut_path.clear();
+        } else if !c_key_down && self.is_cutting_mode {
+            // End cutting mode - finalize current path if any
+            if !self.current_cut_path.is_empty() {
+                self.cut_paths.push(self.current_cut_path.clone());
+                self.current_cut_path.clear();
+            }
+            self.is_cutting_mode = false;
+        }
+        
+        // Update cutting path when in cutting mode
+        if self.is_cutting_mode {
+            if response.dragged() {
+                // Add points to current path while dragging
+                if let Some(world_pos) = self.mouse_world_pos {
+                    self.current_cut_path.push(world_pos);
+                }
+            } else if response.drag_stopped() {
+                // Finish current path and start a new one
+                if !self.current_cut_path.is_empty() {
+                    self.cut_paths.push(self.current_cut_path.clone());
+                    self.current_cut_path.clear();
+                }
+            }
         }
     }
 
@@ -261,6 +302,66 @@ impl InputState {
         None
     }
     
+    /// Find existing connection to an input port, returns connection index and source info
+    pub fn find_input_connection(&self, graph: &NodeGraph, target_node: NodeId, target_port: PortId) -> Option<(usize, NodeId, PortId)> {
+        for (idx, connection) in graph.connections.iter().enumerate() {
+            if connection.to_node == target_node && connection.to_port == target_port {
+                return Some((idx, connection.from_node, connection.from_port));
+            }
+        }
+        None
+    }
+    
+    /// Check if an input port has an existing connection
+    pub fn input_has_connection(&self, graph: &NodeGraph, node_id: NodeId, port_idx: PortId) -> bool {
+        self.find_input_connection(graph, node_id, port_idx).is_some()
+    }
+
+    /// Find connection curve that was clicked, returns connection index
+    pub fn find_clicked_connection(&self, graph: &NodeGraph, click_radius: f32, zoom: f32) -> Option<usize> {
+        if let Some(click_pos) = self.mouse_world_pos {
+            for (idx, connection) in graph.connections.iter().enumerate() {
+                if let (Some(from_node), Some(to_node)) = (
+                    graph.nodes.get(&connection.from_node),
+                    graph.nodes.get(&connection.to_node),
+                ) {
+                    if let (Some(from_port), Some(to_port)) = (
+                        from_node.outputs.get(connection.from_port),
+                        to_node.inputs.get(connection.to_port),
+                    ) {
+                        let from_pos = from_port.position;
+                        let to_pos = to_port.position;
+
+                        // Calculate bezier curve control points (same logic as in rendering)
+                        let vertical_distance = (to_pos.y - from_pos.y).abs();
+                        let control_offset = if vertical_distance > 10.0 {
+                            vertical_distance * 0.4
+                        } else {
+                            60.0 * zoom
+                        };
+
+                        let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
+                        let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);
+
+                        // Check if click is near the bezier curve
+                        let distance = crate::nodes::math_utils::distance_to_bezier_curve(
+                            click_pos,
+                            from_pos,
+                            control_point1,
+                            control_point2,
+                            to_pos,
+                        );
+
+                        if distance <= click_radius {
+                            return Some(idx);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    
     // === NODE SELECTION ===
     
     /// Find which node (if any) contains the current mouse position
@@ -349,6 +450,107 @@ impl InputState {
             }
         }
         false
+    }
+    
+    // === CONNECTION CUTTING ===
+    
+    /// Check if we're in cutting mode
+    pub fn is_cutting_mode(&self) -> bool {
+        self.is_cutting_mode
+    }
+    
+    /// Get all cut paths for rendering
+    pub fn get_cut_paths(&self) -> &Vec<Vec<Pos2>> {
+        &self.cut_paths
+    }
+    
+    /// Get current cut path being drawn
+    pub fn get_current_cut_path(&self) -> &Vec<Pos2> {
+        &self.current_cut_path
+    }
+    
+    /// Find connections that intersect with any cut path and return their indices
+    pub fn find_cut_connections(&self, graph: &NodeGraph, zoom: f32) -> Vec<usize> {
+        let mut cut_connections = Vec::new();
+        
+        // Check all completed cut paths plus current path
+        let mut all_paths = self.cut_paths.clone();
+        if !self.current_cut_path.is_empty() {
+            all_paths.push(self.current_cut_path.clone());
+        }
+        
+        for (idx, connection) in graph.connections.iter().enumerate() {
+            if let (Some(from_node), Some(to_node)) = (
+                graph.nodes.get(&connection.from_node),
+                graph.nodes.get(&connection.to_node),
+            ) {
+                if let (Some(from_port), Some(to_port)) = (
+                    from_node.outputs.get(connection.from_port),
+                    to_node.inputs.get(connection.to_port),
+                ) {
+                    let from_pos = from_port.position;
+                    let to_pos = to_port.position;
+                    
+                    // Check if any cut path intersects this connection
+                    for cut_path in &all_paths {
+                        if self.path_intersects_connection(cut_path, from_pos, to_pos, zoom) {
+                            cut_connections.push(idx);
+                            break; // Only add once per connection
+                        }
+                    }
+                }
+            }
+        }
+        
+        cut_connections
+    }
+    
+    /// Check if a cut path intersects with a connection bezier curve
+    fn path_intersects_connection(&self, cut_path: &[Pos2], from_pos: Pos2, to_pos: Pos2, zoom: f32) -> bool {
+        if cut_path.len() < 2 {
+            return false;
+        }
+        
+        // Calculate bezier curve control points (same logic as rendering)
+        let vertical_distance = (to_pos.y - from_pos.y).abs();
+        let control_offset = if vertical_distance > 10.0 {
+            vertical_distance * 0.4
+        } else {
+            60.0 * zoom
+        };
+        
+        let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
+        let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);
+        
+        // Sample points along the bezier curve
+        for i in 0..=20 {
+            let t = i as f32 / 20.0;
+            let curve_point = crate::nodes::math_utils::cubic_bezier_point(
+                t, from_pos, control_point1, control_point2, to_pos
+            );
+            
+            // Check if this curve point is close to any segment of the cut path
+            for window in cut_path.windows(2) {
+                let seg_start = window[0];
+                let seg_end = window[1];
+                
+                let distance = crate::nodes::math_utils::distance_to_line_segment(
+                    curve_point, seg_start, seg_end
+                );
+                
+                if distance < 10.0 { // Intersection threshold
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
+    
+    /// Clear all cut paths (called when cutting mode ends and cuts are applied)
+    pub fn clear_cut_paths(&mut self) {
+        self.cut_paths.clear();
+        self.current_cut_path.clear();
     }
 }
 

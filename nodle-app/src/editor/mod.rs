@@ -21,7 +21,7 @@ use crate::nodes::{
     NodeGraph,
 };
 use crate::context::ContextManager;
-use crate::contexts::materialx::MaterialXContext;
+use crate::contexts::ContextRegistry;
 use crate::gpu::NodeRenderCallback;
 use crate::gpu::GpuInstanceManager;
 
@@ -45,10 +45,8 @@ pub struct NodeEditor {
 
 impl NodeEditor {
     pub fn new() -> Self {
-        let mut context_manager = ContextManager::new();
-        
-        // Register MaterialX context
-        context_manager.register_context(Box::new(MaterialXContext::new()));
+        // Use the context registry to create a manager with all available contexts
+        let context_manager = ContextRegistry::create_context_manager();
         
         let editor = Self {
             graph: NodeGraph::new(),
@@ -171,7 +169,6 @@ impl NodeEditor {
 
     /// Add benchmark nodes in a grid pattern for performance testing
     fn add_benchmark_nodes(&mut self, count: usize) {
-        println!("Adding {} benchmark nodes", count);
         
         let node_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
         let spacing = 120.0;
@@ -193,8 +190,6 @@ impl NodeEditor {
 
     /// Add a large number of nodes with many connections for serious performance stress testing
     fn add_performance_stress_test(&mut self, count: usize) {
-        println!("Creating performance stress test with {} nodes and many connections", count);
-        
         let start_time = std::time::Instant::now();
         let node_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
         
@@ -217,8 +212,7 @@ impl NodeEditor {
             }
         }
         
-        let node_creation_time = start_time.elapsed();
-        println!("Created {} nodes in {:?}", node_ids.len(), node_creation_time);
+        let _node_creation_time = start_time.elapsed();
         
         // Create many connections for performance testing
         let connection_start = std::time::Instant::now();
@@ -243,23 +237,62 @@ impl NodeEditor {
             }
         }
         
-        let connection_time = connection_start.elapsed();
-        let total_time = start_time.elapsed();
-        
-        println!("Stress test complete: {} nodes, {} connections", 
-                 self.graph.nodes.len(), self.graph.connections.len());
-        println!("Total time: {:?} (nodes: {:?}, connections: {:?})", 
-                 total_time, node_creation_time, connection_time);
+        let _connection_time = connection_start.elapsed();
+        let _total_time = start_time.elapsed();
         
         // Force GPU instance rebuild after adding many nodes
         self.gpu_instance_manager.force_rebuild();
     }
 
+    /// Draw a dashed path for connection cutting visualization
+    fn draw_dashed_path(&self, painter: &egui::Painter, path: &[Pos2], transform_pos: &impl Fn(Pos2) -> Pos2, zoom: f32, color: Color32) {
+        if path.len() < 2 {
+            return;
+        }
+        
+        let dash_length = 8.0 * zoom;
+        let gap_length = 4.0 * zoom;
+        let stroke_width = 2.0 * zoom;
+        
+        for window in path.windows(2) {
+            let start = transform_pos(window[0]);
+            let end = transform_pos(window[1]);
+            
+            let segment_length = (end - start).length();
+            let direction = (end - start) / segment_length;
+            
+            let mut distance = 0.0;
+            let mut drawing_dash = true;
+            
+            while distance < segment_length {
+                let next_distance = if drawing_dash {
+                    (distance + dash_length).min(segment_length)
+                } else {
+                    (distance + gap_length).min(segment_length)
+                };
+                
+                if drawing_dash {
+                    let dash_start = start + direction * distance;
+                    let dash_end = start + direction * next_distance;
+                    
+                    painter.line_segment(
+                        [dash_start, dash_end],
+                        Stroke::new(stroke_width, color),
+                    );
+                }
+                
+                distance = next_distance;
+                drawing_dash = !drawing_dash;
+            }
+        }
+    }
+
+
 }
 
 impl eframe::App for NodeEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Request repaint for smooth updates
+        // Request repaint
         ctx.request_repaint();
 
         // Track frame time for performance monitoring
@@ -336,6 +369,11 @@ impl eframe::App for NodeEditor {
 
             let response = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
             
+            // Set cursor based on cutting mode
+            if self.input_state.is_cutting_mode() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); // Use crosshair as close to scissors
+            }
+            
             // Handle context menu before creating the painter (to avoid borrow conflicts)
             self.handle_context_menu(ui, &response);
             
@@ -381,8 +419,11 @@ impl eframe::App for NodeEditor {
                 }
             }
 
-            // Handle input using input state
-            if let Some(pos) = self.input_state.mouse_world_pos {
+            // Handle cutting mode
+            if self.input_state.is_cutting_mode() {
+                // In cutting mode - skip normal interactions
+                // Cutting is handled in the input state update
+            } else if let Some(pos) = self.input_state.mouse_world_pos {
                 // Skip node interaction if we're panning
                 if !self.input_state.is_panning {
                     // Handle clicks (not just drags)
@@ -393,6 +434,13 @@ impl eframe::App for NodeEditor {
                             if self.input_state.is_connecting_active() {
                                 // Try to complete connection
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
+                                    // Check if target is an input port and already has a connection
+                                    if is_input {
+                                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                            // Remove existing connection to input port
+                                            self.graph.remove_connection(existing_idx);
+                                        }
+                                    }
                                     let _ = self.graph.add_connection(connection);
                                     self.gpu_instance_manager.force_rebuild();
                                 } else {
@@ -401,13 +449,27 @@ impl eframe::App for NodeEditor {
                                     self.gpu_instance_manager.force_rebuild();
                                 }
                             } else {
-                                // Start new connection
+                                // Not currently connecting - check if clicking on connected input port
+                                if is_input {
+                                    if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                        // Disconnect and start new connection from original source
+                                        self.graph.remove_connection(conn_idx);
+                                        self.input_state.start_connection(from_node, from_port, false);
+                                        self.gpu_instance_manager.force_rebuild();
+                                        return; // Skip starting connection from input port
+                                    }
+                                }
+                                // Start new connection from this port
                                 self.input_state.start_connection(node_id, port_idx, is_input);
                                 self.gpu_instance_manager.force_rebuild();
                             }
                         } else if let Some(node_id) = self.input_state.find_node_under_mouse(&self.graph) {
                             // Handle node selection
                             self.interaction.select_node(node_id, self.input_state.is_multi_select());
+                            self.gpu_instance_manager.force_rebuild();
+                        } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.graph, 8.0, self.viewport.zoom) {
+                            // Handle connection selection with multi-select support
+                            self.interaction.select_connection_multi(connection_idx, self.input_state.is_multi_select());
                             self.gpu_instance_manager.force_rebuild();
                         } else {
                             // Clicked on empty space - deselect all and cancel connections
@@ -421,8 +483,23 @@ impl eframe::App for NodeEditor {
                     if self.input_state.drag_started_this_frame {
                         // Check if we're starting to drag from a port for connections
                         if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(&self.graph, 10.0) {
-                            self.input_state.start_connection(node_id, port_idx, is_input);
-                            self.gpu_instance_manager.force_rebuild();
+                            // Handle input port disconnection on drag
+                            if is_input {
+                                if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                    // Disconnect and start new connection from original source
+                                    self.graph.remove_connection(conn_idx);
+                                    self.input_state.start_connection(from_node, from_port, false);
+                                    self.gpu_instance_manager.force_rebuild();
+                                } else {
+                                    // No existing connection, start from input port
+                                    self.input_state.start_connection(node_id, port_idx, is_input);
+                                    self.gpu_instance_manager.force_rebuild();
+                                }
+                            } else {
+                                // Output port - start connection normally
+                                self.input_state.start_connection(node_id, port_idx, is_input);
+                                self.gpu_instance_manager.force_rebuild();
+                            }
                         } else {
                             // Check if we're starting to drag a selected node
                             let mut dragging_selected = false;
@@ -506,9 +583,17 @@ impl eframe::App for NodeEditor {
                     // Delete all selected nodes
                     self.interaction.delete_selected(&mut self.graph);
                     self.gpu_instance_manager.force_rebuild();
-                } else if let Some(conn_idx) = self.interaction.selected_connection {
-                    self.graph.remove_connection(conn_idx);
-                    self.interaction.selected_connection = None;
+                } else if !self.interaction.selected_connections.is_empty() {
+                    // Delete all selected connections (in reverse order to maintain indices)
+                    let mut connection_indices: Vec<usize> = self.interaction.selected_connections.iter().copied().collect();
+                    connection_indices.sort_by(|a, b| b.cmp(a)); // Sort in reverse order
+                    
+                    for conn_idx in connection_indices {
+                        self.graph.remove_connection(conn_idx);
+                    }
+                    
+                    self.interaction.clear_connection_selection();
+                    self.gpu_instance_manager.force_rebuild();
                 }
             }
 
@@ -516,6 +601,27 @@ impl eframe::App for NodeEditor {
             if self.input_state.escape_pressed(ui) {
                 self.input_state.cancel_connection();
                 self.gpu_instance_manager.force_rebuild();
+            }
+
+            // Handle connection cutting when C key is released
+            if !self.input_state.is_cutting_mode() && (!self.input_state.get_cut_paths().is_empty() || !self.input_state.get_current_cut_path().is_empty()) {
+                // C key was just released - apply cuts
+                let cut_connections = self.input_state.find_cut_connections(&self.graph, self.viewport.zoom);
+                
+                if !cut_connections.is_empty() {
+                    // Sort in reverse order to maintain indices during deletion
+                    let mut sorted_cuts = cut_connections;
+                    sorted_cuts.sort_by(|a, b| b.cmp(a));
+                    
+                    for conn_idx in sorted_cuts {
+                        self.graph.remove_connection(conn_idx);
+                    }
+                    
+                    self.gpu_instance_manager.force_rebuild();
+                }
+                
+                // Clear cut paths after applying
+                self.input_state.clear_cut_paths();
             }
 
             // Handle F1 to toggle performance info
@@ -541,13 +647,11 @@ impl eframe::App for NodeEditor {
                 self.interaction.clear_selection();
                 self.input_state.cancel_connection();
                 self.gpu_instance_manager.force_rebuild();
-                println!("Cleared all nodes");
             }
 
             // Handle F6 to toggle GPU/CPU rendering
             if self.input_state.f6_pressed(ui) {
                 self.use_gpu_rendering = !self.use_gpu_rendering;
-                println!("Switched to {} rendering", if self.use_gpu_rendering { "GPU" } else { "CPU" });
             }
 
             // Handle right-click for context menu first (before other input handling)
@@ -751,8 +855,8 @@ impl eframe::App for NodeEditor {
                             transformed_to,
                         ];
 
-                        // Highlight selected connection
-                        let (stroke_width, stroke_color) = if Some(idx) == self.interaction.selected_connection
+                        // Highlight selected connections
+                        let (stroke_width, stroke_color) = if self.interaction.selected_connections.contains(&idx)
                         {
                             (4.0 * zoom, Color32::from_rgb(88, 166, 255)) // Blue accent for selected
                         } else {
@@ -814,6 +918,19 @@ impl eframe::App for NodeEditor {
                                 .into(),
                         }));
                     }
+                }
+            }
+
+            // Draw cut paths (dashed lines)
+            if self.input_state.is_cutting_mode() {
+                // Draw completed cut paths
+                for cut_path in self.input_state.get_cut_paths() {
+                    self.draw_dashed_path(&painter, cut_path, &transform_pos, zoom, Color32::from_rgb(255, 100, 100));
+                }
+                
+                // Draw current cut path being drawn
+                if !self.input_state.get_current_cut_path().is_empty() {
+                    self.draw_dashed_path(&painter, self.input_state.get_current_cut_path(), &transform_pos, zoom, Color32::from_rgb(255, 150, 150));
                 }
             }
 

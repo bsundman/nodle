@@ -30,3 +30,19 @@ pub fn distance_to_line_segment(point: Pos2, a: Pos2, b: Pos2) -> f32 {
     let projection = a + ab * t;
     (point - projection).length()
 }
+
+/// Calculates the minimum distance from a point to a cubic Bézier curve
+/// Uses sampling to approximate the distance
+pub fn distance_to_bezier_curve(point: Pos2, p0: Pos2, p1: Pos2, p2: Pos2, p3: Pos2) -> f32 {
+    let mut min_distance = f32::MAX;
+    let samples = 20; // Number of samples along the curve
+    
+    for i in 0..=samples {
+        let t = i as f32 / samples as f32;
+        let curve_point = cubic_bezier_point(t, p0, p1, p2, p3);
+        let distance = (point - curve_point).length();
+        min_distance = min_distance.min(distance);
+    }
+    
+    min_distance
+}

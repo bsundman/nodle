@@ -178,7 +178,7 @@ impl MeshRenderer {
         painter: &Painter,
         node: &Node,
         selected: bool,
-        zoom: f32,
+        _zoom: f32,
     ) -> Rect {
         let rect = node.get_rect();
         let corner_radius = 5.0;
