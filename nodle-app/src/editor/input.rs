@@ -787,6 +787,105 @@ impl InputState {
         None
     }
     
+    /// Get the port that would be the start of a connection (before drawing begins)
+    pub fn get_connection_start_preview(&self, graph: &NodeGraph) -> Option<(NodeId, usize, bool)> {
+        if !self.is_connecting_mode || self.mouse_world_pos.is_none() {
+            return None;
+        }
+        
+        let mouse_pos = self.mouse_world_pos.unwrap();
+        let search_radius = 80.0;
+        
+        // Find the best port near current mouse position
+        // Prefer output ports for starting connections (they're typically the source)
+        let mut best_port = None;
+        let mut best_score = f32::MAX;
+        
+        for (node_id, node) in &graph.nodes {
+            // Check output ports first (preferred for starting connections)
+            for (port_idx, port) in node.outputs.iter().enumerate() {
+                let distance = (port.position - mouse_pos).length();
+                if distance < search_radius {
+                    // Give output ports a slight preference for starting connections
+                    let score = distance * 0.8; // 20% bonus for output ports
+                    if score < best_score {
+                        best_score = score;
+                        best_port = Some((*node_id, port_idx, false)); // false = output
+                    }
+                }
+            }
+            
+            // Check input ports (less preferred but still possible)
+            for (port_idx, port) in node.inputs.iter().enumerate() {
+                let distance = (port.position - mouse_pos).length();
+                if distance < search_radius {
+                    let score = distance; // No bonus for input ports
+                    if score < best_score {
+                        best_score = score;
+                        best_port = Some((*node_id, port_idx, true)); // true = input
+                    }
+                }
+            }
+        }
+        
+        best_port
+    }
+    
+    /// Get the port that would be the end of a connection (while drawing)
+    pub fn get_connection_end_preview(&self, graph: &NodeGraph) -> Option<(NodeId, usize, bool)> {
+        if !self.is_connecting_mode || self.mouse_world_pos.is_none() || self.current_connect_path.is_empty() {
+            return None;
+        }
+        
+        let mouse_pos = self.mouse_world_pos.unwrap();
+        let search_radius = 80.0;
+        
+        // Get the start port to determine what type of end port we need
+        // Use the beginning of the path to determine start port type
+        let start_area = &self.current_connect_path[0..self.current_connect_path.len().min(3)];
+        let start_port = self.find_best_port_near_area(graph, start_area, search_radius);
+        
+        // If we can't determine start port, don't show any end preview
+        let (start_node, _start_port_idx, start_is_input) = match start_port {
+            Some(port) => port,
+            None => return None,
+        };
+        
+        // Find the best compatible end port near current mouse position
+        let mut best_port = None;
+        let mut best_score = f32::MAX;
+        
+        for (node_id, node) in &graph.nodes {
+            // Skip the same node as start
+            if *node_id == start_node {
+                continue;
+            }
+            
+            // ONLY check the compatible port type based on start port
+            if start_is_input {
+                // Started from input port -> can only connect to output ports
+                for (port_idx, port) in node.outputs.iter().enumerate() {
+                    let distance = (port.position - mouse_pos).length();
+                    if distance < search_radius && distance < best_score {
+                        best_score = distance;
+                        best_port = Some((*node_id, port_idx, false)); // false = output
+                    }
+                }
+            } else {
+                // Started from output port -> can only connect to input ports
+                for (port_idx, port) in node.inputs.iter().enumerate() {
+                    let distance = (port.position - mouse_pos).length();
+                    if distance < search_radius && distance < best_score {
+                        best_score = distance;
+                        best_port = Some((*node_id, port_idx, true)); // true = input
+                    }
+                }
+            }
+        }
+        
+        best_port
+    }
+    
     /// Clear all connect paths (called when connecting mode ends and connections are applied)
     pub fn clear_connect_paths(&mut self) {
         self.connect_paths.clear();

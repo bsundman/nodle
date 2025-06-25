@@ -183,17 +183,23 @@ impl GpuInstanceManager {
         nodes: &HashMap<NodeId, Node>,
         selected_nodes: &HashSet<NodeId>,
         connecting_from: Option<(NodeId, usize, bool)>,
+        input_state: &crate::editor::InputState,
+        graph: &crate::nodes::NodeGraph,
     ) -> (&[NodeInstanceData], &[PortInstanceData]) {
         let current_node_count = nodes.len();
         let _estimated_port_count = current_node_count * 3; // Rough estimate
         
         // Only rebuild if node count changed significantly or forced rebuild
-        if self.needs_full_rebuild || 
+        // Also rebuild during connection drawing mode for real-time port highlighting
+        let should_rebuild = self.needs_full_rebuild || 
            current_node_count != self.last_frame_node_count ||
-           (current_node_count > 0 && (self.last_frame_node_count as f32 / current_node_count as f32 - 1.0).abs() > 0.1) {
-            
+           (current_node_count > 0 && (self.last_frame_node_count as f32 / current_node_count as f32 - 1.0).abs() > 0.1) ||
+           input_state.is_connecting_mode() || // Force rebuild during connection drawing
+           connecting_from.is_some(); // Force rebuild during click-to-connect
+        
+        if should_rebuild {
             // Rebuild instances without debug output
-            self.rebuild_all_instances(nodes, selected_nodes, connecting_from);
+            self.rebuild_all_instances(nodes, selected_nodes, connecting_from, input_state, graph);
             self.last_frame_node_count = current_node_count;
             self.needs_full_rebuild = false;
         }
@@ -206,6 +212,8 @@ impl GpuInstanceManager {
         nodes: &HashMap<NodeId, Node>,
         selected_nodes: &HashSet<NodeId>,
         connecting_from: Option<(NodeId, usize, bool)>,
+        input_state: &crate::editor::InputState,
+        graph: &crate::nodes::NodeGraph,
     ) {
         self.node_instances.clear();
         self.port_instances.clear();
@@ -217,22 +225,80 @@ impl GpuInstanceManager {
             
             // Add port instances for this node
             for (port_idx, port) in node.inputs.iter().enumerate() {
-                let is_connecting = if let Some((conn_node, conn_port, is_input)) = connecting_from {
+                // Check if this port is being used for an active connection or connection preview
+                let mut is_connecting = if let Some((conn_node, conn_port, is_input)) = connecting_from {
                     conn_node == *id && conn_port == port_idx && is_input
                 } else {
                     false
                 };
+                
+                // Also check if this port is in the connection drawing preview
+                if !is_connecting && input_state.is_connecting_mode() {
+                    // Check for start port preview (before drawing begins)
+                    if input_state.get_current_connect_path().is_empty() {
+                        if let Some((start_node, start_port, start_is_input)) = input_state.get_connection_start_preview(graph) {
+                            if start_node == *id && start_port == port_idx && start_is_input {
+                                is_connecting = true;
+                            }
+                        }
+                    } else {
+                        // Check for completed connection preview (while drawing)
+                        if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = input_state.get_connection_preview(graph) {
+                            if (start_node == *id && start_port == port_idx && start_is_input) ||
+                               (end_node == *id && end_port == port_idx && end_is_input) {
+                                is_connecting = true;
+                            }
+                        }
+                        // Also check for end port preview (current mouse position)
+                        if !is_connecting {
+                            if let Some((end_node, end_port, end_is_input)) = input_state.get_connection_end_preview(graph) {
+                                if end_node == *id && end_port == port_idx && end_is_input {
+                                    is_connecting = true;
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 let port_instance = PortInstanceData::from_port(port.position, 5.0, is_connecting, true);
                 self.port_instances.push(port_instance);
             }
             
             for (port_idx, port) in node.outputs.iter().enumerate() {
-                let is_connecting = if let Some((conn_node, conn_port, is_input)) = connecting_from {
+                // Check if this port is being used for an active connection or connection preview
+                let mut is_connecting = if let Some((conn_node, conn_port, is_input)) = connecting_from {
                     conn_node == *id && conn_port == port_idx && !is_input
                 } else {
                     false
                 };
+                
+                // Also check if this port is in the connection drawing preview
+                if !is_connecting && input_state.is_connecting_mode() {
+                    // Check for start port preview (before drawing begins)
+                    if input_state.get_current_connect_path().is_empty() {
+                        if let Some((start_node, start_port, start_is_input)) = input_state.get_connection_start_preview(graph) {
+                            if start_node == *id && start_port == port_idx && !start_is_input {
+                                is_connecting = true;
+                            }
+                        }
+                    } else {
+                        // Check for completed connection preview (while drawing)
+                        if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = input_state.get_connection_preview(graph) {
+                            if (start_node == *id && start_port == port_idx && !start_is_input) ||
+                               (end_node == *id && end_port == port_idx && !end_is_input) {
+                                is_connecting = true;
+                            }
+                        }
+                        // Also check for end port preview (current mouse position)
+                        if !is_connecting {
+                            if let Some((end_node, end_port, end_is_input)) = input_state.get_connection_end_preview(graph) {
+                                if end_node == *id && end_port == port_idx && !end_is_input {
+                                    is_connecting = true;
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 let port_instance = PortInstanceData::from_port(port.position, 5.0, is_connecting, false);
                 self.port_instances.push(port_instance);

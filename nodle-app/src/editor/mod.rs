@@ -369,11 +369,11 @@ impl eframe::App for NodeEditor {
 
             let response = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
             
-            // Set cursor based on special modes
+            // Set cursor based on special modes  
             if self.input_state.is_cutting_mode() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); // Use crosshair for cutting (X key)
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); // Use crosshair for cutting mode
             } else if self.input_state.is_connecting_mode() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); // Use pointing hand for connecting (C key)
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); // Use crosshair for connecting mode
             }
             
             // Handle context menu before creating the painter (to avoid borrow conflicts)
@@ -714,6 +714,8 @@ impl eframe::App for NodeEditor {
                     &self.graph.nodes,
                     &self.interaction.selected_nodes,
                     self.input_state.get_connecting_from(),
+                    &self.input_state,
+                    &self.graph,
                 );
                 
                 let gpu_callback = NodeRenderCallback::from_instances(
@@ -797,10 +799,28 @@ impl eframe::App for NodeEditor {
                         
                         // Also check if this port is in the connection drawing preview
                         if !is_connecting_port && self.input_state.is_connecting_mode() {
-                            if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = self.input_state.get_connection_preview(&self.graph) {
-                                if (start_node == *node_id && start_port == port_idx && start_is_input) ||
-                                   (end_node == *node_id && end_port == port_idx && end_is_input) {
-                                    is_connecting_port = true;
+                            // Check for start port preview (before drawing begins)
+                            if self.input_state.get_current_connect_path().is_empty() {
+                                if let Some((start_node, start_port, start_is_input)) = self.input_state.get_connection_start_preview(&self.graph) {
+                                    if start_node == *node_id && start_port == port_idx && start_is_input {
+                                        is_connecting_port = true;
+                                    }
+                                }
+                            } else {
+                                // Check for completed connection preview (while drawing)
+                                if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = self.input_state.get_connection_preview(&self.graph) {
+                                    if (start_node == *node_id && start_port == port_idx && start_is_input) ||
+                                       (end_node == *node_id && end_port == port_idx && end_is_input) {
+                                        is_connecting_port = true;
+                                    }
+                                }
+                                // Also check for end port preview (current mouse position)
+                                if !is_connecting_port {
+                                    if let Some((end_node, end_port, end_is_input)) = self.input_state.get_connection_end_preview(&self.graph) {
+                                        if end_node == *node_id && end_port == port_idx && end_is_input {
+                                            is_connecting_port = true;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -838,10 +858,28 @@ impl eframe::App for NodeEditor {
                         
                         // Also check if this port is in the connection drawing preview
                         if !is_connecting_port && self.input_state.is_connecting_mode() {
-                            if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = self.input_state.get_connection_preview(&self.graph) {
-                                if (start_node == *node_id && start_port == port_idx && !start_is_input) ||
-                                   (end_node == *node_id && end_port == port_idx && !end_is_input) {
-                                    is_connecting_port = true;
+                            // Check for start port preview (before drawing begins)
+                            if self.input_state.get_current_connect_path().is_empty() {
+                                if let Some((start_node, start_port, start_is_input)) = self.input_state.get_connection_start_preview(&self.graph) {
+                                    if start_node == *node_id && start_port == port_idx && !start_is_input {
+                                        is_connecting_port = true;
+                                    }
+                                }
+                            } else {
+                                // Check for completed connection preview (while drawing)
+                                if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = self.input_state.get_connection_preview(&self.graph) {
+                                    if (start_node == *node_id && start_port == port_idx && !start_is_input) ||
+                                       (end_node == *node_id && end_port == port_idx && !end_is_input) {
+                                        is_connecting_port = true;
+                                    }
+                                }
+                                // Also check for end port preview (current mouse position)
+                                if !is_connecting_port {
+                                    if let Some((end_node, end_port, end_is_input)) = self.input_state.get_connection_end_preview(&self.graph) {
+                                        if end_node == *node_id && end_port == port_idx && !end_is_input {
+                                            is_connecting_port = true;
+                                        }
+                                    }
                                 }
                             }
                         }
