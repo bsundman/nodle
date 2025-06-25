@@ -788,12 +788,22 @@ impl eframe::App for NodeEditor {
                     // Draw ports using MeshRenderer
                     // Input ports (on top)
                     for (port_idx, input) in node.inputs.iter().enumerate() {
-                        // Check if this port is being used for an active connection
-                        let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.input_state.get_connecting_from() {
+                        // Check if this port is being used for an active connection or connection preview
+                        let mut is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.input_state.get_connecting_from() {
                             from_node == *node_id && from_port == port_idx && from_is_input
                         } else {
                             false
                         };
+                        
+                        // Also check if this port is in the connection drawing preview
+                        if !is_connecting_port && self.input_state.is_connecting_mode() {
+                            if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = self.input_state.get_connection_preview(&self.graph) {
+                                if (start_node == *node_id && start_port == port_idx && start_is_input) ||
+                                   (end_node == *node_id && end_port == port_idx && end_is_input) {
+                                    is_connecting_port = true;
+                                }
+                            }
+                        }
                         
                         // Render port using MeshRenderer
                         MeshRenderer::render_port_complete_cpu(
@@ -819,12 +829,22 @@ impl eframe::App for NodeEditor {
 
                     // Output ports (on bottom)
                     for (port_idx, output) in node.outputs.iter().enumerate() {
-                        // Check if this port is being used for an active connection
-                        let is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.input_state.get_connecting_from() {
+                        // Check if this port is being used for an active connection or connection preview
+                        let mut is_connecting_port = if let Some((from_node, from_port, from_is_input)) = self.input_state.get_connecting_from() {
                             from_node == *node_id && from_port == port_idx && !from_is_input
                         } else {
                             false
                         };
+                        
+                        // Also check if this port is in the connection drawing preview
+                        if !is_connecting_port && self.input_state.is_connecting_mode() {
+                            if let Some(((start_node, start_port, start_is_input), (end_node, end_port, end_is_input))) = self.input_state.get_connection_preview(&self.graph) {
+                                if (start_node == *node_id && start_port == port_idx && !start_is_input) ||
+                                   (end_node == *node_id && end_port == port_idx && !end_is_input) {
+                                    is_connecting_port = true;
+                                }
+                            }
+                        }
                         
                         // Render port using MeshRenderer
                         MeshRenderer::render_port_complete_cpu(

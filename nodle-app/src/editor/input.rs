@@ -642,7 +642,7 @@ impl InputState {
     /// Create connections from drawn paths to nearest ports
     pub fn create_connections_from_paths(&self, graph: &NodeGraph) -> Vec<Connection> {
         let mut connections = Vec::new();
-        let search_radius = 50.0; // Search within 50 pixels for nearest port
+        let search_radius = 80.0; // Increased search radius for easier targeting
         
         // Process all completed paths plus current path
         let mut all_paths = self.connect_paths.clone();
@@ -655,28 +655,136 @@ impl InputState {
                 continue; // Need at least start and end points
             }
             
-            let start_pos = path[0];
-            let end_pos = path[path.len() - 1];
+            // Instead of using exact start/end points, use the general area
+            // Take the first few and last few points to find the best port match
+            let start_area_points = if path.len() >= 4 {
+                &path[0..3] // First 3 points
+            } else {
+                &path[0..1] // Just first point if path is short
+            };
             
-            // Find nearest ports to start and end positions
-            if let Some((start_node, start_port, start_is_input)) = self.find_nearest_port(graph, start_pos, search_radius) {
-                if let Some((end_node, end_port, end_is_input)) = self.find_nearest_port(graph, end_pos, search_radius) {
-                    // Only create connection if we have different nodes and valid port types
-                    if start_node != end_node && start_is_input != end_is_input {
-                        let connection = if start_is_input {
-                            // Start from input, end at output: reverse the connection
-                            Connection::new(end_node, end_port, start_node, start_port)
-                        } else {
-                            // Start from output, end at input: normal connection
-                            Connection::new(start_node, start_port, end_node, end_port)
-                        };
-                        connections.push(connection);
-                    }
+            let end_area_points = if path.len() >= 4 {
+                &path[path.len()-3..] // Last 3 points
+            } else {
+                &path[path.len()-1..] // Just last point if path is short
+            };
+            
+            // Find best port near the start area
+            let start_port = self.find_best_port_near_area(graph, start_area_points, search_radius);
+            
+            // Find best port near the end area
+            let end_port = self.find_best_port_near_area(graph, end_area_points, search_radius);
+            
+            if let (Some((start_node, start_port_idx, start_is_input)), Some((end_node, end_port_idx, end_is_input))) = (start_port, end_port) {
+                // Only create connection if we have different nodes and valid port types
+                if start_node != end_node && start_is_input != end_is_input {
+                    let connection = if start_is_input {
+                        // Start from input, end at output: reverse the connection
+                        Connection::new(end_node, end_port_idx, start_node, start_port_idx)
+                    } else {
+                        // Start from output, end at input: normal connection
+                        Connection::new(start_node, start_port_idx, end_node, end_port_idx)
+                    };
+                    connections.push(connection);
                 }
             }
         }
         
         connections
+    }
+    
+    /// Find the best port near an area defined by multiple points
+    fn find_best_port_near_area(&self, graph: &NodeGraph, area_points: &[Pos2], search_radius: f32) -> Option<(NodeId, usize, bool)> {
+        let mut best_port = None;
+        let mut best_score = f32::MAX;
+        
+        // Calculate the center of the area for reference
+        let area_center = if area_points.is_empty() {
+            return None;
+        } else if area_points.len() == 1 {
+            area_points[0]
+        } else {
+            let sum = area_points.iter().fold(Pos2::ZERO, |acc, &p| Pos2::new(acc.x + p.x, acc.y + p.y));
+            Pos2::new(sum.x / area_points.len() as f32, sum.y / area_points.len() as f32)
+        };
+        
+        for (node_id, node) in &graph.nodes {
+            // Check output ports
+            for (port_idx, port) in node.outputs.iter().enumerate() {
+                // Find minimum distance from port to any point in the area
+                let min_distance_to_area = area_points.iter()
+                    .map(|&point| (port.position - point).length())
+                    .fold(f32::MAX, f32::min);
+                
+                if min_distance_to_area < search_radius {
+                    // Score combines distance to area and distance to area center
+                    // This helps pick ports that are both close to the path and in the right general area
+                    let distance_to_center = (port.position - area_center).length();
+                    let score = min_distance_to_area * 0.7 + distance_to_center * 0.3;
+                    
+                    if score < best_score {
+                        best_score = score;
+                        best_port = Some((*node_id, port_idx, false)); // false = output
+                    }
+                }
+            }
+            
+            // Check input ports
+            for (port_idx, port) in node.inputs.iter().enumerate() {
+                // Find minimum distance from port to any point in the area
+                let min_distance_to_area = area_points.iter()
+                    .map(|&point| (port.position - point).length())
+                    .fold(f32::MAX, f32::min);
+                
+                if min_distance_to_area < search_radius {
+                    // Score combines distance to area and distance to area center
+                    let distance_to_center = (port.position - area_center).length();
+                    let score = min_distance_to_area * 0.7 + distance_to_center * 0.3;
+                    
+                    if score < best_score {
+                        best_score = score;
+                        best_port = Some((*node_id, port_idx, true)); // true = input
+                    }
+                }
+            }
+        }
+        
+        best_port
+    }
+    
+    /// Get preview of ports that would be connected by current connection path
+    pub fn get_connection_preview(&self, graph: &NodeGraph) -> Option<((NodeId, usize, bool), (NodeId, usize, bool))> {
+        if self.current_connect_path.len() < 2 {
+            return None;
+        }
+        
+        let search_radius = 80.0;
+        
+        // Get start and end areas
+        let start_area_points = if self.current_connect_path.len() >= 4 {
+            &self.current_connect_path[0..3]
+        } else {
+            &self.current_connect_path[0..1]
+        };
+        
+        let end_area_points = if self.current_connect_path.len() >= 4 {
+            &self.current_connect_path[self.current_connect_path.len()-3..]
+        } else {
+            &self.current_connect_path[self.current_connect_path.len()-1..]
+        };
+        
+        // Find ports that would be connected
+        let start_port = self.find_best_port_near_area(graph, start_area_points, search_radius);
+        let end_port = self.find_best_port_near_area(graph, end_area_points, search_radius);
+        
+        if let (Some(start), Some(end)) = (start_port, end_port) {
+            // Only return valid connections (different nodes, compatible port types)
+            if start.0 != end.0 && start.2 != end.2 {
+                return Some((start, end));
+            }
+        }
+        
+        None
     }
     
     /// Clear all connect paths (called when connecting mode ends and connections are applied)
