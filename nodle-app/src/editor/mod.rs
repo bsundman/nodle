@@ -22,7 +22,8 @@ use crate::nodes::{
 };
 use crate::context::ContextManager;
 use crate::contexts::materialx::MaterialXContext;
-use crate::gpu_renderer::{NodeRenderCallback, GpuInstanceManager};
+use crate::gpu::NodeRenderCallback;
+use crate::gpu::GpuInstanceManager;
 
 /// Main application state for the node editor
 pub struct NodeEditor {

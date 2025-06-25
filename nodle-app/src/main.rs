@@ -8,7 +8,7 @@ mod editor;
 mod nodes;
 mod contexts;
 mod context;
-mod gpu_renderer;
+mod gpu;
 
 use editor::NodeEditor;
 
