@@ -1,7 +1,7 @@
 //! Print node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// Print node that outputs values to console

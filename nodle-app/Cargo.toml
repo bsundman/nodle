@@ -12,7 +12,6 @@ name = "nodle"
 path = "src/main.rs"
 
 [dependencies]
-nodle-core = { path = "../nodle-core" }
 egui = { workspace = true }
 eframe = { workspace = true, features = ["wgpu"] }
 egui-wgpu = "0.29"

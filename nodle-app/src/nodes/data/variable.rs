@@ -1,7 +1,7 @@
 //! Variable node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// Variable node that can store and retrieve values

@@ -1,7 +1,7 @@
 //! Node graph data structures and operations
 
-use crate::node::{Node, NodeId};
-use crate::port::PortId;
+use super::node::{Node, NodeId};
+use super::port::PortId;
 use std::collections::HashMap;
 
 /// Represents a connection between two ports on different nodes

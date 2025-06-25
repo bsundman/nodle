@@ -2,7 +2,7 @@
 
 use crate::context::{Context, ContextMenuItem};
 use egui::Pos2;
-use nodle_core::Node;
+use crate::nodes::Node;
 
 pub mod nodes;
 

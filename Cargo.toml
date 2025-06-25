@@ -1,5 +1,5 @@
 [workspace]
-members = ["nodle-core", "nodle-app"]
+members = ["nodle-app"]
 resolver = "2"
 
 [workspace.dependencies]

@@ -1,7 +1,7 @@
 //! Debug node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// Debug node that outputs values for debugging and passes them through

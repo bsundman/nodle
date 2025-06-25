@@ -1,7 +1,7 @@
 //! Context system for different node editing environments
 
 use egui::Color32;
-use nodle_core::node::NodeId;
+use crate::nodes::NodeId;
 use std::collections::HashSet;
 
 /// Represents a context for node editing (e.g., MaterialX, generic nodes, etc.)
@@ -24,7 +24,7 @@ pub trait Context {
     }
     
     /// Create a context-specific node at the given position
-    fn create_context_node(&self, node_type: &str, position: egui::Pos2) -> Option<nodle_core::Node>;
+    fn create_context_node(&self, node_type: &str, position: egui::Pos2) -> Option<crate::nodes::Node>;
 }
 
 /// Menu item structure for context menus

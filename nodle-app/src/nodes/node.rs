@@ -1,6 +1,6 @@
 //! Node types and core node functionality
 
-use crate::port::{Port, PortType};
+use super::port::{Port, PortType};
 use egui::{Color32, Pos2, Rect, Vec2};
 
 /// Unique identifier for a node

@@ -1,7 +1,7 @@
 //! GPU-accelerated node rendering using wgpu callbacks
 
 use egui::{Color32, Vec2};
-use nodle_core::{Node, NodeId};
+use crate::nodes::{Node, NodeId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
@@ -110,9 +110,9 @@ impl PortInstanceData {
         let bevel_color = Color32::from_rgb(38, 38, 38); // Dark grey bevel
         
         let background_color = if is_input {
-            Color32::from_rgb(70, 120, 90)  // Green for input ports
+            Color32::from_rgb(90, 160, 120)  // Brighter green for input ports
         } else {
-            Color32::from_rgb(120, 70, 70)  // Red for output ports
+            Color32::from_rgb(160, 90, 90)   // Brighter red for output ports
         };
         
         

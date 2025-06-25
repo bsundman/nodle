@@ -1,7 +1,7 @@
 //! Constant value node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// Constant node that outputs a fixed value

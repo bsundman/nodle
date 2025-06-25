@@ -1,7 +1,7 @@
 //! Addition node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// Addition node that takes two inputs and produces their sum

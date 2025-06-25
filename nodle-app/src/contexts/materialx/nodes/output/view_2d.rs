@@ -1,7 +1,7 @@
 //! MaterialX 2D View output node
 
 use egui::{Color32, Pos2};
-use nodle_core::Node;
+use crate::nodes::Node;
 
 pub struct View2DNode;
 

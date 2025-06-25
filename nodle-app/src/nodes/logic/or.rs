@@ -1,7 +1,7 @@
 //! OR logic gate node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// OR logic gate node that outputs true when either input is true

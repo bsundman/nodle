@@ -2,7 +2,7 @@
 
 use eframe::egui;
 use egui::{Color32, Pos2};
-use nodle_core::{graph::NodeGraph, node::Node};
+use crate::nodes::{NodeGraph, Node};
 
 mod editor;
 mod nodes;
@@ -30,7 +30,7 @@ pub trait NodeFactory {
     fn create(position: Pos2) -> Node where Self: Sized;
     
     /// Add this node to the graph at the given position
-    fn add_to_graph(graph: &mut NodeGraph, position: Pos2) -> nodle_core::NodeId where Self: Sized {
+    fn add_to_graph(graph: &mut NodeGraph, position: Pos2) -> crate::nodes::NodeId where Self: Sized {
         graph.add_node(Self::create(position))
     }
 }

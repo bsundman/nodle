@@ -1,7 +1,7 @@
 //! Subtraction node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// Subtraction node that takes two inputs and produces their difference

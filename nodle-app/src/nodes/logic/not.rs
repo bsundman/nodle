@@ -1,7 +1,7 @@
 //! NOT logic gate node implementation
 
 use egui::{Color32, Pos2};
-use nodle_core::node::Node;
+use crate::nodes::Node;
 use crate::{NodeFactory, NodeCategory};
 
 /// NOT logic gate node that inverts the input boolean value
