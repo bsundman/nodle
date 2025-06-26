@@ -4,7 +4,7 @@
 
 Nōdle (pronounced like "noodle") is a modular, high-performance node-based visual programming editor built in Rust using the egui/eframe framework. It implements a vertical flow design with GPU-accelerated rendering and an extensible architecture supporting unlimited node types and specialized contexts.
 
-## ✅ Fully Modularized Architecture (June 2025)
+## ✅ Fully Modularized Architecture with Standardized Rendering (June 2025)
 
 Nōdle has undergone complete 4-phase modularization, transforming from a monolithic codebase into a clean, scalable architecture:
 
@@ -21,14 +21,14 @@ nodle-wgpu/
 │   │   │   ├── viewport.rs      # Pan/zoom operations & transforms
 │   │   │   ├── interaction.rs   # Node selection, dragging, connections
 │   │   │   ├── menus.rs         # Context menu system
-│   │   │   └── rendering.rs     # CPU mesh creation & drawing
+│   │   │   └── rendering.rs     # CPU standardized 3-layer node rendering
 │   │   ├── gpu/         # 🔄 Phase 2: Modular GPU system  
 │   │   │   ├── mod.rs           # Public GPU API
 │   │   │   ├── renderer.rs      # Core GPU pipeline & rendering
 │   │   │   ├── instance.rs      # GPU instance management  
 │   │   │   ├── callback.rs      # egui integration & paint callbacks
 │   │   │   └── shaders/         # GPU shaders
-│   │   │       ├── node.wgsl    # Node vertex/fragment shaders
+│   │   │       ├── node.wgsl    # Standardized 3-layer node rendering shader
 │   │   │       └── port.wgsl    # Port rendering shaders
 │   │   ├── nodes/       # 🔄 Phase 3: Enhanced node system
 │   │   │   ├── mod.rs           # Core types (Node, NodeGraph, etc.)
@@ -396,41 +396,49 @@ Each category opens a submenu with specific node types:
 
 ## Visual Design
 
-### Node Rendering System (June 24, 2025)
+### Standardized Node Rendering System (June 26, 2025)
 
-Nodes use a sophisticated gradient-based rendering system with three layers:
+Nodes use a standardized 3-layer rendering system with pixel-perfect GPU/CPU parity:
 
-#### Layer Architecture
-1. **BEVEL** (Bottom Layer)
-   - Gradient: 0.65 grey (top) to 0.15 grey (bottom)
-   - Purpose: Creates depth and inner shadow effect
-   - Implementation: 4x4 grid mesh with triangle fans
-
-2. **BORDER** (Middle Layer)
+#### Layer Architecture (STANDARDIZED)
+1. **BORDER** (Outermost Layer)
    - Selected: Blue (100, 150, 255)
-   - Unselected: 0.25 grey (64, 64, 64)
-   - Thickness: 1px (scales with zoom)
-   - Type: Solid stroke, not gradient
+   - Unselected: Grey (64, 64, 64)
+   - Thickness: 1px at 1x zoom (scales proportionally)
+   - Size: 1px larger than node rect on all sides
+   - Purpose: Selection indicator and visual boundary
 
-3. **BACKGROUND** (Top Layer)
+2. **BEVEL** (Middle Layer)
+   - Gradient: 0.65 grey (top) to 0.15 grey (bottom)
+   - Size: Same as original node rect
+   - Thickness: 1px at 1x zoom (scales proportionally)
+   - Purpose: Creates depth effect and visual separation
+
+3. **BACKGROUND** (Inner Layer)
    - Gradient: 0.5 grey (top) to 0.25 grey (bottom)
-   - Size: Shrunk by 3px to fit inside border
-   - Purpose: Main node visual body
+   - Size: 1px smaller than bevel on all sides
+   - Corner radius: Reduced to match layer shrinkage
+   - Purpose: Main node content area
+
+#### Key Standardization Features
+- **No Special Cases**: All nodes use identical rendering paths (context nodes, regular nodes)
+- **GPU/CPU Parity**: Both rendering modes produce pixel-perfect identical results
+- **Proportional Scaling**: All layer thicknesses scale correctly with zoom level
+- **Clean Architecture**: No button rendering, separators, or special visual treatments
 
 #### Technical Implementation
 ```rust
-// Optimized mesh creation with rounded corners
-fn create_rounded_gradient_mesh_optimized(
-    rect: Rect,
-    radius: f32,
-    top_color: Color32,
-    bottom_color: Color32,
-) -> egui::Mesh {
-    // 4x4 grid positioned at corner radius boundaries
-    // Corner polygons made transparent
-    // Triangle fans for smooth rounded corners (6 segments each)
-    // Total: ~52 vertices per node
+// CPU: Standardized 3-layer rendering
+fn render_node_complete_cpu(node: &Node, selected: bool, zoom: f32) {
+    // Border layer: 1px * zoom expansion
+    // Bevel layer: same size as node rect  
+    // Background layer: 1px * zoom shrink from bevel
+    // Corner radius: properly reduced for background layer
 }
+
+// GPU: Identical logic in WGSL shader
+// All layer offsets are zoom-scaled in fragment shader
+// Vertex shader uses unscaled expansion to prevent double-zoom
 ```
 
 #### Gradient Color Reference
