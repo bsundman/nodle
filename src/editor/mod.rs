@@ -254,6 +254,27 @@ impl NodeEditor {
 
     fn create_node(&mut self, node_type: &str, position: Pos2) {
         // Check if this is a workspace node creation
+        if node_type == "WORKSPACE:2D" {
+            let mut workspace_node = Node::new_workspace(0, "2D", position);
+            
+            // Add some sample nodes to the 2D workspace for demonstration
+            self.populate_2d_workspace(&mut workspace_node);
+            
+            // Workspace nodes can only be created in the root graph
+            if matches!(self.current_view, GraphView::Root) {
+                self.graph.add_node(workspace_node);
+                self.mark_modified();
+            } else if let GraphView::WorkspaceNode(node_id) = self.current_view {
+                // Add to the workspace node's internal graph
+                if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
+                    internal_graph.add_node(workspace_node);
+                    self.mark_modified();
+                }
+            }
+            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+            return;
+        }
+        
         if node_type == "WORKSPACE:3D" {
             let mut workspace_node = Node::new_workspace(0, "3D", position);
             
@@ -597,7 +618,14 @@ impl NodeEditor {
         }
     }
     
-    /// Populate a 3D context node with sample nodes for demonstration
+    /// Populate a 2D workspace node with sample nodes for demonstration
+    fn populate_2d_workspace(&mut self, workspace_node: &mut Node) {
+        if let Some(_internal_graph) = workspace_node.get_internal_graph_mut() {
+            // 2D workspace starts empty - users can add nodes via context menu
+        }
+    }
+    
+    /// Populate a 3D workspace node with sample nodes for demonstration
     fn populate_3d_workspace(&mut self, workspace_node: &mut Node) {
         if let Some(_internal_graph) = workspace_node.get_internal_graph_mut() {
             // 3D context starts empty - users can add nodes via context menu

@@ -3,8 +3,9 @@
 use crate::workspace::{Workspace, WorkspaceManager};
 use crate::workspaces::{
     base::BaseWorkspace,
-    materialx::MaterialXWorkspace,
+    workspace_2d::Workspace2D,
     workspace_3d::Workspace3D,
+    materialx::MaterialXWorkspace,
 };
 
 /// Registry for managing available workspaces
@@ -17,6 +18,7 @@ impl WorkspaceRegistry {
         
         // Register all available workspaces
         manager.register_workspace(Box::new(BaseWorkspace::new()));
+        manager.register_workspace(Box::new(Workspace2D::new()));
         manager.register_workspace(Box::new(Workspace3D::new()));
         manager.register_workspace(Box::new(MaterialXWorkspace::new()));
         
@@ -27,6 +29,7 @@ impl WorkspaceRegistry {
     pub fn list_workspaces() -> Vec<(&'static str, &'static str)> {
         vec![
             (BaseWorkspace::new().id(), BaseWorkspace::new().display_name()),
+            (Workspace2D::new().id(), Workspace2D::new().display_name()),
             (Workspace3D::new().id(), Workspace3D::new().display_name()),
             (MaterialXWorkspace::new().id(), MaterialXWorkspace::new().display_name()),
         ]

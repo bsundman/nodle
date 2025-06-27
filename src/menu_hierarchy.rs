@@ -11,20 +11,64 @@ pub struct GlobalMenuHierarchy;
 impl GlobalMenuHierarchy {
     /// Get the root-level menu structure
     /// This is the authoritative definition used by ALL menu systems
-    /// Root level only allows workspace creation, not regular nodes
+    /// Root level shows available workspaces directly
     pub fn get_root_menu() -> Vec<WorkspaceMenuItem> {
         vec![
-            // Only workspace creation is allowed at root level
+            // Show workspaces directly at top level
+            WorkspaceMenuItem::Node {
+                name: "2D Workspace".to_string(),
+                node_type: "WORKSPACE:2D".to_string(),
+            },
+            WorkspaceMenuItem::Node {
+                name: "3D Workspace".to_string(),
+                node_type: "WORKSPACE:3D".to_string(),
+            },
+        ]
+    }
+    
+    /// Get menu structure for 2D workspace
+    pub fn get_2d_workspace_menu() -> Vec<WorkspaceMenuItem> {
+        vec![
             WorkspaceMenuItem::Category {
-                name: "Create Workspace".to_string(),
+                name: "Drawing".to_string(),
                 items: vec![
-                    WorkspaceMenuItem::Node {
-                        name: "3D Workspace".to_string(),
-                        node_type: "WORKSPACE:3D".to_string(),
+                    WorkspaceMenuItem::Node { 
+                        name: "Rectangle".to_string(), 
+                        node_type: "2D_Rectangle".to_string() 
                     },
-                    WorkspaceMenuItem::Node {
-                        name: "Generic Workspace".to_string(),
-                        node_type: "WORKSPACE:Generic".to_string(),
+                    WorkspaceMenuItem::Node { 
+                        name: "Circle".to_string(), 
+                        node_type: "2D_Circle".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Line".to_string(), 
+                        node_type: "2D_Line".to_string() 
+                    },
+                ],
+            },
+            WorkspaceMenuItem::Category {
+                name: "Transform".to_string(),
+                items: vec![
+                    WorkspaceMenuItem::Node { 
+                        name: "Translate".to_string(), 
+                        node_type: "2D_Translate".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Rotate".to_string(), 
+                        node_type: "2D_Rotate".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Scale".to_string(), 
+                        node_type: "2D_Scale".to_string() 
+                    },
+                ],
+            },
+            WorkspaceMenuItem::Category {
+                name: "Output".to_string(),
+                items: vec![
+                    WorkspaceMenuItem::Node { 
+                        name: "Canvas".to_string(), 
+                        node_type: "2D_Canvas".to_string() 
                     },
                 ],
             },
@@ -155,6 +199,7 @@ impl GlobalMenuHierarchy {
     pub fn get_menu_for_workspace(workspace_id: Option<&str>) -> Vec<WorkspaceMenuItem> {
         match workspace_id {
             None => Self::get_root_menu(),
+            Some("2d") => Self::get_2d_workspace_menu(),
             Some("3d") => Self::get_3d_workspace_menu(),
             Some("materialx") => Self::get_materialx_workspace_menu(),
             _ => Self::get_root_menu(), // Fallback to root
