@@ -1,4 +1,4 @@
-//! 3D output node implementations
+//! 3D Viewport output node
 
 use egui::{Color32, Pos2};
 use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition};

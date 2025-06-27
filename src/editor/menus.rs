@@ -204,8 +204,11 @@ impl MenuManager {
                                         any_item_hovered = true;
                                     }
                                 }
-                                WorkspaceMenuItem::Node { .. } => {
-                                    // Direct nodes (rare at top level)
+                                WorkspaceMenuItem::Node { name, node_type } => {
+                                    // Direct nodes at top level (workspaces)
+                                    if render_menu_item(ui, &name, menu_width) {
+                                        selected_node_type = Some(node_type);
+                                    }
                                 }
                             }
                         }

@@ -1,7 +1,7 @@
 //! 3D workspace implementation for 3D graphics workflows
 
 use crate::workspace::{Workspace, WorkspaceMenuItem};
-use crate::nodes::factory::{NodeRegistry, NodeFactory};
+use crate::nodes::factory::NodeRegistry;
 use crate::nodes::three_d::*;
 
 /// 3D workspace for 3D graphics, rendering, and modeling workflows
@@ -41,8 +41,8 @@ impl Workspace for Workspace3D {
     }
     
     fn get_menu_structure(&self) -> Vec<WorkspaceMenuItem> {
-        // Use centralized menu hierarchy
-        crate::menu_hierarchy::GlobalMenuHierarchy::get_3d_workspace_menu()
+        // Use dynamic menu generation from node registry
+        self.node_registry.generate_menu_structure(&["3D"])
     }
     
     fn is_generic_node_compatible(&self, node_type: &str) -> bool {

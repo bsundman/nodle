@@ -1,6 +1,6 @@
 //! Workspace navigation and breadcrumb UI components
 
-use egui::{Color32, Pos2, Rect, Stroke, Vec2};
+use egui::Color32;
 
 /// Represents a navigation path through workspace hierarchy
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +61,7 @@ impl WorkspacePath {
     
     /// Get path segments for breadcrumb rendering
     pub fn breadcrumb_segments(&self) -> Vec<(String, WorkspacePath)> {
-        let mut segments = vec![("Root".to_string(), WorkspacePath::root())];
+        let mut segments = vec![("root".to_string(), WorkspacePath::root())];
         
         let mut current_path = WorkspacePath::root();
         for segment in &self.segments {
@@ -157,66 +157,32 @@ impl NavigationManager {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             
-            // If we're inside a workspace node, show special navigation
-            if !self.workspace_stack.is_empty() {
-                // Show up button to exit workspace
-                if ui.button("⬆ Up").clicked() {
-                    if let Some(_node_id) = self.exit_workspace_node() {
-                        action = NavigationAction::GoUp;
-                    }
-                }
-                ui.separator();
-                
-                // Show workspace node path
-                let node_count = self.workspace_stack.len();
-                ui.label(egui::RichText::new(format!("Inside {} workspace node{}", 
-                    node_count, 
-                    if node_count > 1 { "s" } else { "" }
-                )).color(Color32::LIGHT_BLUE));
-                
-                // Show current workspace path
-                if !self.current_path.is_root() {
+            // Always show unified breadcrumb navigation
+            let segments = self.current_path.breadcrumb_segments();
+            
+            for (i, (name, path)) in segments.iter().enumerate() {
+                // Add separator between segments (except before first)
+                if i > 0 {
                     ui.label("/");
-                    ui.label(egui::RichText::new(&self.current_path.display_string())
-                        .strong()
-                        .color(Color32::WHITE));
                 }
-            } else {
-                // Normal breadcrumb navigation when not inside a workspace node
-                let segments = self.current_path.breadcrumb_segments();
                 
-                for (i, (name, path)) in segments.iter().enumerate() {
-                    // Add separator between segments (except before first)
-                    if i > 0 {
-                        ui.label("/");
+                // Render breadcrumb segment - all segments are clickable
+                let is_current = path == &self.current_path;
+                
+                if is_current {
+                    // Current segment - highlighted but still clickable
+                    let button = ui.button(egui::RichText::new(name).strong().color(Color32::WHITE));
+                    if button.clicked() {
+                        action = NavigationAction::NavigateTo(path.clone());
                     }
-                    
-                    // Render breadcrumb segment
-                    let is_current = path == &self.current_path;
-                    
-                    if is_current {
-                        // Current segment - not clickable
-                        ui.label(egui::RichText::new(name).strong().color(Color32::WHITE));
-                    } else {
-                        // Clickable segment
-                        let button = ui.button(egui::RichText::new(name).color(Color32::LIGHT_BLUE));
-                        if button.clicked() {
-                            action = NavigationAction::NavigateTo(path.clone());
-                        }
+                } else {
+                    // Clickable segment
+                    let button = ui.button(egui::RichText::new(name).color(Color32::LIGHT_BLUE));
+                    if button.clicked() {
+                        action = NavigationAction::NavigateTo(path.clone());
                     }
                 }
             }
-            
-            // Add some spacing
-            ui.add_space(20.0);
-            
-            // Show debug info
-            ui.label(egui::RichText::new(&format!("Path: {} | Stack: {}", 
-                self.current_path.display_string(),
-                self.workspace_stack.len()
-            ))
-                .color(Color32::GRAY)
-                .size(12.0));
         });
         
         action

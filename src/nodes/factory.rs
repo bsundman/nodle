@@ -303,6 +303,87 @@ impl NodeRegistry {
     pub fn get_metadata(&self, node_type: &str) -> Option<NodeMetadata> {
         self.metadata_providers.get(node_type).map(|provider| provider())
     }
+    
+    /// Generate menu structure from registered node categories
+    pub fn generate_menu_structure(&self, workspace_filter: &[&str]) -> Vec<crate::workspace::WorkspaceMenuItem> {
+        use crate::workspace::WorkspaceMenuItem;
+        use std::collections::HashMap;
+        
+        // Group nodes by their category paths
+        let mut category_groups: HashMap<Vec<String>, Vec<(String, String)>> = HashMap::new();
+        
+        for (node_type, provider) in &self.metadata_providers {
+            let metadata = provider();
+            
+            // Only include nodes that match the workspace filter
+            if workspace_filter.is_empty() || metadata.category.path().iter().any(|segment| workspace_filter.contains(&segment.as_str())) {
+                let category_path = metadata.category.path();
+                
+                // Skip the first segment if it matches the workspace (e.g., "3D")
+                let menu_path = if !workspace_filter.is_empty() && 
+                                 !category_path.is_empty() && 
+                                 workspace_filter.contains(&category_path[0].as_str()) {
+                    if category_path.len() > 1 {
+                        category_path[1..].to_vec()
+                    } else {
+                        vec!["General".to_string()]
+                    }
+                } else {
+                    category_path.to_vec()
+                };
+                
+                category_groups
+                    .entry(menu_path)
+                    .or_insert_with(Vec::new)
+                    .push((metadata.display_name.to_string(), node_type.clone()));
+            }
+        }
+        
+        // Convert category groups to menu items
+        let mut menu_items = Vec::new();
+        for (category_path, nodes) in category_groups {
+            if !nodes.is_empty() {
+                let category_name = if category_path.is_empty() {
+                    "General".to_string()
+                } else {
+                    category_path.last().unwrap_or(&"General".to_string()).clone()
+                };
+                
+                let mut node_items = Vec::new();
+                for (display_name, node_type) in nodes {
+                    node_items.push(WorkspaceMenuItem::Node {
+                        name: display_name,
+                        node_type,
+                    });
+                }
+                
+                // Sort nodes alphabetically within each category
+                node_items.sort_by(|a, b| {
+                    if let (WorkspaceMenuItem::Node { name: name_a, .. }, WorkspaceMenuItem::Node { name: name_b, .. }) = (a, b) {
+                        name_a.cmp(name_b)
+                    } else {
+                        std::cmp::Ordering::Equal
+                    }
+                });
+                
+                menu_items.push(WorkspaceMenuItem::Category {
+                    name: category_name,
+                    items: node_items,
+                });
+            }
+        }
+        
+        // Sort categories alphabetically
+        menu_items.sort_by(|a, b| {
+            if let (WorkspaceMenuItem::Category { name: name_a, .. }, WorkspaceMenuItem::Category { name: name_b, .. }) = (a, b) {
+                name_a.cmp(name_b)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+        
+        menu_items
+    }
 }
 
 impl Default for NodeRegistry {
@@ -327,6 +408,18 @@ impl Default for NodeRegistry {
         // Register enhanced output nodes
         registry.register::<crate::nodes::output::PrintNodeEnhanced>();
         registry.register::<crate::nodes::output::DebugNodeEnhanced>();
+        
+        // Register 3D nodes
+        registry.register::<crate::nodes::three_d::TranslateNode3D>();
+        registry.register::<crate::nodes::three_d::RotateNode3D>();
+        registry.register::<crate::nodes::three_d::ScaleNode3D>();
+        registry.register::<crate::nodes::three_d::CubeNode3D>();
+        registry.register::<crate::nodes::three_d::SphereNode3D>();
+        registry.register::<crate::nodes::three_d::PlaneNode3D>();
+        registry.register::<crate::nodes::three_d::PointLightNode3D>();
+        registry.register::<crate::nodes::three_d::DirectionalLightNode3D>();
+        registry.register::<crate::nodes::three_d::SpotLightNode3D>();
+        registry.register::<crate::nodes::three_d::ViewportNode3D>();
         
         registry
     }

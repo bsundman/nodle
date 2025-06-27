@@ -14,10 +14,10 @@ pub use input::InputState;
 pub use interaction::InteractionManager;
 pub use menus::MenuManager;
 pub use rendering::MeshRenderer;
-pub use navigation::{NavigationManager, WorkspacePath, NavigationAction};
+pub use navigation::{NavigationManager, NavigationAction};
 
 use eframe::egui;
-use egui::{Color32, Pos2, Rect, Stroke, Vec2, Shadow};
+use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use egui_wgpu;
 use crate::nodes::{
     NodeGraph, Node, NodeId, Connection,
@@ -25,7 +25,7 @@ use crate::nodes::{
 use std::collections::HashMap;
 use crate::workspace::WorkspaceManager;
 use crate::workspaces::WorkspaceRegistry;
-use crate::gpu::{NodeRenderCallback, FlagInstanceData};
+use crate::gpu::NodeRenderCallback;
 use crate::gpu::GpuInstanceManager;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
@@ -171,6 +171,20 @@ impl NodeEditor {
             node.get_internal_graph_mut()
         } else {
             None
+        }
+    }
+    
+    /// Get the currently active graph for reading (root or workspace internal graph)
+    fn get_active_graph(&self) -> &NodeGraph {
+        match self.current_view {
+            GraphView::Root => &self.graph,
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                    workspace_node.get_internal_graph().unwrap_or(&self.graph)
+                } else {
+                    &self.graph
+                }
+            }
         }
     }
     
@@ -774,10 +788,23 @@ impl eframe::App for NodeEditor {
                 // Handle navigation actions
                 match nav_action {
                     NavigationAction::NavigateTo(path) => {
+                        let is_root = path.is_root();
                         self.navigation.navigate_to(path);
+                        
+                        // Update current view based on path
+                        if is_root {
+                            self.current_view = GraphView::Root;
+                            // Clear workspace stack when going to root
+                            self.navigation.workspace_stack.clear();
+                        } else {
+                            // If navigating to a workspace path, we might need to stay in current workspace view
+                            // This handles breadcrumb navigation within workspace contexts
+                        }
+                        
                         // Synchronize context manager with navigation state
                         let workspace_id = self.navigation.current_path.current_workspace();
                         self.workspace_manager.set_active_workspace_by_id(workspace_id);
+                        self.interaction.clear_selection();
                     }
                     NavigationAction::EnterWorkspace(workspace_name) => {
                         self.navigation.enter_workspace(&workspace_name);
@@ -1068,10 +1095,44 @@ impl eframe::App for NodeEditor {
                                 
                                 // Check for double-click on workspace nodes
                                 if self.interaction.check_double_click(node_id) {
-                                    if let Some(node) = self.graph.nodes.get(&node_id) {
-                                        if node.is_workspace() {
-                                            // Navigate into the workspace node
-                                            if let Some(workspace_type) = node.get_workspace_type() {
+                                    // Check if the node exists in the active graph and is a workspace node
+                                    let is_workspace_node = match self.current_view {
+                                        GraphView::Root => {
+                                            self.graph.nodes.get(&node_id).map(|n| n.is_workspace()).unwrap_or(false)
+                                        }
+                                        GraphView::WorkspaceNode(workspace_node_id) => {
+                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                                                    internal_graph.nodes.get(&node_id).map(|n| n.is_workspace()).unwrap_or(false)
+                                                } else {
+                                                    false
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                    };
+                                    
+                                    if is_workspace_node {
+                                        // Get workspace type from the node
+                                        let workspace_type = match self.current_view {
+                                            GraphView::Root => {
+                                                self.graph.nodes.get(&node_id).and_then(|n| n.get_workspace_type())
+                                            }
+                                            GraphView::WorkspaceNode(workspace_node_id) => {
+                                                if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                    if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                                                        internal_graph.nodes.get(&node_id).and_then(|n| n.get_workspace_type())
+                                                    } else {
+                                                        None
+                                                    }
+                                                } else {
+                                                    None
+                                                }
+                                            }
+                                        };
+                                        
+                                        if let Some(workspace_type) = workspace_type {
                                                 self.navigation.enter_workspace_node(node_id, workspace_type);
                                                 self.current_view = GraphView::WorkspaceNode(node_id);
                                                 // Clear selections when entering a new graph
@@ -1085,7 +1146,6 @@ impl eframe::App for NodeEditor {
                                                     _ => None,
                                                 };
                                                 self.workspace_manager.set_active_workspace_by_id(workspace_id);
-                                            }
                                         }
                                     }
                                 }
