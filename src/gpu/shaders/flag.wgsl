@@ -80,8 +80,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_pos_from_center = (tex_coord - center) * flag_radius * 2.4; // Match vertex shader quad size
     
     // Layer sizing to match CPU exactly (flag_radius already includes zoom):
-    // Border: 6px radius with 1px stroke width (1px larger)
-    // Bevel: 5px radius with 1px stroke width (transparent center, 1px larger)
+    // Border: 6px outer, 5px inner = 1px stroke (transparent center)
+    // Bevel: 5px outer, 4px inner = 1px stroke (transparent center)
     // Background (dot): 3.5px radius (filled)
     let border_outer_radius = flag_radius * 1.2; // 6.0 * zoom (6/5 = 1.2)
     let border_inner_radius = flag_radius; // 5.0 * zoom (1px stroke width)
@@ -89,46 +89,53 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let bevel_inner_radius = flag_radius * 0.8; // 4.0 * zoom (1px stroke width)
     let background_radius = flag_radius * 0.7; // 3.5 * zoom (3.5/5 = 0.7)
     
-    // Calculate distances using circle SDF
-    let dist_from_center = length(pixel_pos_from_center);
+    // Calculate distances using circle SDF (same as port shader)
+    let border_outer_dist = circle_sdf(pixel_pos_from_center, vec2<f32>(0.0, 0.0), border_outer_radius);
+    let border_inner_dist = circle_sdf(pixel_pos_from_center, vec2<f32>(0.0, 0.0), border_inner_radius);
+    let bevel_outer_dist = circle_sdf(pixel_pos_from_center, vec2<f32>(0.0, 0.0), bevel_outer_radius);
+    let bevel_inner_dist = circle_sdf(pixel_pos_from_center, vec2<f32>(0.0, 0.0), bevel_inner_radius);
+    let background_dist = circle_sdf(pixel_pos_from_center, vec2<f32>(0.0, 0.0), background_radius);
     
-    // Create strokes by checking if we're between inner and outer radius
-    let border_stroke = smoothstep(border_inner_radius - 0.5, border_inner_radius + 0.5, dist_from_center) * 
-                       (1.0 - smoothstep(border_outer_radius - 0.5, border_outer_radius + 0.5, dist_from_center));
+    // Layer alphas using smoothstep for anti-aliasing (same as port shader)
+    let border_outer_alpha = smoothstep(0.0, 1.0, -border_outer_dist);
+    let border_inner_alpha = smoothstep(0.0, 1.0, -border_inner_dist);
+    let border_alpha = border_outer_alpha - border_inner_alpha; // Stroke = outer - inner
     
-    let bevel_stroke = smoothstep(bevel_inner_radius - 0.5, bevel_inner_radius + 0.5, dist_from_center) * 
-                      (1.0 - smoothstep(bevel_outer_radius - 0.5, bevel_outer_radius + 0.5, dist_from_center));
+    let bevel_outer_alpha = smoothstep(0.0, 1.0, -bevel_outer_dist);
+    let bevel_inner_alpha = smoothstep(0.0, 1.0, -bevel_inner_dist);
+    let bevel_alpha = bevel_outer_alpha - bevel_inner_alpha; // Stroke = outer - inner
     
-    let background_alpha = 1.0 - smoothstep(background_radius - 0.5, background_radius + 0.5, dist_from_center);
+    let background_alpha = smoothstep(0.0, 1.0, -background_dist);
     
-    // Discard pixels outside the border
-    if (dist_from_center > border_outer_radius + 1.0) {
+    // Early discard for performance - discard if no layer is visible
+    if (border_alpha < 0.01 && bevel_alpha < 0.01 && background_alpha < 0.01) {
         discard;
     }
     
-    // Layer colors - match CPU exactly
+    // Layer colors
     let border_color = in.border_color.rgb;
     let bevel_color = in.bevel_color.rgb;
     let background_color = in.background_color.rgb;
     
-    // Composite layers with proper transparency:
-    // Start with transparent base
-    var final_color = vec3<f32>(0.0);
-    var final_alpha = 0.0;
+    // Composite layers exactly like port shader: border -> bevel -> background
+    let border_bevel_blend = mix(border_color, bevel_color, bevel_alpha);
     
-    // Apply border stroke
-    final_color = mix(final_color, border_color, border_stroke);
-    final_alpha = max(final_alpha, border_stroke);
-    
-    // Apply bevel stroke
-    final_color = mix(final_color, bevel_color, bevel_stroke);
-    final_alpha = max(final_alpha, bevel_stroke);
-    
-    // Apply background dot (only if visible)
+    // Only show background dot when visible
+    var final_color: vec3<f32>;
+    var effective_background_alpha: f32;
     if (in.is_visible > 0.5) {
-        final_color = mix(final_color, background_color, background_alpha);
-        final_alpha = max(final_alpha, background_alpha);
+        // Visible: show background dot
+        final_color = mix(border_bevel_blend, background_color, background_alpha);
+        effective_background_alpha = background_alpha;
+    } else {
+        // Not visible: hide background dot (make it transparent)
+        final_color = border_bevel_blend;
+        effective_background_alpha = 0.0; // No background contribution
     }
     
-    return vec4<f32>(final_color, final_alpha);
+    // Calculate total flag alpha (any visible layer) 
+    let total_flag_alpha = max(border_alpha, max(bevel_alpha, effective_background_alpha));
+    
+    // Return with total alpha for proper anti-aliasing (same as port shader)
+    return vec4<f32>(final_color, total_flag_alpha);
 }
