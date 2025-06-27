@@ -53,6 +53,8 @@ pub struct Node {
     pub node_type: NodeType,
     /// Button states: [left_button_active, right_button_active]
     pub button_states: [bool; 2],
+    /// Whether the node is visible (true) or hidden (false)
+    pub visible: bool,
 }
 
 impl Node {
@@ -68,6 +70,7 @@ impl Node {
             color: Color32::from_rgb(60, 60, 60),
             node_type: NodeType::Regular,
             button_states: [false, false],
+            visible: true,
         }
     }
     
@@ -88,6 +91,7 @@ impl Node {
                 port_mappings: vec![],
             },
             button_states: [false, false],
+            visible: true,
         }
     }
 
@@ -273,6 +277,11 @@ impl Node {
         self.button_states[1] = !self.button_states[1];
     }
     
+    /// Toggle the visibility state
+    pub fn toggle_visibility(&mut self) {
+        self.visible = !self.visible;
+    }
+    
     /// Check if a point is inside the left button area
     pub fn is_point_in_left_button(&self, point: Pos2) -> bool {
         let button_rect = Rect::from_two_pos(
@@ -289,6 +298,25 @@ impl Node {
             Pos2::new(self.position.x + 20.0, self.position.y + self.size.y)
         );
         button_rect.contains(point)
+    }
+    
+    /// Get the visibility flag position (matches ports positioning style)
+    pub fn get_flag_position(&self) -> Pos2 {
+        let flag_margin_right = 15.0; // Equal distance from top edge (15.0)
+        Pos2::new(
+            self.position.x + self.size.x - flag_margin_right,
+            self.position.y + 15.0
+        )
+    }
+    
+    /// Check if a point is inside the visibility flag area (right side of node)
+    pub fn is_point_in_visibility_flag(&self, point: Pos2) -> bool {
+        let flag_size = 12.0;
+        let flag_center = self.get_flag_position();
+        
+        // Create a clickable area around the flag
+        let flag_rect = Rect::from_center_size(flag_center, Vec2::new(flag_size, flag_size));
+        flag_rect.contains(point)
     }
     
     /// Get the rectangle for the left button

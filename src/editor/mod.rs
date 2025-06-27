@@ -17,7 +17,7 @@ pub use rendering::MeshRenderer;
 pub use navigation::{NavigationManager, ContextPath, NavigationAction};
 
 use eframe::egui;
-use egui::{Color32, Pos2, Rect, Stroke, Vec2};
+use egui::{Color32, Pos2, Rect, Stroke, Vec2, Shadow};
 use egui_wgpu;
 use crate::nodes::{
     NodeGraph, Node, NodeId, Connection,
@@ -25,7 +25,7 @@ use crate::nodes::{
 use std::collections::HashMap;
 use crate::context::ContextManager;
 use crate::contexts::ContextRegistry;
-use crate::gpu::NodeRenderCallback;
+use crate::gpu::{NodeRenderCallback, FlagInstanceData};
 use crate::gpu::GpuInstanceManager;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
@@ -271,7 +271,7 @@ impl NodeEditor {
                     self.mark_modified();
                 }
             }
-            self.gpu_instance_manager.force_rebuild();
+            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             return;
         }
         
@@ -292,7 +292,7 @@ impl NodeEditor {
                     self.mark_modified();
                 }
             }
-            self.gpu_instance_manager.force_rebuild();
+            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             return;
         }
         
@@ -328,7 +328,7 @@ impl NodeEditor {
                     }
                 }
             }
-            self.gpu_instance_manager.force_rebuild();
+            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         }
     }
 
@@ -348,7 +348,7 @@ impl NodeEditor {
             
             if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
                 self.graph.add_node(node);
-                self.gpu_instance_manager.force_rebuild();
+                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
         }
     }
@@ -406,7 +406,7 @@ impl NodeEditor {
         let _total_time = start_time.elapsed();
         
         // Force GPU instance rebuild after adding many nodes
-        self.gpu_instance_manager.force_rebuild();
+        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
     }
 
     /// Draw a dashed path for connection cutting visualization
@@ -462,7 +462,7 @@ impl NodeEditor {
         self.interaction.clear_selection();
         self.current_file_path = None;
         self.is_modified = false;
-        self.gpu_instance_manager.force_rebuild();
+        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         // Reset context manager to root (no active context)
         self.context_manager.set_active_context_by_id(None);
     }
@@ -531,7 +531,7 @@ impl NodeEditor {
         
         // Update port positions and rebuild GPU instances
         self.graph.update_all_port_positions();
-        self.gpu_instance_manager.force_rebuild();
+        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         
         Ok(())
     }
@@ -761,7 +761,7 @@ impl eframe::App for NodeEditor {
                         // Exit from context node view
                         self.current_view = GraphView::Root;
                         self.interaction.clear_selection();
-                        self.gpu_instance_manager.force_rebuild();
+                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         // When going up, clear the active context (back to root)
                         self.context_manager.set_active_context_by_id(None);
                     }
@@ -880,11 +880,11 @@ impl eframe::App for NodeEditor {
                                     }
                                     let _ = self.graph.add_connection(connection);
                                     self.mark_modified();
-                                    self.gpu_instance_manager.force_rebuild();
+                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
                                     // Start new connection from this port
                                     self.input_state.start_connection(node_id, port_idx, is_input);
-                                    self.gpu_instance_manager.force_rebuild();
+                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 }
                             } else {
                                 // Not currently connecting - check if clicking on connected input port
@@ -894,13 +894,13 @@ impl eframe::App for NodeEditor {
                                         self.graph.remove_connection(conn_idx);
                                         self.mark_modified();
                                         self.input_state.start_connection(from_node, from_port, false);
-                                        self.gpu_instance_manager.force_rebuild();
+                                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                         return; // Skip starting connection from input port
                                     }
                                 }
                                 // Start new connection from this port
                                 self.input_state.start_connection(node_id, port_idx, is_input);
-                                self.gpu_instance_manager.force_rebuild();
+                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else if let Some(node_id) = self.input_state.find_node_under_mouse(&self.build_temp_graph(&viewed_nodes)) {
                             // Check for button clicks first
@@ -914,7 +914,7 @@ impl eframe::App for NodeEditor {
                                         if node.is_point_in_left_button(mouse_pos) {
                                             node.toggle_left_button();
                                             self.mark_modified();
-                                            self.gpu_instance_manager.force_rebuild();
+                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = match self.current_view {
                                                 GraphView::Root => self.graph.nodes.clone(),
@@ -927,19 +927,12 @@ impl eframe::App for NodeEditor {
                                                 }
                                             };
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
-                                            self.gpu_instance_manager.update_instances(
-                                                &viewed_nodes,
-                                                &all_selected_nodes, 
-                                                self.input_state.get_connecting_from(),
-                                                &self.input_state,
-                                                &self.build_temp_graph(&viewed_nodes),
-                                            );
                                             ui.ctx().request_repaint(); // Force immediate visual update
                                             handled_button_click = true;
                                         } else if node.is_point_in_right_button(mouse_pos) {
                                             node.toggle_right_button();
                                             self.mark_modified();
-                                            self.gpu_instance_manager.force_rebuild();
+                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = match self.current_view {
                                                 GraphView::Root => self.graph.nodes.clone(),
@@ -952,13 +945,24 @@ impl eframe::App for NodeEditor {
                                                 }
                                             };
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
-                                            self.gpu_instance_manager.update_instances(
-                                                &viewed_nodes,
-                                                &all_selected_nodes, 
-                                                self.input_state.get_connecting_from(),
-                                                &self.input_state,
-                                                &self.build_temp_graph(&viewed_nodes),
-                                            );
+                                            ui.ctx().request_repaint(); // Force immediate visual update
+                                            handled_button_click = true;
+                                        } else if node.is_point_in_visibility_flag(mouse_pos) {
+                                            node.toggle_visibility();
+                                            self.mark_modified();
+                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+                                            // Force immediate instance update instead of waiting for next frame
+                                            let viewed_nodes = match self.current_view {
+                                                GraphView::Root => self.graph.nodes.clone(),
+                                                GraphView::ContextNode(context_node_id) => {
+                                                    if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
+                                                        if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                            internal_graph.nodes.clone()
+                                                        } else { HashMap::new() }
+                                                    } else { HashMap::new() }
+                                                }
+                                            };
+                                            let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                             ui.ctx().request_repaint(); // Force immediate visual update
                                             handled_button_click = true;
                                         }
@@ -971,7 +975,7 @@ impl eframe::App for NodeEditor {
                                                 if node.is_point_in_left_button(mouse_pos) {
                                                     node.toggle_left_button();
                                                     self.mark_modified();
-                                                    self.gpu_instance_manager.force_rebuild();
+                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = match self.current_view {
                                                         GraphView::Root => self.graph.nodes.clone(),
@@ -984,19 +988,12 @@ impl eframe::App for NodeEditor {
                                                         }
                                                     };
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
-                                                    self.gpu_instance_manager.update_instances(
-                                                        &viewed_nodes,
-                                                        &all_selected_nodes, 
-                                                        self.input_state.get_connecting_from(),
-                                                        &self.input_state,
-                                                        &self.build_temp_graph(&viewed_nodes),
-                                                    );
                                                     ui.ctx().request_repaint(); // Force immediate visual update
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_right_button(mouse_pos) {
                                                     node.toggle_right_button();
                                                     self.mark_modified();
-                                                    self.gpu_instance_manager.force_rebuild();
+                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = match self.current_view {
                                                         GraphView::Root => self.graph.nodes.clone(),
@@ -1009,13 +1006,24 @@ impl eframe::App for NodeEditor {
                                                         }
                                                     };
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
-                                                    self.gpu_instance_manager.update_instances(
-                                                        &viewed_nodes,
-                                                        &all_selected_nodes, 
-                                                        self.input_state.get_connecting_from(),
-                                                        &self.input_state,
-                                                        &self.build_temp_graph(&viewed_nodes),
-                                                    );
+                                                    ui.ctx().request_repaint(); // Force immediate visual update
+                                                    handled_button_click = true;
+                                                } else if node.is_point_in_visibility_flag(mouse_pos) {
+                                                    node.toggle_visibility();
+                                                    self.mark_modified();
+                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+                                                    // Force immediate instance update for context nodes
+                                                    let viewed_nodes = match self.current_view {
+                                                        GraphView::Root => self.graph.nodes.clone(),
+                                                        GraphView::ContextNode(context_node_id) => {
+                                                            if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
+                                                                if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                                    internal_graph.nodes.clone()
+                                                                } else { HashMap::new() }
+                                                            } else { HashMap::new() }
+                                                        }
+                                                    };
+                                                    let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                                     ui.ctx().request_repaint(); // Force immediate visual update
                                                     handled_button_click = true;
                                                 }
@@ -1040,7 +1048,7 @@ impl eframe::App for NodeEditor {
                                                 self.current_view = GraphView::ContextNode(node_id);
                                                 // Clear selections when entering a new graph
                                                 self.interaction.clear_selection();
-                                                self.gpu_instance_manager.force_rebuild();
+                                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                 // Synchronize context manager with the node's context type
                                                 // Map context type to context ID (3D -> 3d, MaterialX -> materialx)
                                                 let context_id = match context_type {
@@ -1054,17 +1062,17 @@ impl eframe::App for NodeEditor {
                                     }
                                 }
                                 
-                                self.gpu_instance_manager.force_rebuild();
+                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.build_temp_graph(&viewed_nodes), 8.0, self.viewport.zoom) {
                             // Handle connection selection with multi-select support
                             self.interaction.select_connection_multi(connection_idx, self.input_state.is_multi_select());
-                            self.gpu_instance_manager.force_rebuild();
+                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         } else {
                             // Clicked on empty space - deselect all and cancel connections
                             self.interaction.clear_selection();
                             self.input_state.cancel_connection();
-                            self.gpu_instance_manager.force_rebuild();
+                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
 
@@ -1079,16 +1087,16 @@ impl eframe::App for NodeEditor {
                                     self.graph.remove_connection(conn_idx);
                                     self.mark_modified();
                                     self.input_state.start_connection(from_node, from_port, false);
-                                    self.gpu_instance_manager.force_rebuild();
+                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
                                     // No existing connection, start from input port
                                     self.input_state.start_connection(node_id, port_idx, is_input);
-                                    self.gpu_instance_manager.force_rebuild();
+                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 }
                             } else {
                                 // Output port - start connection normally
                                 self.input_state.start_connection(node_id, port_idx, is_input);
-                                self.gpu_instance_manager.force_rebuild();
+                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else {
                             // Check if we're starting to drag a selected node
@@ -1130,7 +1138,7 @@ impl eframe::App for NodeEditor {
                                     if self.input_state.is_primary_down(ui) {
                                         self.interaction.start_box_selection(pos);
                                         // Force GPU rebuild for immediate visual feedback
-                                        self.gpu_instance_manager.force_rebuild();
+                                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                     }
                                 }
                             }
@@ -1154,12 +1162,12 @@ impl eframe::App for NodeEditor {
                                 }
                             }
                             // Force GPU instance manager to rebuild when nodes are moved
-                            self.gpu_instance_manager.force_rebuild();
+                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         } else if self.interaction.box_selection_start.is_some() {
                             // Update box selection
                             self.interaction.update_box_selection(pos);
                             // Force GPU rebuild for immediate visual feedback
-                            self.gpu_instance_manager.force_rebuild();
+                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
 
@@ -1176,7 +1184,7 @@ impl eframe::App for NodeEditor {
                                 // Cancel connection if we didn't release on a port
                                 self.input_state.cancel_connection();
                             }
-                            self.gpu_instance_manager.force_rebuild();
+                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
                 }
@@ -1184,7 +1192,7 @@ impl eframe::App for NodeEditor {
                 if self.input_state.drag_stopped_this_frame {
                     // Ensure final positions are updated in GPU
                     if self.use_gpu_rendering {
-                        self.gpu_instance_manager.force_rebuild();
+                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                     }
 
                     // Complete box selection
@@ -1201,7 +1209,7 @@ impl eframe::App for NodeEditor {
                                 }
                             }
                         }
-                        self.gpu_instance_manager.force_rebuild();
+                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                     }
                     
                     // End any dragging operations
@@ -1226,7 +1234,7 @@ impl eframe::App for NodeEditor {
                         }
                     }
                     self.mark_modified();
-                    self.gpu_instance_manager.force_rebuild();
+                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 } else if !self.interaction.selected_connections.is_empty() {
                     // Delete all selected connections (in reverse order to maintain indices)
                     let mut connection_indices: Vec<usize> = self.interaction.selected_connections.iter().copied().collect();
@@ -1252,14 +1260,14 @@ impl eframe::App for NodeEditor {
                     }
                     
                     self.interaction.clear_connection_selection();
-                    self.gpu_instance_manager.force_rebuild();
+                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
             }
 
             // Handle ESC key to cancel connections
             if self.input_state.escape_pressed(ui) {
                 self.input_state.cancel_connection();
-                self.gpu_instance_manager.force_rebuild();
+                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
             // Handle connection cutting when X key is released
@@ -1277,7 +1285,7 @@ impl eframe::App for NodeEditor {
                         self.mark_modified();
                     }
                     
-                    self.gpu_instance_manager.force_rebuild();
+                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
                 
                 // Clear cut paths after applying
@@ -1302,7 +1310,7 @@ impl eframe::App for NodeEditor {
                         self.mark_modified();
                     }
                     
-                    self.gpu_instance_manager.force_rebuild();
+                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
                 
                 // Clear connect paths after applying
@@ -1331,7 +1339,7 @@ impl eframe::App for NodeEditor {
                 self.graph.connections.clear();
                 self.interaction.clear_selection();
                 self.input_state.cancel_connection();
-                self.gpu_instance_manager.force_rebuild();
+                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
             // Handle F6 to toggle GPU/CPU rendering
@@ -1390,7 +1398,7 @@ impl eframe::App for NodeEditor {
                     }
                     
                     // Use persistent instance manager for optimal performance
-                    let (node_instances, port_instances, button_instances) = self.gpu_instance_manager.update_instances(
+                    let (node_instances, port_instances, button_instances, flag_instances) = self.gpu_instance_manager.update_instances(
                         &viewed_nodes,
                         &all_selected_nodes,
                         self.input_state.get_connecting_from(),
@@ -1402,6 +1410,7 @@ impl eframe::App for NodeEditor {
                         node_instances,
                         port_instances,
                         button_instances,
+                        flag_instances,
                         self.viewport.pan_offset,
                         self.viewport.zoom,
                         screen_size,
@@ -1454,6 +1463,8 @@ impl eframe::App for NodeEditor {
                     }
                 }
                 
+                // Visibility flags are now rendered by GPU shader
+                
             } else if !viewed_nodes.is_empty() {
                 // CPU rendering path - fallback mode using MeshRenderer
                 
@@ -1488,6 +1499,7 @@ impl eframe::App for NodeEditor {
                         zoom,
                         &transform_pos,
                     );
+
 
                     // Draw ports using MeshRenderer
                     // Input ports (on top)
@@ -1608,8 +1620,43 @@ impl eframe::App for NodeEditor {
                         );
                     }
                 }
+                // Render visibility toggle outlines and dots (CPU mode)
+                for (_node_id, node) in &viewed_nodes {
+                    let flag_pos = transform_pos(node.get_flag_position());
+                    
+                    // Draw border outline (outer layer) - blue if enabled, grey if disabled
+                    let border_color = if node.visible {
+                        Color32::from_rgb(100, 150, 255) // Blue selection color when enabled
+                    } else {
+                        Color32::from_rgb(64, 64, 64) // Grey when disabled
+                    };
+                    
+                    let border_radius = 5.0 * zoom;
+                    painter.circle_stroke(
+                        flag_pos,
+                        border_radius,
+                        Stroke::new(1.0 * zoom, border_color),
+                    );
+                    
+                    // Draw bevel outline (inner layer) - 1px smaller than border
+                    let bevel_radius = 4.0 * zoom;
+                    painter.circle_stroke(
+                        flag_pos,
+                        bevel_radius,
+                        Stroke::new(1.0 * zoom, Color32::from_rgb(38, 38, 38)), // Bevel outline
+                    );
+                    
+                    // Add bigger dot for visible nodes only
+                    if node.visible {
+                        let dot_radius = 3.5 * zoom; // Bigger solid dot
+                        painter.circle_filled(
+                            flag_pos,
+                            dot_radius,
+                            Color32::from_rgb(100, 150, 255), // Same blue as border highlight
+                        );
+                    }
+                }
             } // End of CPU rendering mode
-            
 
             // Draw connections
             let viewed_connections = self.get_viewed_connections();

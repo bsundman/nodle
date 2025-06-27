@@ -50,6 +50,19 @@ pub struct PortInstanceData {
     pub _padding: [f32; 2],
 }
 
+/// Instance data for a single visibility flag in GPU memory
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FlagInstanceData {
+    pub position: [f32; 2],
+    pub radius: f32,
+    pub border_color: [f32; 4],         // Border color
+    pub bevel_color: [f32; 4],          // Bevel color (dark grey)
+    pub background_color: [f32; 4],     // Background color (flag color)
+    pub is_visible: f32,                // 1.0 if visible, 0.0 if hidden
+    pub _padding: [f32; 2],
+}
+
 /// Instance data for a single radial button in GPU memory (for Viewport nodes)
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -60,6 +73,7 @@ pub struct ButtonInstanceData {
     pub outer_color: [f32; 4],          // Outer edge color (dark green)
     pub _padding: [f32; 3],
 }
+
 
 /// Uniform data for the GPU renderer
 #[repr(C)]
@@ -140,6 +154,25 @@ impl PortInstanceData {
         }
     }
     
+    /// Create a visibility toggle port instance with just border and bevel, transparent center
+    pub fn from_visibility_toggle(position: Pos2, radius: f32, _is_visible: bool) -> Self {
+        let border_color = Color32::from_rgb(64, 64, 64); // Dark grey border
+        let bevel_color = Color32::from_rgb(38, 38, 38); // Dark grey bevel
+        
+        // Transparent background - shows whatever is behind it
+        let background_color = Color32::TRANSPARENT;
+        
+        Self {
+            position: [position.x, position.y],
+            radius,
+            border_color: Self::color_to_array(border_color),
+            bevel_color: Self::color_to_array(bevel_color),
+            background_color: Self::color_to_array(background_color),
+            is_input: 0.0, // Use output port styling
+            _padding: [0.0, 0.0],
+        }
+    }
+    
     fn color_to_array(color: Color32) -> [f32; 4] {
         [
             color.r() as f32 / 255.0,
@@ -149,6 +182,44 @@ impl PortInstanceData {
         ]
     }
 }
+
+impl FlagInstanceData {
+    pub fn from_flag(position: Pos2, radius: f32, is_visible: bool) -> Self {
+        let border_color = if is_visible {
+            Color32::from_rgb(100, 150, 255) // Blue when visible (matches port selected color)
+        } else {
+            Color32::from_rgb(64, 64, 64)    // Dark grey when hidden
+        };
+        
+        let bevel_color = Color32::from_rgb(38, 38, 38); // Dark grey bevel
+        
+        let background_color = if is_visible {
+            Color32::from_rgb(100, 150, 255) // Blue center when visible (matches border)
+        } else {
+            Color32::TRANSPARENT             // Transparent when hidden
+        };
+        
+        Self {
+            position: [position.x, position.y],
+            radius,
+            border_color: Self::color_to_array(border_color),
+            bevel_color: Self::color_to_array(bevel_color),
+            background_color: Self::color_to_array(background_color),
+            is_visible: if is_visible { 1.0 } else { 0.0 },
+            _padding: [0.0, 0.0],
+        }
+    }
+    
+    fn color_to_array(color: Color32) -> [f32; 4] {
+        [
+            color.r() as f32 / 255.0,
+            color.g() as f32 / 255.0,
+            color.b() as f32 / 255.0,
+            color.a() as f32 / 255.0,
+        ]
+    }
+}
+
 
 impl ButtonInstanceData {
     pub fn from_viewport_node(node: &Node) -> Self {
@@ -293,9 +364,11 @@ pub struct GpuInstanceManager {
     node_instances: Vec<NodeInstanceData>,
     port_instances: Vec<PortInstanceData>,
     button_instances: Vec<ButtonInstanceData>,
+    flag_instances: Vec<FlagInstanceData>,
     node_count: usize,
     port_count: usize,
     button_count: usize,
+    flag_count: usize,
     last_frame_node_count: usize,
     // Optimization: only rebuild when needed
     needs_full_rebuild: bool,
@@ -307,9 +380,11 @@ impl GpuInstanceManager {
             node_instances: Vec::with_capacity(10000),
             port_instances: Vec::with_capacity(50000),
             button_instances: Vec::with_capacity(1000), // Much fewer buttons expected
+            flag_instances: Vec::with_capacity(10000), // One flag per node
             node_count: 0,
             port_count: 0,
             button_count: 0,
+            flag_count: 0,
             last_frame_node_count: 0,
             needs_full_rebuild: true,
         }
@@ -322,10 +397,14 @@ impl GpuInstanceManager {
         connecting_from: Option<(NodeId, usize, bool)>,
         input_state: &crate::editor::InputState,
         graph: &crate::nodes::NodeGraph,
-    ) -> (&[NodeInstanceData], &[PortInstanceData], &[ButtonInstanceData]) {
+    ) -> (&[NodeInstanceData], &[PortInstanceData], &[ButtonInstanceData], &[FlagInstanceData]) {
         let current_node_count = nodes.len();
         let _estimated_port_count = current_node_count * 3; // Rough estimate
         
+        // INSTANCING OPTIMIZATION DISABLED FOR NOW - rebuild every frame
+        // This ensures immediate updates when flag visibility changes
+        // TODO: Re-enable optimization logic in the future
+        /*
         // Only rebuild if node count changed significantly or forced rebuild
         // Also rebuild during connection drawing mode for real-time port highlighting
         let should_rebuild = self.needs_full_rebuild || 
@@ -334,13 +413,16 @@ impl GpuInstanceManager {
            connecting_from.is_some(); // Force rebuild during click-to-connect
         
         if should_rebuild {
-            // Rebuild instances without debug output
+        */
+            // Rebuild instances every frame for immediate updates
             self.rebuild_all_instances(nodes, selected_nodes, connecting_from, input_state, graph);
             self.last_frame_node_count = current_node_count;
             self.needs_full_rebuild = false;
+        /*
         }
+        */
         
-        (&self.node_instances[..self.node_count], &self.port_instances[..self.port_count], &self.button_instances[..self.button_count])
+        (&self.node_instances[..self.node_count], &self.port_instances[..self.port_count], &self.button_instances[..self.button_count], &self.flag_instances[..self.flag_count])
     }
     
     fn rebuild_all_instances(
@@ -354,11 +436,17 @@ impl GpuInstanceManager {
         self.node_instances.clear();
         self.port_instances.clear();
         self.button_instances.clear();
+        self.flag_instances.clear();
         
         for (id, node) in nodes {
             let selected = selected_nodes.contains(id);
             let instance = NodeInstanceData::from_node(node, selected, 1.0); // Don't apply zoom here
             self.node_instances.push(instance);
+            
+            // Add flag instance for this node
+            let flag_position = node.get_flag_position();
+            let flag_instance = FlagInstanceData::from_flag(flag_position, 5.0, node.visible);
+            self.flag_instances.push(flag_instance);
             
             // Add port instances for this node
             for (port_idx, port) in node.inputs.iter().enumerate() {
@@ -441,14 +529,20 @@ impl GpuInstanceManager {
                 self.port_instances.push(port_instance);
             }
             
+            // NOTE: Visibility toggle ports are now rendered via CPU overlay in both GPU and CPU modes
+            // This ensures they appear as simple outlines rather than filled port structures
         }
         
         self.node_count = self.node_instances.len();
         self.port_count = self.port_instances.len();
         self.button_count = self.button_instances.len();
+        self.flag_count = self.flag_instances.len();
     }
     
+    // INSTANCING OPTIMIZATION DISABLED - force_rebuild no longer needed
+    /*
     pub fn force_rebuild(&mut self) {
         self.needs_full_rebuild = true;
     }
+    */
 }

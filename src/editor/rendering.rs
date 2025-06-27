@@ -149,6 +149,49 @@ impl MeshRenderer {
         );
     }
 
+    /// Render a visibility toggle port with border and bevel outlines (no fill)
+    pub fn render_visibility_port_cpu(
+        painter: &Painter,
+        port_pos: Pos2,
+        is_visible: bool,
+        zoom: f32,
+        transform_pos: impl Fn(Pos2) -> Pos2,
+    ) {
+        let transformed_pos = transform_pos(port_pos);
+        
+        // Draw border outline (outer layer) - blue if enabled, grey if disabled
+        let border_color = if is_visible {
+            Color32::from_rgb(100, 150, 255) // Blue selection color when enabled
+        } else {
+            Color32::from_rgb(64, 64, 64) // Grey when disabled
+        };
+        
+        let border_radius = 5.0 * zoom + 2.0 * zoom;
+        painter.circle_stroke(
+            transformed_pos,
+            border_radius,
+            Stroke::new(1.0 * zoom, border_color),
+        );
+        
+        // Draw bevel outline (inner layer) - 1px smaller than border
+        let bevel_radius = 5.0 * zoom + 1.0 * zoom;
+        painter.circle_stroke(
+            transformed_pos,
+            bevel_radius,
+            Stroke::new(1.0 * zoom, Color32::from_rgb(38, 38, 38)), // Bevel outline
+        );
+        
+        // Add bigger dot for visible nodes only
+        if is_visible {
+            let dot_radius = 3.0 * zoom; // Bigger solid dot
+            painter.circle_filled(
+                transformed_pos,
+                dot_radius,
+                Color32::from_rgb(180, 180, 180), // Light grey dot for visibility
+            );
+        }
+    }
+
     /// Render port name on hover using CPU rendering
     pub fn render_port_name_on_hover(
         painter: &Painter,

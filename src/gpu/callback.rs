@@ -5,14 +5,15 @@
 
 use egui::Vec2;
 use crate::nodes::{Node, NodeId};
-use super::{NodeInstanceData, PortInstanceData, ButtonInstanceData, Uniforms, GLOBAL_GPU_RENDERER};
+use super::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms, GLOBAL_GPU_RENDERER};
 use std::collections::HashMap;
 
-/// Paint callback for GPU node, port, and button rendering
+/// Paint callback for GPU node, port, button, and flag rendering
 pub struct NodeRenderCallback {
     pub nodes: Vec<NodeInstanceData>,
     pub ports: Vec<PortInstanceData>,
     pub buttons: Vec<ButtonInstanceData>,
+    pub flags: Vec<FlagInstanceData>,
     pub uniforms: Uniforms,
 }
 
@@ -29,12 +30,18 @@ impl NodeRenderCallback {
         let mut node_instances = Vec::new();
         let mut port_instances = Vec::new();
         let mut button_instances = Vec::new();
+        let mut flag_instances = Vec::new();
         
         for (id, node) in &nodes {
             let selected = selected_nodes.contains(&id);
             let instance = NodeInstanceData::from_node(&node, selected, zoom);
             // Note: Debug output removed for cleaner production code
             node_instances.push(instance);
+            
+            // Add flag instance for this node
+            let flag_position = node.get_flag_position();
+            let flag_instance = FlagInstanceData::from_flag(flag_position, 5.0, node.visible);
+            flag_instances.push(flag_instance);
             
             // Add port instances for this node
             // Input ports on the left
@@ -73,6 +80,7 @@ impl NodeRenderCallback {
             nodes: node_instances,
             ports: port_instances,
             buttons: button_instances,
+            flags: flag_instances,
             uniforms,
         }
     }
@@ -82,6 +90,7 @@ impl NodeRenderCallback {
         node_instances: &[NodeInstanceData],
         port_instances: &[PortInstanceData],
         button_instances: &[ButtonInstanceData],
+        flag_instances: &[FlagInstanceData],
         pan_offset: Vec2,
         zoom: f32,
         screen_size: Vec2,
@@ -92,6 +101,7 @@ impl NodeRenderCallback {
             nodes: node_instances.to_vec(),
             ports: port_instances.to_vec(),
             buttons: button_instances.to_vec(),
+            flags: flag_instances.to_vec(),
             uniforms,
         }
     }
@@ -122,6 +132,7 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
             renderer.update_node_instances(queue, &self.nodes);
             renderer.update_port_instances(queue, &self.ports);
             renderer.update_button_instances(queue, &self.buttons);
+            renderer.update_flag_instances(queue, &self.flags);
         }
         Vec::new()
     }
@@ -154,6 +165,10 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
             
             // Render buttons on top of everything
             renderer.render_buttons(render_pass, self.buttons.len() as u32);
+            
+            // Render flags on top of everything
+            renderer.render_flags(render_pass, self.flags.len() as u32);
+            
         }
     }
 }

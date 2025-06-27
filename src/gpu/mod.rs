@@ -18,6 +18,6 @@ pub mod instance;
 pub mod renderer;
 pub mod callback;
 
-pub use instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, Uniforms, GpuInstanceManager};
+pub use instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms, GpuInstanceManager};
 pub use renderer::{GpuNodeRenderer, GLOBAL_GPU_RENDERER};
 pub use callback::NodeRenderCallback;
