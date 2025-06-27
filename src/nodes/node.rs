@@ -26,12 +26,12 @@ pub struct PortMapping {
 pub enum NodeType {
     /// Regular processing node
     Regular,
-    /// Context node that contains its own graph
-    Context {
-        /// The internal graph contained within this context node
+    /// Workspace node that contains its own graph
+    Workspace {
+        /// The internal graph contained within this workspace node
         graph: NodeGraph,
-        /// The context type (e.g., "3D", "MaterialX")
-        context_type: String,
+        /// The workspace type (e.g., "3D", "MaterialX")
+        workspace_type: String,
         /// Port mappings between external and internal ports
         port_mappings: Vec<PortMapping>,
     },
@@ -74,20 +74,20 @@ impl Node {
         }
     }
     
-    /// Creates a new context node
-    pub fn new_context(id: NodeId, context_type: impl Into<String>, position: Pos2) -> Self {
-        let context_type_str = context_type.into();
+    /// Creates a new workspace node
+    pub fn new_workspace(id: NodeId, workspace_type: impl Into<String>, position: Pos2) -> Self {
+        let workspace_type_str = workspace_type.into();
         Self {
             id,
-            title: format!("{} Context", context_type_str),
+            title: format!("{} Workspace", workspace_type_str),
             position,
             size: Vec2::new(180.0, 50.0), // Slightly larger
             inputs: vec![],
             outputs: vec![],
-            color: Color32::from_rgb(80, 100, 120), // Different color for context nodes
-            node_type: NodeType::Context {
+            color: Color32::from_rgb(80, 100, 120), // Different color for workspace nodes
+            node_type: NodeType::Workspace {
                 graph: NodeGraph::new(),
-                context_type: context_type_str,
+                workspace_type: workspace_type_str,
                 port_mappings: vec![],
             },
             button_states: [false, false],
@@ -155,55 +155,55 @@ impl Node {
         self
     }
     
-    /// Check if this is a context node
-    pub fn is_context(&self) -> bool {
-        matches!(self.node_type, NodeType::Context { .. })
+    /// Check if this is a workspace node
+    pub fn is_workspace(&self) -> bool {
+        matches!(self.node_type, NodeType::Workspace { .. })
     }
     
-    /// Get the internal graph if this is a context node
+    /// Get the internal graph if this is a workspace node
     pub fn get_internal_graph(&self) -> Option<&NodeGraph> {
         match &self.node_type {
-            NodeType::Context { graph, .. } => Some(graph),
+            NodeType::Workspace { graph, .. } => Some(graph),
             NodeType::Regular => None,
         }
     }
     
-    /// Get the mutable internal graph if this is a context node
+    /// Get the mutable internal graph if this is a workspace node
     pub fn get_internal_graph_mut(&mut self) -> Option<&mut NodeGraph> {
         match &mut self.node_type {
-            NodeType::Context { graph, .. } => Some(graph),
+            NodeType::Workspace { graph, .. } => Some(graph),
             NodeType::Regular => None,
         }
     }
     
-    /// Get the context type if this is a context node
-    pub fn get_context_type(&self) -> Option<&str> {
+    /// Get the workspace type if this is a workspace node
+    pub fn get_workspace_type(&self) -> Option<&str> {
         match &self.node_type {
-            NodeType::Context { context_type, .. } => Some(context_type),
+            NodeType::Workspace { workspace_type, .. } => Some(workspace_type),
             NodeType::Regular => None,
         }
     }
     
-    /// Get port mappings if this is a context node
+    /// Get port mappings if this is a workspace node
     pub fn get_port_mappings(&self) -> Option<&Vec<PortMapping>> {
         match &self.node_type {
-            NodeType::Context { port_mappings, .. } => Some(port_mappings),
+            NodeType::Workspace { port_mappings, .. } => Some(port_mappings),
             NodeType::Regular => None,
         }
     }
     
-    /// Get mutable port mappings if this is a context node
+    /// Get mutable port mappings if this is a workspace node
     pub fn get_port_mappings_mut(&mut self) -> Option<&mut Vec<PortMapping>> {
         match &mut self.node_type {
-            NodeType::Context { port_mappings, .. } => Some(port_mappings),
+            NodeType::Workspace { port_mappings, .. } => Some(port_mappings),
             NodeType::Regular => None,
         }
     }
     
-    /// Add a port mapping to this context node
+    /// Add a port mapping to this workspace node
     pub fn add_port_mapping(&mut self, mapping: PortMapping) -> Result<(), &'static str> {
         match &mut self.node_type {
-            NodeType::Context { port_mappings, .. } => {
+            NodeType::Workspace { port_mappings, .. } => {
                 port_mappings.push(mapping);
                 Ok(())
             }
@@ -219,7 +219,7 @@ impl Node {
     ) -> Result<(), &'static str> {
         let external_name = external_name.into();
         
-        // Add the external port to this context node
+        // Add the external port to this workspace node
         self.add_input(&external_name);
         
         // Create the port mapping
@@ -241,7 +241,7 @@ impl Node {
     ) -> Result<(), &'static str> {
         let external_name = external_name.into();
         
-        // Add the external port to this context node
+        // Add the external port to this workspace node
         self.add_output(&external_name);
         
         // Create the port mapping

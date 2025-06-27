@@ -1,15 +1,15 @@
-//! Context navigation and breadcrumb UI components
+//! Workspace navigation and breadcrumb UI components
 
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 
-/// Represents a navigation path through context hierarchy
+/// Represents a navigation path through workspace hierarchy
 #[derive(Debug, Clone, PartialEq)]
-pub struct ContextPath {
+pub struct WorkspacePath {
     /// Path segments like ["3D", "MaterialX"] for /3D/MaterialX/
     pub segments: Vec<String>,
 }
 
-impl ContextPath {
+impl WorkspacePath {
     /// Create a new path at the root level
     pub fn root() -> Self {
         Self {
@@ -27,8 +27,8 @@ impl ContextPath {
         self.segments.is_empty()
     }
     
-    /// Get the current context name (last segment)
-    pub fn current_context(&self) -> Option<&str> {
+    /// Get the current workspace name (last segment)
+    pub fn current_workspace(&self) -> Option<&str> {
         self.segments.last().map(|s| s.as_str())
     }
     
@@ -43,10 +43,10 @@ impl ContextPath {
         Self::from_segments(parent_segments)
     }
     
-    /// Navigate to a child context
-    pub fn navigate_to(&self, context_name: &str) -> Self {
+    /// Navigate to a child workspace
+    pub fn navigate_to(&self, workspace_name: &str) -> Self {
         let mut new_segments = self.segments.clone();
-        new_segments.push(context_name.to_string());
+        new_segments.push(workspace_name.to_string());
         Self::from_segments(new_segments)
     }
     
@@ -60,10 +60,10 @@ impl ContextPath {
     }
     
     /// Get path segments for breadcrumb rendering
-    pub fn breadcrumb_segments(&self) -> Vec<(String, ContextPath)> {
-        let mut segments = vec![("Root".to_string(), ContextPath::root())];
+    pub fn breadcrumb_segments(&self) -> Vec<(String, WorkspacePath)> {
+        let mut segments = vec![("Root".to_string(), WorkspacePath::root())];
         
-        let mut current_path = ContextPath::root();
+        let mut current_path = WorkspacePath::root();
         for segment in &self.segments {
             current_path = current_path.navigate_to(segment);
             segments.push((segment.clone(), current_path.clone()));
@@ -73,63 +73,63 @@ impl ContextPath {
     }
 }
 
-/// Manages context navigation state and UI
+/// Manages workspace navigation state and UI
 pub struct NavigationManager {
     /// Current navigation path
-    pub current_path: ContextPath,
-    /// Stack of context nodes we've entered (node IDs)
-    pub context_stack: Vec<crate::nodes::NodeId>,
+    pub current_path: WorkspacePath,
+    /// Stack of workspace nodes we've entered (node IDs)
+    pub workspace_stack: Vec<crate::nodes::NodeId>,
 }
 
 impl NavigationManager {
     /// Create a new navigation manager at root
     pub fn new() -> Self {
         Self {
-            current_path: ContextPath::root(),
-            context_stack: Vec::new(),
+            current_path: WorkspacePath::root(),
+            workspace_stack: Vec::new(),
         }
     }
     
     /// Navigate to a specific path
-    pub fn navigate_to(&mut self, path: ContextPath) {
+    pub fn navigate_to(&mut self, path: WorkspacePath) {
         self.current_path = path;
     }
     
-    /// Navigate to a child context
-    pub fn enter_context(&mut self, context_name: &str) {
-        self.current_path = self.current_path.navigate_to(context_name);
+    /// Navigate to a child workspace
+    pub fn enter_workspace(&mut self, workspace_name: &str) {
+        self.current_path = self.current_path.navigate_to(workspace_name);
     }
     
-    /// Navigate to a specific context (alias for enter_context)
-    pub fn navigate_to_context(&mut self, context_name: &str) {
-        self.enter_context(context_name);
+    /// Navigate to a specific workspace (alias for enter_workspace)
+    pub fn navigate_to_workspace(&mut self, workspace_name: &str) {
+        self.enter_workspace(workspace_name);
     }
     
-    /// Navigate to parent context
+    /// Navigate to parent workspace
     pub fn go_up(&mut self) {
         self.current_path = self.current_path.parent();
     }
     
     /// Navigate to root
     pub fn go_to_root(&mut self) {
-        self.current_path = ContextPath::root();
+        self.current_path = WorkspacePath::root();
     }
     
     /// Check if we can go up (not at root)
     pub fn can_go_up(&self) -> bool {
-        !self.current_path.is_root() || !self.context_stack.is_empty()
+        !self.current_path.is_root() || !self.workspace_stack.is_empty()
     }
     
-    /// Enter a context node (dive into its internal graph)
-    pub fn enter_context_node(&mut self, node_id: crate::nodes::NodeId, context_type: &str) {
-        self.context_stack.push(node_id);
-        self.enter_context(context_type);
+    /// Enter a workspace node (dive into its internal graph)
+    pub fn enter_workspace_node(&mut self, node_id: crate::nodes::NodeId, workspace_type: &str) {
+        self.workspace_stack.push(node_id);
+        self.enter_workspace(workspace_type);
     }
     
-    /// Exit the current context node (go back to parent graph)
-    pub fn exit_context_node(&mut self) -> Option<crate::nodes::NodeId> {
-        if let Some(node_id) = self.context_stack.pop() {
-            if self.context_stack.is_empty() {
+    /// Exit the current workspace node (go back to parent graph)
+    pub fn exit_workspace_node(&mut self) -> Option<crate::nodes::NodeId> {
+        if let Some(node_id) = self.workspace_stack.pop() {
+            if self.workspace_stack.is_empty() {
                 self.go_to_root();
             } else {
                 self.go_up();
@@ -140,14 +140,14 @@ impl NavigationManager {
         }
     }
     
-    /// Check if we're currently inside a context node
-    pub fn is_inside_context_node(&self) -> bool {
-        !self.context_stack.is_empty()
+    /// Check if we're currently inside a workspace node
+    pub fn is_inside_workspace_node(&self) -> bool {
+        !self.workspace_stack.is_empty()
     }
     
-    /// Get the current context node ID if we're inside one
-    pub fn current_context_node(&self) -> Option<crate::nodes::NodeId> {
-        self.context_stack.last().copied()
+    /// Get the current workspace node ID if we're inside one
+    pub fn current_workspace_node(&self) -> Option<crate::nodes::NodeId> {
+        self.workspace_stack.last().copied()
     }
     
     /// Render the navigation breadcrumb bar
@@ -157,24 +157,24 @@ impl NavigationManager {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             
-            // If we're inside a context node, show special navigation
-            if !self.context_stack.is_empty() {
-                // Show up button to exit context
+            // If we're inside a workspace node, show special navigation
+            if !self.workspace_stack.is_empty() {
+                // Show up button to exit workspace
                 if ui.button("⬆ Up").clicked() {
-                    if let Some(_node_id) = self.exit_context_node() {
+                    if let Some(_node_id) = self.exit_workspace_node() {
                         action = NavigationAction::GoUp;
                     }
                 }
                 ui.separator();
                 
-                // Show context node path
-                let node_count = self.context_stack.len();
-                ui.label(egui::RichText::new(format!("Inside {} context node{}", 
+                // Show workspace node path
+                let node_count = self.workspace_stack.len();
+                ui.label(egui::RichText::new(format!("Inside {} workspace node{}", 
                     node_count, 
                     if node_count > 1 { "s" } else { "" }
                 )).color(Color32::LIGHT_BLUE));
                 
-                // Show current context path
+                // Show current workspace path
                 if !self.current_path.is_root() {
                     ui.label("/");
                     ui.label(egui::RichText::new(&self.current_path.display_string())
@@ -182,7 +182,7 @@ impl NavigationManager {
                         .color(Color32::WHITE));
                 }
             } else {
-                // Normal breadcrumb navigation when not inside a context node
+                // Normal breadcrumb navigation when not inside a workspace node
                 let segments = self.current_path.breadcrumb_segments();
                 
                 for (i, (name, path)) in segments.iter().enumerate() {
@@ -213,7 +213,7 @@ impl NavigationManager {
             // Show debug info
             ui.label(egui::RichText::new(&format!("Path: {} | Stack: {}", 
                 self.current_path.display_string(),
-                self.context_stack.len()
+                self.workspace_stack.len()
             ))
                 .color(Color32::GRAY)
                 .size(12.0));
@@ -227,8 +227,8 @@ impl NavigationManager {
 #[derive(Debug, Clone)]
 pub enum NavigationAction {
     None,
-    NavigateTo(ContextPath),
-    EnterContext(String),
+    NavigateTo(WorkspacePath),
+    EnterWorkspace(String),
     GoUp,
     GoToRoot,
 }
@@ -244,18 +244,18 @@ mod tests {
     use super::*;
     
     #[test]
-    fn test_context_path() {
-        let root = ContextPath::root();
+    fn test_workspace_path() {
+        let root = WorkspacePath::root();
         assert!(root.is_root());
         assert_eq!(root.display_string(), "/");
         
         let path_3d = root.navigate_to("3D");
         assert_eq!(path_3d.display_string(), "/3D/");
-        assert_eq!(path_3d.current_context(), Some("3D"));
+        assert_eq!(path_3d.current_workspace(), Some("3D"));
         
         let path_materialx = path_3d.navigate_to("MaterialX");
         assert_eq!(path_materialx.display_string(), "/3D/MaterialX/");
-        assert_eq!(path_materialx.current_context(), Some("MaterialX"));
+        assert_eq!(path_materialx.current_workspace(), Some("MaterialX"));
         
         let parent = path_materialx.parent();
         assert_eq!(parent, path_3d);
@@ -266,7 +266,7 @@ mod tests {
     
     #[test]
     fn test_breadcrumb_segments() {
-        let path = ContextPath::from_segments(vec!["3D".to_string(), "MaterialX".to_string()]);
+        let path = WorkspacePath::from_segments(vec!["3D".to_string(), "MaterialX".to_string()]);
         let segments = path.breadcrumb_segments();
         
         assert_eq!(segments.len(), 3); // Root + 3D + MaterialX

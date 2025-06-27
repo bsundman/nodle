@@ -7,8 +7,8 @@ use crate::nodes::{NodeGraph, Node};
 mod editor;
 mod menu_hierarchy;
 mod nodes;
-mod contexts;
-mod context;
+mod workspaces;
+mod workspace;
 mod gpu;
 
 use editor::NodeEditor;
@@ -79,9 +79,9 @@ impl NodeRegistry {
         }
     }
     
-    /// Create a context-specific node
-    pub fn create_context_node(context: &dyn context::Context, node_type: &str, position: Pos2) -> Option<Node> {
-        context.create_context_node(node_type, position)
+    /// Create a workspace-specific node
+    pub fn create_workspace_node(workspace: &dyn workspace::Workspace, node_type: &str, position: Pos2) -> Option<Node> {
+        workspace.create_workspace_node(node_type, position)
     }
 }
 

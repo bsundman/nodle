@@ -40,12 +40,12 @@ pub fn create_constant_node(position: Pos2) -> Node {
     node
 }
 
-/// Create a demonstration MaterialX Shader context node with port mapping
-pub fn create_shader_context_node(position: Pos2) -> Node {
+/// Create a demonstration MaterialX Shader workspace node with port mapping
+pub fn create_shader_workspace_node(position: Pos2) -> Node {
     use crate::nodes::{Node, NodeType, NodeGraph, PortMapping, Connection};
     
-    let mut context_node = Node::new_context(0, "MaterialX Shader", position)
-        .with_color(Color32::from_rgb(120, 80, 140)); // Purple for shader context
+    let mut workspace_node = Node::new_workspace(0, "MaterialX Shader", position)
+        .with_color(Color32::from_rgb(120, 80, 140)); // Purple for shader workspace
     
     // Create internal graph with some demo nodes
     let mut internal_graph = NodeGraph::new();
@@ -68,16 +68,16 @@ pub fn create_shader_context_node(position: Pos2) -> Node {
         to_port: 0,
     });
     
-    // Set up the context node with the internal graph
-    context_node.node_type = NodeType::Context {
+    // Set up the workspace node with the internal graph
+    workspace_node.node_type = NodeType::Workspace {
         graph: internal_graph,
-        context_type: "MaterialX Shader".to_string(),
+        workspace_type: "MaterialX Shader".to_string(),
         port_mappings: Vec::new(),
     };
     
     // Add external ports with mappings to internal nodes
-    let _ = context_node.add_external_input("Base Color", 1, "Value");
-    let _ = context_node.add_external_output("Surface", 2, "Surface");
+    let _ = workspace_node.add_external_input("Base Color", 1, "Value");
+    let _ = workspace_node.add_external_output("Surface", 2, "Surface");
     
-    context_node
+    workspace_node
 }

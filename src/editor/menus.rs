@@ -1,7 +1,7 @@
-//! Context menu system for node creation
+//! Workspace menu system for node creation
 
 use egui::{Pos2, Color32, Rect, Vec2};
-use crate::context::{ContextManager, ContextMenuItem};
+use crate::workspace::{WorkspaceManager, WorkspaceMenuItem};
 use crate::editor::navigation::NavigationManager;
 
 /// Standard menu styling for consistency across all menus
@@ -114,7 +114,7 @@ pub fn render_menu_item_with_arrow(ui: &mut egui::Ui, text: &str, menu_width: f3
     (response.clicked(), response.hovered())
 }
 
-/// Manages context menus and submenus for node creation
+/// Manages workspace menus and submenus for node creation
 #[derive(Debug, Clone)]
 pub struct MenuManager {
     open_submenu: Option<String>,
@@ -139,17 +139,17 @@ impl MenuManager {
         self.submenu_close_timer = None;
     }
 
-    /// Render the context menu and return selected node type
+    /// Render the workspace menu and return selected node type
     /// Returns (selected_node_type, menu_response, submenu_response)
-    pub fn render_context_menu(
+    pub fn render_workspace_menu(
         &mut self, 
         ui: &mut egui::Ui, 
         menu_screen_pos: Pos2,
-        context_manager: &ContextManager,
+        workspace_manager: &WorkspaceManager,
         navigation: &NavigationManager
     ) -> (Option<String>, egui::Response, Option<egui::Response>) {
         let mut selected_node_type = None;
-        let popup_id = egui::Id::new("context_menu");
+        let popup_id = egui::Id::new("workspace_menu");
 
         // Render main menu
         let menu_response = egui::Area::new(popup_id)
@@ -161,15 +161,15 @@ impl MenuManager {
                         // Apply consistent menu styling - CRITICAL for matching file menu
                         apply_menu_style(ui);
                         
-                        // Get context-aware menu structure based on current navigation path
-                        let menu_structure = context_manager.get_menu_for_path(&navigation.current_path);
+                        // Get workspace-aware menu structure based on current navigation path
+                        let menu_structure = workspace_manager.get_menu_for_path(&navigation.current_path);
                         
                         // Calculate menu width based on category names
                         let category_names: Vec<String> = menu_structure.iter()
                             .map(|item| match item {
-                                ContextMenuItem::Category { name, .. } => name.clone(),
-                                ContextMenuItem::Node { name, .. } => name.clone(),
-                                ContextMenuItem::Subcontext { name, .. } => name.clone(),
+                                WorkspaceMenuItem::Category { name, .. } => name.clone(),
+                                WorkspaceMenuItem::Node { name, .. } => name.clone(),
+                                WorkspaceMenuItem::Workspace { name, .. } => name.clone(),
                             })
                             .collect();
                         
@@ -189,22 +189,22 @@ impl MenuManager {
                         // Track if any item is currently being hovered
                         let mut any_item_hovered = false;
                         
-                        // Render the context-aware menu structure
+                        // Render the workspace-aware menu structure
                         for menu_item in menu_structure {
                             match menu_item {
-                                ContextMenuItem::Category { name, .. } => {
+                                WorkspaceMenuItem::Category { name, .. } => {
                                     let was_hovered = self.render_submenu_item(ui, &name, menu_width);
                                     if was_hovered {
                                         any_item_hovered = true;
                                     }
                                 }
-                                ContextMenuItem::Subcontext { name, .. } => {
+                                WorkspaceMenuItem::Workspace { name, .. } => {
                                     let was_hovered = self.render_submenu_item(ui, &name, menu_width);
                                     if was_hovered {
                                         any_item_hovered = true;
                                     }
                                 }
-                                ContextMenuItem::Node { .. } => {
+                                WorkspaceMenuItem::Node { .. } => {
                                     // Direct nodes (rare at top level)
                                 }
                             }
@@ -241,7 +241,7 @@ impl MenuManager {
                             // Apply consistent menu styling - CRITICAL for matching file menu
                             apply_menu_style(ui);
                             
-                            selected_node_type = self.render_submenu_content(ui, &submenu_name, context_manager, navigation);
+                            selected_node_type = self.render_submenu_content(ui, &submenu_name, workspace_manager, navigation);
                         })
                         .inner
                 }).response)
@@ -274,23 +274,23 @@ impl MenuManager {
     }
 
     /// Render submenu content and return selected node type
-    fn render_submenu_content(&self, ui: &mut egui::Ui, submenu_name: &str, context_manager: &ContextManager, navigation: &NavigationManager) -> Option<String> {
-        // Get context-aware menu structure and find the matching category
-        let menu_structure = context_manager.get_menu_for_path(&navigation.current_path);
+    fn render_submenu_content(&self, ui: &mut egui::Ui, submenu_name: &str, workspace_manager: &WorkspaceManager, navigation: &NavigationManager) -> Option<String> {
+        // Get workspace-aware menu structure and find the matching category
+        let menu_structure = workspace_manager.get_menu_for_path(&navigation.current_path);
         let mut node_items = Vec::new();
         
         // Find the category that matches the submenu name
         for menu_item in menu_structure {
             match menu_item {
-                ContextMenuItem::Category { name, items } if name == submenu_name => {
+                WorkspaceMenuItem::Category { name, items } if name == submenu_name => {
                     // Extract node types from the category items
                     for item in items {
                         match item {
-                            ContextMenuItem::Node { name, node_type } => {
+                            WorkspaceMenuItem::Node { name, node_type } => {
                                 node_items.push((name, node_type));
                             }
-                            ContextMenuItem::Subcontext { name, .. } => {
-                                node_items.push((name.clone(), format!("SUBCONTEXT:{}", name)));
+                            WorkspaceMenuItem::Workspace { name, .. } => {
+                                node_items.push((name.clone(), format!("SUBWORKSPACE:{}", name)));
                             }
                             _ => {}
                         }

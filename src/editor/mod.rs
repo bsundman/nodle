@@ -14,7 +14,7 @@ pub use input::InputState;
 pub use interaction::InteractionManager;
 pub use menus::MenuManager;
 pub use rendering::MeshRenderer;
-pub use navigation::{NavigationManager, ContextPath, NavigationAction};
+pub use navigation::{NavigationManager, WorkspacePath, NavigationAction};
 
 use eframe::egui;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2, Shadow};
@@ -23,8 +23,8 @@ use crate::nodes::{
     NodeGraph, Node, NodeId, Connection,
 };
 use std::collections::HashMap;
-use crate::context::ContextManager;
-use crate::contexts::ContextRegistry;
+use crate::workspace::WorkspaceManager;
+use crate::workspaces::WorkspaceRegistry;
 use crate::gpu::{NodeRenderCallback, FlagInstanceData};
 use crate::gpu::GpuInstanceManager;
 use std::path::{Path, PathBuf};
@@ -62,8 +62,8 @@ pub struct NodeEditor {
     input_state: InputState,      // Centralized input handling
     interaction: InteractionManager, // Node selection and dragging
     menus: MenuManager,           // Context menu management
-    navigation: NavigationManager, // Context navigation and breadcrumbs
-    context_manager: ContextManager,
+    navigation: NavigationManager, // Workspace navigation and breadcrumbs
+    workspace_manager: WorkspaceManager,
     // Performance tracking
     show_performance_info: bool,
     frame_times: Vec<f32>,
@@ -86,14 +86,14 @@ pub struct NodeEditor {
 enum GraphView {
     /// Viewing the root graph
     Root,
-    /// Viewing a context node's internal graph
-    ContextNode(NodeId),
+    /// Viewing a workspace node's internal graph
+    WorkspaceNode(NodeId),
 }
 
 impl NodeEditor {
     pub fn new() -> Self {
-        // Use the context registry to create a manager with all available contexts
-        let context_manager = ContextRegistry::create_context_manager();
+        // Use the workspace registry to create a manager with all available workspaces
+        let workspace_manager = WorkspaceRegistry::create_workspace_manager();
         
         let editor = Self {
             graph: NodeGraph::new(),
@@ -102,7 +102,7 @@ impl NodeEditor {
             interaction: InteractionManager::new(),
             menus: MenuManager::new(),
             navigation: NavigationManager::new(),
-            context_manager,
+            workspace_manager,
             // Performance tracking
             show_performance_info: false,
             frame_times: Vec::new(),
@@ -129,7 +129,7 @@ impl NodeEditor {
     fn get_viewed_nodes(&self) -> HashMap<NodeId, Node> {
         match &self.current_view {
             GraphView::Root => self.graph.nodes.clone(),
-            GraphView::ContextNode(node_id) => {
+            GraphView::WorkspaceNode(node_id) => {
                 if let Some(node) = self.graph.nodes.get(node_id) {
                     if let Some(internal_graph) = node.get_internal_graph() {
                         return internal_graph.nodes.clone();
@@ -145,7 +145,7 @@ impl NodeEditor {
     fn get_viewed_connections(&self) -> Vec<Connection> {
         match &self.current_view {
             GraphView::Root => self.graph.connections.clone(),
-            GraphView::ContextNode(node_id) => {
+            GraphView::WorkspaceNode(node_id) => {
                 if let Some(node) = self.graph.nodes.get(node_id) {
                     if let Some(internal_graph) = node.get_internal_graph() {
                         return internal_graph.connections.clone();
@@ -165,8 +165,8 @@ impl NodeEditor {
         temp_graph
     }
     
-    /// Get mutable reference to a context node's internal graph
-    fn get_context_graph_mut(&mut self, node_id: NodeId) -> Option<&mut NodeGraph> {
+    /// Get mutable reference to a workspace node's internal graph
+    fn get_workspace_graph_mut(&mut self, node_id: NodeId) -> Option<&mut NodeGraph> {
         if let Some(node) = self.graph.nodes.get_mut(&node_id) {
             node.get_internal_graph_mut()
         } else {
@@ -200,16 +200,16 @@ impl NodeEditor {
             
             // Render the context menu using MenuManager
             let (selected_node_type, menu_response, submenu_response) = 
-                self.menus.render_context_menu(ui, menu_screen_pos, &self.context_manager, &self.navigation);
+                self.menus.render_workspace_menu(ui, menu_screen_pos, &self.workspace_manager, &self.navigation);
             
             // Handle node creation or navigation if a node type was selected
             if let Some(node_type) = selected_node_type {
-                if node_type.starts_with("SUBCONTEXT:") {
-                    // Handle subcontext navigation
-                    let context_name = node_type.strip_prefix("SUBCONTEXT:").unwrap();
-                    self.navigation.navigate_to_context(context_name);
-                    // Synchronize context manager with navigation state
-                    self.context_manager.set_active_context_by_id(Some(context_name));
+                if node_type.starts_with("SUBWORKSPACE:") {
+                    // Handle subworkspace navigation
+                    let workspace_name = node_type.strip_prefix("SUBWORKSPACE:").unwrap();
+                    self.navigation.navigate_to_workspace(workspace_name);
+                    // Synchronize workspace manager with navigation state
+                    self.workspace_manager.set_active_workspace_by_id(Some(workspace_name));
                 } else {
                     // Handle regular node creation
                     self.create_node(&node_type, menu_world_pos);
@@ -253,21 +253,21 @@ impl NodeEditor {
     }
 
     fn create_node(&mut self, node_type: &str, position: Pos2) {
-        // Check if this is a context node creation
-        if node_type == "CONTEXT:3D" {
-            let mut context_node = Node::new_context(0, "3D", position);
+        // Check if this is a workspace node creation
+        if node_type == "WORKSPACE:3D" {
+            let mut workspace_node = Node::new_workspace(0, "3D", position);
             
-            // Add some sample nodes to the 3D context for demonstration
-            self.populate_3d_context(&mut context_node);
+            // Add some sample nodes to the 3D workspace for demonstration
+            self.populate_3d_workspace(&mut workspace_node);
             
-            // Context nodes can only be created in the root graph
+            // Workspace nodes can only be created in the root graph
             if matches!(self.current_view, GraphView::Root) {
-                self.graph.add_node(context_node);
+                self.graph.add_node(workspace_node);
                 self.mark_modified();
-            } else if let GraphView::ContextNode(node_id) = self.current_view {
-                // Add to the context node's internal graph
-                if let Some(internal_graph) = self.get_context_graph_mut(node_id) {
-                    internal_graph.add_node(context_node);
+            } else if let GraphView::WorkspaceNode(node_id) = self.current_view {
+                // Add to the workspace node's internal graph
+                if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
+                    internal_graph.add_node(workspace_node);
                     self.mark_modified();
                 }
             }
@@ -275,20 +275,20 @@ impl NodeEditor {
             return;
         }
         
-        if node_type == "CONTEXT:MaterialX" {
-            let mut context_node = Node::new_context(0, "MaterialX", position);
+        if node_type == "WORKSPACE:MaterialX" {
+            let mut workspace_node = Node::new_workspace(0, "MaterialX", position);
             
-            // Add some sample nodes to the MaterialX context for demonstration
-            self.populate_materialx_context(&mut context_node);
+            // Add some sample nodes to the MaterialX workspace for demonstration
+            self.populate_materialx_workspace(&mut workspace_node);
             
-            // Context nodes can only be created in the root graph
+            // Workspace nodes can only be created in the root graph
             if matches!(self.current_view, GraphView::Root) {
-                self.graph.add_node(context_node);
+                self.graph.add_node(workspace_node);
                 self.mark_modified();
-            } else if let GraphView::ContextNode(node_id) = self.current_view {
-                // Add to the context node's internal graph
-                if let Some(internal_graph) = self.get_context_graph_mut(node_id) {
-                    internal_graph.add_node(context_node);
+            } else if let GraphView::WorkspaceNode(node_id) = self.current_view {
+                // Add to the workspace node's internal graph
+                if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
+                    internal_graph.add_node(workspace_node);
                     self.mark_modified();
                 }
             }
@@ -308,8 +308,8 @@ impl NodeEditor {
         };
         
         // Create the node
-        let new_node = if let Some(context) = self.context_manager.get_active_context() {
-            crate::NodeRegistry::create_context_node(context, internal_node_type, position)
+        let new_node = if let Some(workspace) = self.workspace_manager.get_active_workspace() {
+            crate::NodeRegistry::create_workspace_node(workspace, internal_node_type, position)
         } else {
             None
         }.or_else(|| crate::NodeRegistry::create_node(internal_node_type, position));
@@ -321,8 +321,8 @@ impl NodeEditor {
                     self.graph.add_node(node);
                     self.mark_modified();
                 }
-                GraphView::ContextNode(node_id) => {
-                    if let Some(internal_graph) = self.get_context_graph_mut(node_id) {
+                GraphView::WorkspaceNode(node_id) => {
+                    if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
                         internal_graph.add_node(node);
                         self.mark_modified();
                     }
@@ -464,7 +464,7 @@ impl NodeEditor {
         self.is_modified = false;
         // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         // Reset context manager to root (no active context)
-        self.context_manager.set_active_context_by_id(None);
+        self.workspace_manager.set_active_workspace_by_id(None);
     }
     
     /// Save the current graph to a file
@@ -523,7 +523,7 @@ impl NodeEditor {
         self.navigation = NavigationManager::new();
         self.interaction.clear_selection();
         // Reset context manager to root (no active context)
-        self.context_manager.set_active_context_by_id(None);
+        self.workspace_manager.set_active_workspace_by_id(None);
         
         // Update file state
         self.current_file_path = Some(file_path.to_path_buf());
@@ -598,15 +598,15 @@ impl NodeEditor {
     }
     
     /// Populate a 3D context node with sample nodes for demonstration
-    fn populate_3d_context(&mut self, context_node: &mut Node) {
-        if let Some(_internal_graph) = context_node.get_internal_graph_mut() {
+    fn populate_3d_workspace(&mut self, workspace_node: &mut Node) {
+        if let Some(_internal_graph) = workspace_node.get_internal_graph_mut() {
             // 3D context starts empty - users can add nodes via context menu
         }
     }
     
     /// Populate a MaterialX context node with sample nodes for demonstration
-    fn populate_materialx_context(&mut self, context_node: &mut Node) {
-        if let Some(internal_graph) = context_node.get_internal_graph_mut() {
+    fn populate_materialx_workspace(&mut self, workspace_node: &mut Node) {
+        if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
             // Create sample MaterialX nodes
             let mut image_node = Node::new(1, "Image", Pos2::new(50.0, 100.0))
                 .with_color(Color32::from_rgb(140, 180, 140));
@@ -748,14 +748,14 @@ impl eframe::App for NodeEditor {
                     NavigationAction::NavigateTo(path) => {
                         self.navigation.navigate_to(path);
                         // Synchronize context manager with navigation state
-                        let context_id = self.navigation.current_path.current_context();
-                        self.context_manager.set_active_context_by_id(context_id);
+                        let workspace_id = self.navigation.current_path.current_workspace();
+                        self.workspace_manager.set_active_workspace_by_id(workspace_id);
                     }
-                    NavigationAction::EnterContext(context_name) => {
-                        self.navigation.enter_context(&context_name);
+                    NavigationAction::EnterWorkspace(workspace_name) => {
+                        self.navigation.enter_workspace(&workspace_name);
                         // Synchronize context manager with navigation state
-                        let context_id = self.navigation.current_path.current_context();
-                        self.context_manager.set_active_context_by_id(context_id);
+                        let workspace_id = self.navigation.current_path.current_workspace();
+                        self.workspace_manager.set_active_workspace_by_id(workspace_id);
                     }
                     NavigationAction::GoUp => {
                         // Exit from context node view
@@ -763,12 +763,12 @@ impl eframe::App for NodeEditor {
                         self.interaction.clear_selection();
                         // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         // When going up, clear the active context (back to root)
-                        self.context_manager.set_active_context_by_id(None);
+                        self.workspace_manager.set_active_workspace_by_id(None);
                     }
                     NavigationAction::GoToRoot => {
                         self.navigation.go_to_root();
                         // Synchronize context manager with navigation state (root = no active context)
-                        self.context_manager.set_active_context_by_id(None);
+                        self.workspace_manager.set_active_workspace_by_id(None);
                     }
                     NavigationAction::None => {}
                 }
@@ -918,9 +918,9 @@ impl eframe::App for NodeEditor {
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = match self.current_view {
                                                 GraphView::Root => self.graph.nodes.clone(),
-                                                GraphView::ContextNode(context_node_id) => {
-                                                    if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
-                                                        if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                GraphView::WorkspaceNode(workspace_node_id) => {
+                                                    if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                        if let Some(internal_graph) = workspace_node.get_internal_graph() {
                                                             internal_graph.nodes.clone()
                                                         } else { HashMap::new() }
                                                     } else { HashMap::new() }
@@ -936,9 +936,9 @@ impl eframe::App for NodeEditor {
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = match self.current_view {
                                                 GraphView::Root => self.graph.nodes.clone(),
-                                                GraphView::ContextNode(context_node_id) => {
-                                                    if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
-                                                        if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                GraphView::WorkspaceNode(workspace_node_id) => {
+                                                    if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                        if let Some(internal_graph) = workspace_node.get_internal_graph() {
                                                             internal_graph.nodes.clone()
                                                         } else { HashMap::new() }
                                                     } else { HashMap::new() }
@@ -954,9 +954,9 @@ impl eframe::App for NodeEditor {
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = match self.current_view {
                                                 GraphView::Root => self.graph.nodes.clone(),
-                                                GraphView::ContextNode(context_node_id) => {
-                                                    if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
-                                                        if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                GraphView::WorkspaceNode(workspace_node_id) => {
+                                                    if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                        if let Some(internal_graph) = workspace_node.get_internal_graph() {
                                                             internal_graph.nodes.clone()
                                                         } else { HashMap::new() }
                                                     } else { HashMap::new() }
@@ -968,9 +968,9 @@ impl eframe::App for NodeEditor {
                                         }
                                     }
                                 }
-                                GraphView::ContextNode(context_node_id) => {
-                                    if let Some(context_node) = self.graph.nodes.get_mut(&context_node_id) {
-                                        if let Some(internal_graph) = context_node.get_internal_graph_mut() {
+                                GraphView::WorkspaceNode(workspace_node_id) => {
+                                    if let Some(workspace_node) = self.graph.nodes.get_mut(&workspace_node_id) {
+                                        if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
                                             if let Some(node) = internal_graph.nodes.get_mut(&node_id) {
                                                 if node.is_point_in_left_button(mouse_pos) {
                                                     node.toggle_left_button();
@@ -979,9 +979,9 @@ impl eframe::App for NodeEditor {
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = match self.current_view {
                                                         GraphView::Root => self.graph.nodes.clone(),
-                                                        GraphView::ContextNode(context_node_id) => {
-                                                            if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
-                                                                if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                        GraphView::WorkspaceNode(workspace_node_id) => {
+                                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
                                                                     internal_graph.nodes.clone()
                                                                 } else { HashMap::new() }
                                                             } else { HashMap::new() }
@@ -997,9 +997,9 @@ impl eframe::App for NodeEditor {
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = match self.current_view {
                                                         GraphView::Root => self.graph.nodes.clone(),
-                                                        GraphView::ContextNode(context_node_id) => {
-                                                            if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
-                                                                if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                        GraphView::WorkspaceNode(workspace_node_id) => {
+                                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
                                                                     internal_graph.nodes.clone()
                                                                 } else { HashMap::new() }
                                                             } else { HashMap::new() }
@@ -1015,9 +1015,9 @@ impl eframe::App for NodeEditor {
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = match self.current_view {
                                                         GraphView::Root => self.graph.nodes.clone(),
-                                                        GraphView::ContextNode(context_node_id) => {
-                                                            if let Some(context_node) = self.graph.nodes.get(&context_node_id) {
-                                                                if let Some(internal_graph) = context_node.get_internal_graph() {
+                                                        GraphView::WorkspaceNode(workspace_node_id) => {
+                                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
+                                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
                                                                     internal_graph.nodes.clone()
                                                                 } else { HashMap::new() }
                                                             } else { HashMap::new() }
@@ -1038,25 +1038,25 @@ impl eframe::App for NodeEditor {
                                 // Handle node selection and double-click
                                 self.interaction.select_node(node_id, self.input_state.is_multi_select());
                                 
-                                // Check for double-click on context nodes
+                                // Check for double-click on workspace nodes
                                 if self.interaction.check_double_click(node_id) {
                                     if let Some(node) = self.graph.nodes.get(&node_id) {
-                                        if node.is_context() {
-                                            // Navigate into the context node
-                                            if let Some(context_type) = node.get_context_type() {
-                                                self.navigation.enter_context_node(node_id, context_type);
-                                                self.current_view = GraphView::ContextNode(node_id);
+                                        if node.is_workspace() {
+                                            // Navigate into the workspace node
+                                            if let Some(workspace_type) = node.get_workspace_type() {
+                                                self.navigation.enter_workspace_node(node_id, workspace_type);
+                                                self.current_view = GraphView::WorkspaceNode(node_id);
                                                 // Clear selections when entering a new graph
                                                 self.interaction.clear_selection();
                                                 // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-                                                // Synchronize context manager with the node's context type
-                                                // Map context type to context ID (3D -> 3d, MaterialX -> materialx)
-                                                let context_id = match context_type {
+                                                // Synchronize workspace manager with the node's workspace type
+                                                // Map workspace type to workspace ID (3D -> 3d, MaterialX -> materialx)
+                                                let workspace_id = match workspace_type {
                                                     "3D" => Some("3d"),
                                                     "MaterialX" => Some("materialx"),
                                                     _ => None,
                                                 };
-                                                self.context_manager.set_active_context_by_id(context_id);
+                                                self.workspace_manager.set_active_workspace_by_id(workspace_id);
                                             }
                                         }
                                     }
@@ -1103,7 +1103,7 @@ impl eframe::App for NodeEditor {
                             let mut dragging_selected = false;
                             let current_graph = match self.current_view {
                                 GraphView::Root => &self.graph,
-                                GraphView::ContextNode(node_id) => {
+                                GraphView::WorkspaceNode(node_id) => {
                                     if let Some(node) = self.graph.nodes.get(&node_id) {
                                         if let Some(internal_graph) = node.get_internal_graph() {
                                             internal_graph
@@ -1153,7 +1153,7 @@ impl eframe::App for NodeEditor {
                                 GraphView::Root => {
                                     self.interaction.update_drag(pos, &mut self.graph);
                                 }
-                                GraphView::ContextNode(node_id) => {
+                                GraphView::WorkspaceNode(node_id) => {
                                     if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                         if let Some(internal_graph) = node.get_internal_graph_mut() {
                                             self.interaction.update_drag(pos, internal_graph);
@@ -1201,7 +1201,7 @@ impl eframe::App for NodeEditor {
                             GraphView::Root => {
                                 self.interaction.complete_box_selection(&self.graph, self.input_state.is_multi_select());
                             }
-                            GraphView::ContextNode(node_id) => {
+                            GraphView::WorkspaceNode(node_id) => {
                                 if let Some(node) = self.graph.nodes.get(&node_id) {
                                     if let Some(internal_graph) = node.get_internal_graph() {
                                         self.interaction.complete_box_selection(internal_graph, self.input_state.is_multi_select());
@@ -1225,7 +1225,7 @@ impl eframe::App for NodeEditor {
                         GraphView::Root => {
                             self.interaction.delete_selected(&mut self.graph);
                         }
-                        GraphView::ContextNode(node_id) => {
+                        GraphView::WorkspaceNode(node_id) => {
                             if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                 if let Some(internal_graph) = node.get_internal_graph_mut() {
                                     self.interaction.delete_selected(internal_graph);
@@ -1247,7 +1247,7 @@ impl eframe::App for NodeEditor {
                                 self.mark_modified();
                             }
                         }
-                        GraphView::ContextNode(node_id) => {
+                        GraphView::WorkspaceNode(node_id) => {
                             if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                 if let Some(internal_graph) = node.get_internal_graph_mut() {
                                     for conn_idx in connection_indices {
@@ -1377,7 +1377,7 @@ impl eframe::App for NodeEditor {
                     // Get current graph for box selection preview
                     let current_graph = match self.current_view {
                         GraphView::Root => &self.graph,
-                        GraphView::ContextNode(node_id) => {
+                        GraphView::WorkspaceNode(node_id) => {
                             if let Some(node) = self.graph.nodes.get(&node_id) {
                                 if let Some(internal_graph) = node.get_internal_graph() {
                                     internal_graph
@@ -1471,7 +1471,7 @@ impl eframe::App for NodeEditor {
                 // Get current graph for box selection preview
                 let current_graph = match self.current_view {
                     GraphView::Root => &self.graph,
-                    GraphView::ContextNode(node_id) => {
+                    GraphView::WorkspaceNode(node_id) => {
                         if let Some(node) = self.graph.nodes.get(&node_id) {
                             if let Some(internal_graph) = node.get_internal_graph() {
                                 internal_graph
