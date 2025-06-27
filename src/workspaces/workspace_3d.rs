@@ -3,6 +3,8 @@
 use crate::workspace::{Workspace, WorkspaceMenuItem};
 use crate::nodes::factory::NodeRegistry;
 use crate::nodes::three_d::*;
+use crate::nodes::three_d::geometry::{CubeNodeWithInterface, SphereNodeWithInterface};
+use crate::nodes::three_d::transform::TranslateNodeWithInterface;
 
 /// 3D workspace for 3D graphics, rendering, and modeling workflows
 pub struct Workspace3D {
@@ -24,6 +26,41 @@ impl Workspace3D {
         node_registry.register::<DirectionalLightNode3D>();
         node_registry.register::<SpotLightNode3D>();
         node_registry.register::<ViewportNode3D>();
+        
+        // Register interface panel versions
+        node_registry.register::<TranslateNodeWithInterface>();
+        node_registry.register::<CubeNodeWithInterface>();
+        node_registry.register::<SphereNodeWithInterface>();
+        
+        // Register USD nodes
+        node_registry.register::<USDCreateStage>();
+        node_registry.register::<USDLoadStage>();
+        node_registry.register::<USDSaveStage>();
+        node_registry.register::<USDXform>();
+        node_registry.register::<USDMesh>();
+        node_registry.register::<USDSphere>();
+        node_registry.register::<USDCube>();
+        node_registry.register::<USDCamera>();
+        node_registry.register::<USDDistantLight>();
+        node_registry.register::<USDSphereLight>();
+        node_registry.register::<USDRectLight>();
+        node_registry.register::<USDMaterial>();
+        node_registry.register::<USDPreviewSurface>();
+        node_registry.register::<USDTexture>();
+        node_registry.register::<USDViewport>();
+        node_registry.register::<USDSubLayer>();
+        node_registry.register::<USDReference>();
+        node_registry.register::<USDPayload>();
+        node_registry.register::<USDSetAttribute>();
+        node_registry.register::<USDGetAttribute>();
+        
+        // Debug: Print registered nodes
+        println!("🔍 3D Workspace registered nodes:");
+        for node_type in node_registry.node_types() {
+            if let Some(metadata) = node_registry.get_metadata(node_type) {
+                println!("  {} -> {:?}", node_type, metadata.category.path());
+            }
+        }
         
         Self {
             node_registry,

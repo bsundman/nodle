@@ -60,9 +60,10 @@ pub struct Node {
 impl Node {
     /// Creates a new node with the specified properties
     pub fn new(id: NodeId, title: impl Into<String>, position: Pos2) -> Self {
-        Self {
+        let title_str = title.into();
+        let new_node = Self {
             id,
-            title: title.into(),
+            title: title_str.clone(),
             position,
             size: Vec2::new(150.0, 30.0),
             inputs: vec![],
@@ -71,15 +72,19 @@ impl Node {
             node_type: NodeType::Regular,
             button_states: [false, false],
             visible: true,
-        }
+        };
+        
+        
+        new_node
     }
     
     /// Creates a new workspace node
     pub fn new_workspace(id: NodeId, workspace_type: impl Into<String>, position: Pos2) -> Self {
         let workspace_type_str = workspace_type.into();
-        Self {
+        let title = format!("{} Workspace", workspace_type_str);
+        let new_node = Self {
             id,
-            title: format!("{} Workspace", workspace_type_str),
+            title: title.clone(),
             position,
             size: Vec2::new(180.0, 50.0), // Slightly larger
             inputs: vec![],
@@ -92,7 +97,10 @@ impl Node {
             },
             button_states: [false, false],
             visible: true,
-        }
+        };
+        
+        
+        new_node
     }
 
     /// Adds an input port to the node

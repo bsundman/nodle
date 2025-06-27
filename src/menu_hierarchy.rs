@@ -86,6 +86,10 @@ impl GlobalMenuHierarchy {
                         node_type: "3D_Translate".to_string() 
                     },
                     WorkspaceMenuItem::Node { 
+                        name: "Translate (Interface)".to_string(), 
+                        node_type: "3D_TranslateInterface".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
                         name: "Rotate".to_string(), 
                         node_type: "3D_Rotate".to_string() 
                     },
@@ -103,8 +107,16 @@ impl GlobalMenuHierarchy {
                         node_type: "3D_Cube".to_string() 
                     },
                     WorkspaceMenuItem::Node { 
+                        name: "Cube (Interface)".to_string(), 
+                        node_type: "3D_CubeInterface".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
                         name: "Sphere".to_string(), 
                         node_type: "3D_Sphere".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Sphere (Interface)".to_string(), 
+                        node_type: "3D_SphereInterface".to_string() 
                     },
                     WorkspaceMenuItem::Node { 
                         name: "Plane".to_string(), 
@@ -144,6 +156,98 @@ impl GlobalMenuHierarchy {
                     WorkspaceMenuItem::Workspace { 
                         name: "MaterialX".to_string(), 
                         workspace_id: "materialx".to_string() 
+                    },
+                ],
+            },
+            WorkspaceMenuItem::Category {
+                name: "USD".to_string(),
+                items: vec![
+                    // Stage Management
+                    WorkspaceMenuItem::Node { 
+                        name: "Create Stage".to_string(), 
+                        node_type: "USD_CreateStage".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Load Stage".to_string(), 
+                        node_type: "USD_LoadStage".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Save Stage".to_string(), 
+                        node_type: "USD_SaveStage".to_string() 
+                    },
+                    // Primitives
+                    WorkspaceMenuItem::Node { 
+                        name: "Xform".to_string(), 
+                        node_type: "USD_Xform".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Mesh".to_string(), 
+                        node_type: "USD_Mesh".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Sphere".to_string(), 
+                        node_type: "USD_Sphere".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Cube".to_string(), 
+                        node_type: "USD_Cube".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Camera".to_string(), 
+                        node_type: "USD_Camera".to_string() 
+                    },
+                    // Lighting
+                    WorkspaceMenuItem::Node { 
+                        name: "Distant Light".to_string(), 
+                        node_type: "USD_DistantLight".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Sphere Light".to_string(), 
+                        node_type: "USD_SphereLight".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Rect Light".to_string(), 
+                        node_type: "USD_RectLight".to_string() 
+                    },
+                    // Materials
+                    WorkspaceMenuItem::Node { 
+                        name: "Material".to_string(), 
+                        node_type: "USD_Material".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Preview Surface".to_string(), 
+                        node_type: "USD_PreviewSurface".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Texture".to_string(), 
+                        node_type: "USD_Texture".to_string() 
+                    },
+                    // Attributes
+                    WorkspaceMenuItem::Node { 
+                        name: "Set Attribute".to_string(), 
+                        node_type: "USD_SetAttribute".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Get Attribute".to_string(), 
+                        node_type: "USD_GetAttribute".to_string() 
+                    },
+                    // Composition
+                    WorkspaceMenuItem::Node { 
+                        name: "SubLayer".to_string(), 
+                        node_type: "USD_SubLayer".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Reference".to_string(), 
+                        node_type: "USD_Reference".to_string() 
+                    },
+                    WorkspaceMenuItem::Node { 
+                        name: "Payload".to_string(), 
+                        node_type: "USD_Payload".to_string() 
+                    },
+                    // Output
+                    WorkspaceMenuItem::Node { 
+                        name: "Viewport".to_string(), 
+                        node_type: "USD_Viewport".to_string() 
                     },
                 ],
             },

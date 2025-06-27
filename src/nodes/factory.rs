@@ -421,6 +421,17 @@ impl Default for NodeRegistry {
         registry.register::<crate::nodes::three_d::SpotLightNode3D>();
         registry.register::<crate::nodes::three_d::ViewportNode3D>();
         
+        // Register USD nodes
+        registry.register::<crate::nodes::three_d::USDCreateStage>();
+        registry.register::<crate::nodes::three_d::USDLoadStage>();
+        registry.register::<crate::nodes::three_d::USDSaveStage>();
+        registry.register::<crate::nodes::three_d::USDXform>();
+        registry.register::<crate::nodes::three_d::USDMesh>();
+        registry.register::<crate::nodes::three_d::USDSphere>();
+        registry.register::<crate::nodes::three_d::USDCube>();
+        registry.register::<crate::nodes::three_d::USDSetAttribute>();
+        registry.register::<crate::nodes::three_d::USDGetAttribute>();
+        
         registry
     }
 }

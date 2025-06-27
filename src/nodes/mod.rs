@@ -6,6 +6,7 @@ pub mod node;
 pub mod port;
 pub mod math_utils;
 pub mod factory;
+pub mod interface;
 
 // Generic node implementations
 pub mod math;
@@ -28,4 +29,10 @@ pub use port::PortId;
 pub use factory::{
     NodeFactory, NodeMetadata, NodeCategory,
     DataType, PortDefinition,
+};
+
+// Re-export interface types
+pub use interface::{
+    NodeInterfacePanel, InterfacePanelManager, InterfaceParameter, PanelType,
+    NodeData, SceneData, GeometryData, MaterialData, StageData, LightData, ImageData,
 };

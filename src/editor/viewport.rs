@@ -33,6 +33,22 @@ impl Viewport {
     pub fn pan(&mut self, delta: Vec2) {
         self.pan_offset += delta;
     }
+
+    /// Convert world coordinates to screen coordinates
+    pub fn world_to_screen(&self, world_pos: Pos2) -> Pos2 {
+        Pos2::new(
+            world_pos.x * self.zoom + self.pan_offset.x,
+            world_pos.y * self.zoom + self.pan_offset.y,
+        )
+    }
+
+    /// Convert screen coordinates to world coordinates  
+    pub fn screen_to_world(&self, screen_pos: Pos2) -> Pos2 {
+        Pos2::new(
+            (screen_pos.x - self.pan_offset.x) / self.zoom,
+            (screen_pos.y - self.pan_offset.y) / self.zoom,
+        )
+    }
 }
 
 impl Default for Viewport {

@@ -4,9 +4,11 @@ pub mod transform;
 pub mod geometry;
 pub mod lighting;
 pub mod output;
+pub mod usd;
 
 // Re-export all 3D nodes for easy access
 pub use transform::*;
 pub use geometry::*;
 pub use lighting::*;
 pub use output::*;
+pub use usd::*;

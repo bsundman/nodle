@@ -20,7 +20,7 @@ use eframe::egui;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use egui_wgpu;
 use crate::nodes::{
-    NodeGraph, Node, NodeId, Connection,
+    NodeGraph, Node, NodeId, Connection, InterfacePanelManager, PanelType,
 };
 use std::collections::HashMap;
 use crate::workspace::WorkspaceManager;
@@ -29,6 +29,15 @@ use crate::gpu::NodeRenderCallback;
 use crate::gpu::GpuInstanceManager;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+
+/// Actions that can be performed on interface panels
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PanelAction {
+    None,
+    Close,
+    Minimize,
+    Restore,
+}
 
 /// Save file data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +73,8 @@ pub struct NodeEditor {
     menus: MenuManager,           // Context menu management
     navigation: NavigationManager, // Workspace navigation and breadcrumbs
     workspace_manager: WorkspaceManager,
+    // Interface panel system
+    interface_panel_manager: InterfacePanelManager,
     // Performance tracking
     show_performance_info: bool,
     frame_times: Vec<f32>,
@@ -79,6 +90,8 @@ pub struct NodeEditor {
     is_modified: bool,
     // Menu state
     show_file_menu: bool,
+    // Layout constraints
+    current_menu_bar_height: f32,
 }
 
 /// Tracks which graph we're currently viewing
@@ -95,7 +108,7 @@ impl NodeEditor {
         // Use the workspace registry to create a manager with all available workspaces
         let workspace_manager = WorkspaceRegistry::create_workspace_manager();
         
-        let editor = Self {
+        let mut editor = Self {
             graph: NodeGraph::new(),
             viewport: Viewport::new(),
             input_state: InputState::new(),
@@ -103,6 +116,8 @@ impl NodeEditor {
             menus: MenuManager::new(),
             navigation: NavigationManager::new(),
             workspace_manager,
+            // Interface panel system
+            interface_panel_manager: InterfacePanelManager::new(),
             // Performance tracking
             show_performance_info: false,
             frame_times: Vec::new(),
@@ -118,11 +133,18 @@ impl NodeEditor {
             is_modified: false,
             // Menu state
             show_file_menu: false,
+            // Layout constraints
+            current_menu_bar_height: 0.0,
         };
 
-        // Start with empty node graph - use F2/F3/F4 to add test nodes
+        // Start with empty node graph - nodes created at 150.0px x 30.0px
 
         editor
+    }
+    
+    /// Store the current menu bar height for window constraints
+    fn store_menu_bar_height(&mut self, height: f32) {
+        self.current_menu_bar_height = height;
     }
     
     /// Get the nodes to render based on current view
@@ -331,14 +353,19 @@ impl NodeEditor {
             return;
         }
         
-        // Map MaterialX display names to internal node types
+        // Map display names to internal node types
         let internal_node_type = match node_type {
+            // MaterialX nodes
             "Noise" => "MaterialX_Noise",
             "Texture" => "MaterialX_Texture", 
             "Mix" => "MaterialX_Mix",
             "Standard Surface" => "MaterialX_StandardSurface",
             "3D View" => "MaterialX_3DView",
             "2D View" => "MaterialX_2DView",
+            // 3D Interface nodes
+            "Cube (Interface)" => "3D_CubeInterface",
+            "Sphere (Interface)" => "3D_SphereInterface", 
+            "Translate (Interface)" => "3D_TranslateInterface",
             _ => node_type, // Use original name for generic nodes
         };
         
@@ -695,6 +722,510 @@ impl NodeEditor {
     }
 
 
+    /// Render interface panels for all nodes that have visibility enabled
+    fn render_interface_panels(&mut self, ui: &mut egui::Ui, viewed_nodes: &HashMap<NodeId, Node>, menu_bar_height: f32) {
+        // Store menu bar height in editor state for window constraints
+        self.store_menu_bar_height(menu_bar_height);
+        let ctx = ui.ctx();
+        
+        // Track which nodes to close (to avoid borrowing issues)
+        let mut nodes_to_close: Vec<NodeId> = Vec::new();
+        
+        // Find nodes that should have interface panels visible
+        for (&node_id, node) in viewed_nodes {
+            // All nodes can have interface panels when visible
+            if node.visible {
+                // Determine panel position based on panel type (default: Parameter = top right)
+                let panel_position = self.get_panel_position(ui, PanelType::Parameter, menu_bar_height);
+                
+                // Render the universal interface panel
+                let panel_action = self.render_universal_interface_panel(ctx, node_id, node, panel_position);
+                
+                // Handle panel actions
+                match panel_action {
+                    PanelAction::Close => nodes_to_close.push(node_id),
+                    PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {
+                        // egui handles minimize/restore automatically with collapsible(true)
+                    }
+                }
+            }
+        }
+        
+        // Apply panel actions (after iteration to avoid borrowing conflicts)
+        for node_id in nodes_to_close {
+            self.close_node_panel(node_id);
+        }
+    }
+    
+    /// Get the default position for a panel based on its type
+    fn get_panel_position(&self, ui: &egui::Ui, panel_type: PanelType, menu_bar_height: f32) -> Pos2 {
+        let screen_rect = ui.ctx().screen_rect();
+        
+        match panel_type {
+            PanelType::Parameter => {
+                // Top right corner - close to edge and below menu bar
+                Pos2::new(screen_rect.max.x - 10.0, screen_rect.min.y + menu_bar_height + 10.0)
+            },
+            PanelType::Viewer => {
+                // Bottom right corner
+                Pos2::new(screen_rect.max.x - 400.0, screen_rect.max.y - 300.0)
+            },
+            PanelType::Editor => {
+                // Center of screen, constrained below menu bar
+                Pos2::new(screen_rect.center().x - 200.0, (screen_rect.center().y - 150.0).max(screen_rect.min.y + menu_bar_height + 10.0))
+            },
+            PanelType::Inspector => {
+                // Bottom left corner
+                Pos2::new(screen_rect.min.x + 20.0, screen_rect.max.y - 250.0)
+            },
+        }
+    }
+    
+    /// Close a node's interface panel and disable its visibility flag
+    fn close_node_panel(&mut self, node_id: NodeId) {
+        // Find the node in the current graph and set its visibility to false
+        let graph = match self.current_view {
+            GraphView::Root => &mut self.graph,
+            GraphView::WorkspaceNode(_workspace_node_id) => {
+                // For workspace nodes, we'd need to access their internal graph
+                // For now, default to root graph
+                &mut self.graph
+            }
+        };
+        
+        if let Some(node) = graph.nodes.get_mut(&node_id) {
+            node.visible = false;
+        }
+        
+        // Clear all panel state
+        self.interface_panel_manager.set_panel_visibility(node_id, false);
+        self.interface_panel_manager.set_panel_minimized(node_id, false);
+        self.interface_panel_manager.set_panel_open(node_id, true); // Reset for next time
+    }
+    
+    /// Render universal interface panel for any node type
+    fn render_universal_interface_panel(
+        &mut self, 
+        ctx: &egui::Context, 
+        node_id: NodeId, 
+        node: &Node, 
+        position: Pos2,
+    ) -> PanelAction {
+        let panel_id = egui::Id::new(format!("interface_panel_{}", node_id));
+        let mut panel_action = PanelAction::None;
+        
+        // Get current window open state (avoiding borrowing conflicts)
+        let mut window_open = self.interface_panel_manager.is_panel_open(node_id);
+        
+        // Use egui's default window with proper controls and constrain position above menu bar
+        let window_response = egui::Window::new(format!("{} Panel", node.title))
+            .id(panel_id)
+            .default_pos(position)
+            .resizable(true)
+            .collapsible(true) // Enable built-in collapse/minimize button
+            .open(&mut window_open) // Track if window is closed via X button
+            .constrain_to(ctx.screen_rect()) // Constrain to screen bounds
+            .constrain(true) // Enable automatic constraint
+            .constrain_to(egui::Rect::from_min_size(
+                egui::Pos2::new(0.0, self.current_menu_bar_height), 
+                egui::Vec2::new(ctx.screen_rect().width(), ctx.screen_rect().height() - self.current_menu_bar_height)
+            )) // Constrain to area below menu bar
+            .show(ctx, |ui| {
+                // Render standardized header section
+                let header_changed = self.render_standard_panel_header(ui, node_id, node);
+                
+                ui.separator();
+                
+                // Render node-specific content below header
+                self.render_node_specific_content(ui, node_id, node);
+                
+                // Apply node name changes if header was modified
+                if header_changed {
+                    self.apply_node_name_changes(node_id);
+                }
+            });
+        
+        // Update the panel manager with the new state
+        self.interface_panel_manager.set_panel_open(node_id, window_open);
+        
+        // Check if window was closed via X button
+        if !window_open {
+            panel_action = PanelAction::Close;
+        }
+        
+        panel_action
+    }
+    
+    /// Render the standard header for all interface panels
+    fn render_standard_panel_header(&mut self, ui: &mut egui::Ui, node_id: NodeId, node: &Node) -> bool {
+        let mut changed = false;
+        
+        // Get current custom name or use node's default title
+        // But strip any existing "..." truncation to show the full name in the editor
+        let current_name = self.interface_panel_manager.get_node_name(node_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                // If the node title has "..." truncation, we need to get the original name
+                // For now, just use the node's current title
+                node.title.clone()
+            });
+        let mut name_buffer = current_name;
+        
+        // Get current fit name flag
+        let mut fit_name = self.interface_panel_manager.get_fit_name(node_id);
+        
+        ui.horizontal(|ui| {
+            ui.label("Name:");
+            
+            // Name text field
+            let name_response = ui.text_edit_singleline(&mut name_buffer);
+            if name_response.changed() {
+                self.interface_panel_manager.set_node_name(node_id, name_buffer.clone());
+                changed = true;
+            }
+            
+            // Fit name checkbox on the same line
+            let fit_response = ui.checkbox(&mut fit_name, "Fit name");
+            if fit_response.changed() {
+                self.interface_panel_manager.set_fit_name(node_id, fit_name);
+                changed = true;
+            }
+        });
+        
+        // Also show current effective name and size info for debugging
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("Current node title:");
+            ui.label(&node.title);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Node width:");
+            ui.label(format!("{:.0}px", node.size.x));
+        });
+        
+        changed
+    }
+    
+    /// Apply node name and sizing changes to the actual node
+    fn apply_node_name_changes(&mut self, node_id: NodeId) {
+        // Get the graph to modify the node
+        let graph = match self.current_view {
+            GraphView::Root => &mut self.graph,
+            GraphView::WorkspaceNode(_workspace_node_id) => {
+                // For workspace nodes, we'd need to access their internal graph
+                // For now, default to root graph
+                &mut self.graph
+            }
+        };
+        
+        if let Some(node) = graph.nodes.get_mut(&node_id) {
+            // Update node title with custom name if set, handling truncation
+            if let Some(custom_name) = self.interface_panel_manager.get_node_name(node_id) {
+                let fit_name = self.interface_panel_manager.get_fit_name(node_id);
+                
+                if fit_name {
+                    // Use full name and adjust node size using proper text measurement
+                    node.title = custom_name.clone();
+                    
+                    // Determine minimum width based on node type
+                    let minimum_width = match &node.node_type {
+                        crate::nodes::NodeType::Workspace { .. } => 180.0, // Workspace nodes
+                        _ => 150.0, // Regular nodes
+                    };
+                    let node_padding = 30.0; // Total horizontal padding inside the node
+                    
+                    // Calculate actual text width using egui's text measurement
+                    let avg_char_width = 8.0;
+                    let text_width = node.title.len() as f32 * avg_char_width;
+                    let required_width = text_width + node_padding;
+                    
+                    let old_width = node.size.x;
+                    // Always use the larger of: required width or minimum width
+                    node.size.x = required_width.max(minimum_width);
+                    
+                } else {
+                    // Reset to original node size when fit name is disabled
+                    let original_width = match &node.node_type {
+                        crate::nodes::NodeType::Workspace { .. } => 180.0, // Workspace nodes
+                        _ => 150.0, // Regular nodes
+                    };
+                    node.size.x = original_width;
+                    
+                    // Truncate name to fit original width with ellipsis
+                    let node_padding = 30.0;
+                    let available_width = original_width - node_padding;
+                    let avg_char_width = 8.0;
+                    let max_chars = available_width / avg_char_width;
+                    
+                    if custom_name.len() as f32 > max_chars {
+                        let truncated_len = (max_chars as usize).saturating_sub(3); // Reserve space for "..."
+                        node.title = format!("{}...", &custom_name[..truncated_len.min(custom_name.len())]);
+                    } else {
+                        node.title = custom_name.clone();
+                    }
+                }
+            } else {
+                // No custom name, ensure original sizing
+                let original_width = match &node.node_type {
+                    crate::nodes::NodeType::Workspace { .. } => 180.0, // Workspace nodes
+                    _ => 150.0, // Regular nodes
+                };
+                node.size.x = original_width;
+            }
+        }
+    }
+    
+    /// Render node-specific content in the interface panel
+    fn render_node_specific_content(&mut self, ui: &mut egui::Ui, node_id: NodeId, node: &Node) {
+        // Default content for all nodes
+        ui.label(format!("Node: {}", node.title));
+        ui.label(format!("Type: {:?}", node.node_type));
+        ui.label(format!("Position: ({:.1}, {:.1})", node.position.x, node.position.y));
+        
+        ui.separator();
+        
+        // Node-specific content based on type
+        match node.title.as_str() {
+            title if title.contains("Cube") => {
+                ui.label("Cube Geometry Settings");
+                ui.horizontal(|ui| {
+                    ui.label("Size X:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Size Y:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Size Z:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+            },
+            title if title.contains("Sphere") => {
+                ui.label("Sphere Geometry Settings");
+                ui.horizontal(|ui| {
+                    ui.label("Radius:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Segments:");
+                    ui.add(egui::DragValue::new(&mut 16).range(3..=64));
+                });
+            },
+            title if title.contains("Translate") => {
+                ui.label("Transform Settings");
+                ui.horizontal(|ui| {
+                    ui.label("X:");
+                    ui.add(egui::DragValue::new(&mut 0.0).speed(0.1));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Y:");
+                    ui.add(egui::DragValue::new(&mut 0.0).speed(0.1));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Z:");
+                    ui.add(egui::DragValue::new(&mut 0.0).speed(0.1));
+                });
+            },
+            title if title.contains("Add") || title.contains("Math") => {
+                ui.label("Math Operation Settings");
+                ui.horizontal(|ui| {
+                    ui.label("Value A:");
+                    ui.add(egui::DragValue::new(&mut 1.0).speed(0.1));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Value B:");
+                    ui.add(egui::DragValue::new(&mut 1.0).speed(0.1));
+                });
+            },
+            title if title.contains("Constant") => {
+                ui.label("Constant Value Settings");
+                ui.horizontal(|ui| {
+                    ui.label("Value:");
+                    ui.add(egui::DragValue::new(&mut 1.0).speed(0.1));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Type:");
+                    egui::ComboBox::from_id_source("constant_type")
+                        .selected_text("Float")
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut 0, 0, "Float");
+                            ui.selectable_value(&mut 0, 1, "Integer");
+                            ui.selectable_value(&mut 0, 2, "Boolean");
+                        });
+                });
+            },
+            title if title.contains("Print") || title.contains("Debug") => {
+                ui.label("Output Settings");
+                ui.horizontal(|ui| {
+                    ui.label("Format:");
+                    egui::ComboBox::from_id_source("output_format")
+                        .selected_text("Default")
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut 0, 0, "Default");
+                            ui.selectable_value(&mut 0, 1, "Detailed");
+                            ui.selectable_value(&mut 0, 2, "Compact");
+                        });
+                });
+                if ui.button("Execute Output").clicked() {
+                    println!("Output executed for node: {}", node_id);
+                }
+            },
+            _ => {
+                ui.label("Generic node settings");
+                ui.label("Parameters would be specific to this node type.");
+                ui.separator();
+                ui.label("💡 This panel can be customized for each node type");
+            }
+        }
+        
+        ui.separator();
+        ui.label(format!("Node ID: {}", node_id));
+    }
+    
+    /// Render cube interface panel
+    fn render_cube_interface_panel(&mut self, ctx: &egui::Context, node_id: NodeId, _node: &Node, position: Pos2) {
+        let panel_id = egui::Id::new(format!("cube_interface_{}", node_id));
+        
+        egui::Window::new(format!("Cube Parameters"))
+            .id(panel_id)
+            .default_pos(position)
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label("Cube Geometry Settings");
+                ui.separator();
+                
+                // Simple parameter controls (static for now)
+                ui.horizontal(|ui| {
+                    ui.label("Size X:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("Size Y:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("Size Z:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                
+                ui.separator();
+                
+                if ui.button("Close Panel").clicked() {
+                    self.interface_panel_manager.set_panel_visibility(node_id, false);
+                }
+            });
+    }
+    
+    /// Render sphere interface panel
+    fn render_sphere_interface_panel(&mut self, ctx: &egui::Context, node_id: NodeId, _node: &Node, position: Pos2) {
+        let panel_id = egui::Id::new(format!("sphere_interface_{}", node_id));
+        
+        egui::Window::new(format!("Sphere Parameters"))
+            .id(panel_id)
+            .default_pos(position)
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label("Sphere Geometry Settings");
+                ui.separator();
+                
+                ui.horizontal(|ui| {
+                    ui.label("Radius:");
+                    ui.add(egui::DragValue::new(&mut 1.0).range(0.1..=10.0));
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("Rings:");
+                    ui.add(egui::DragValue::new(&mut 16).range(3..=64));
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("Segments:");
+                    ui.add(egui::DragValue::new(&mut 32).range(3..=128));
+                });
+                
+                ui.separator();
+                
+                if ui.button("Close Panel").clicked() {
+                    self.interface_panel_manager.set_panel_visibility(node_id, false);
+                }
+            });
+    }
+    
+    /// Render translate interface panel
+    fn render_translate_interface_panel(&mut self, ctx: &egui::Context, node_id: NodeId, _node: &Node, position: Pos2) {
+        let panel_id = egui::Id::new(format!("translate_interface_{}", node_id));
+        
+        egui::Window::new(format!("Translate Parameters"))
+            .id(panel_id)
+            .default_pos(position)
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label("Transform Settings");
+                ui.separator();
+                
+                ui.horizontal(|ui| {
+                    ui.label("X:");
+                    ui.add(egui::DragValue::new(&mut 0.0).speed(0.1));
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("Y:");
+                    ui.add(egui::DragValue::new(&mut 0.0).speed(0.1));
+                });
+                
+                ui.horizontal(|ui| {
+                    ui.label("Z:");
+                    ui.add(egui::DragValue::new(&mut 0.0).speed(0.1));
+                });
+                
+                ui.separator();
+                
+                ui.horizontal(|ui| {
+                    if ui.button("Reset").clicked() {
+                        // Reset to zero
+                    }
+                    if ui.button("Up +1").clicked() {
+                        // Move up by 1
+                    }
+                });
+                
+                ui.separator();
+                
+                if ui.button("Close Panel").clicked() {
+                    self.interface_panel_manager.set_panel_visibility(node_id, false);
+                }
+            });
+    }
+    
+    /// Render generic interface panel for any node
+    fn render_generic_interface_panel(&mut self, ctx: &egui::Context, node_id: NodeId, node: &Node, position: Pos2) {
+        let panel_id = egui::Id::new(format!("interface_{}", node_id));
+        
+        egui::Window::new(format!("{} Interface", node.title))
+            .id(panel_id)
+            .default_pos(position)
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(format!("Interface panel for {}", node.title));
+                ui.separator();
+                
+                ui.label("This node has an interface panel.");
+                ui.label("Parameters would appear here.");
+                
+                ui.separator();
+                
+                if ui.button("Close Panel").clicked() {
+                    self.interface_panel_manager.set_panel_visibility(node_id, false);
+                }
+            });
+    }
 }
 
 impl eframe::App for NodeEditor {
@@ -715,26 +1246,12 @@ impl eframe::App for NodeEditor {
         // Set dark theme for window decorations
         ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(Color32::from_rgb(22, 27, 34)))
+        // Render top menu bar as TopBottomPanel to ensure it's always on top with solid background
+        let menu_bar_height = egui::TopBottomPanel::top("top_menu_bar")
+            .frame(egui::Frame::none().fill(Color32::from_rgb(28, 28, 28)).inner_margin(8.0))
             .show(ctx, |ui| {
-            // Add padding around the top menu bar
-            ui.add_space(8.0); // Top padding
-            
-            // Draw menu bar background
-            let menu_height = 40.0; // Approximate height for menu bar
-            let menu_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(0.0, 8.0), 
-                egui::Vec2::new(ui.available_width(), menu_height)
-            );
-            ui.painter().rect_filled(
-                menu_rect,
-                0.0,
-                Color32::from_rgb(28, 28, 28), // Standard background color
-            );
-            
-            ui.horizontal(|ui| {
-                ui.add_space(12.0); // Left padding
+                ui.horizontal(|ui| {
+                    ui.add_space(4.0); // Left padding
                 
                 // File menu - uses EXACT same shared menu function as context menu
                 let file_button_response = ui.button("File");
@@ -846,10 +1363,16 @@ impl eframe::App for NodeEditor {
                     self.viewport.pan_offset.x, self.viewport.pan_offset.y
                 ));
                 
-                ui.add_space(12.0); // Right padding
-            });
-            ui.add_space(8.0); // Bottom padding
+                    ui.add_space(4.0); // Right padding
+                });
+            })
+            .response
+            .rect
+            .height();
 
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(Color32::from_rgb(22, 27, 34)))
+            .show(ctx, |ui| {
             let response = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
             
             // Set cursor based on special modes  
@@ -1456,10 +1979,10 @@ impl eframe::App for NodeEditor {
                     let viewport_rect = response.rect;
                     
                     // Create GPU callback for node body rendering  
-                    // Use the full screen size, not just the response rect size, to match GPU viewport
+                    // Adjust screen size to account for menu bar
                     let screen_size = Vec2::new(
                         ui.ctx().screen_rect().width(),
-                        ui.ctx().screen_rect().height()
+                        ui.ctx().screen_rect().height() - self.current_menu_bar_height
                     );
                     
                     // Get current graph for box selection preview
@@ -1890,6 +2413,9 @@ impl eframe::App for NodeEditor {
                     Stroke::new(1.0 * zoom, Color32::from_rgb(100, 150, 255)),
                 );
             }
+
+            // Interface panel rendering - render panels for nodes that have them
+            self.render_interface_panels(ui, &viewed_nodes, menu_bar_height);
 
             // Performance info overlay
             if self.show_performance_info && !self.frame_times.is_empty() {

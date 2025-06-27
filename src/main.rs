@@ -128,6 +128,13 @@ pub fn create_test_nodes(graph: &mut NodeGraph) {
 
 /// Application entry point
 fn main() -> Result<(), eframe::Error> {
+    // Test USD functionality at startup
+    // #[cfg(debug_assertions)]
+    // {
+    //     println!("Testing USD integration...");
+    //     test_usd_nodes::test_usd_node_creation();
+    //     test_usd_nodes::test_usd_execution();
+    // }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([800.0, 600.0])
