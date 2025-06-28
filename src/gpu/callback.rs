@@ -147,12 +147,17 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
         
         let renderer_lock = GLOBAL_GPU_RENDERER.lock().unwrap();
         if let Some(renderer) = renderer_lock.as_ref() {
-            // Set viewport to match the clip rect
+            // Set viewport to match the full screen area scaled by DPI
+            // Calculate DPI-aware viewport dimensions
+            let pixels_per_point = info.pixels_per_point;
+            let viewport_width = self.uniforms.screen_size[0] * pixels_per_point;
+            let viewport_height = self.uniforms.screen_size[1] * pixels_per_point;
+            
             render_pass.set_viewport(
-                info.clip_rect.min.x,
-                info.clip_rect.min.y,
-                info.clip_rect.width(),
-                info.clip_rect.height(),
+                0.0,
+                0.0,
+                viewport_width,
+                viewport_height,
                 0.0,
                 1.0,
             );

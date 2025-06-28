@@ -1116,10 +1116,10 @@ impl eframe::App for NodeEditor {
                     let viewport_rect = response.rect;
                     
                     // Create GPU callback for node body rendering  
-                    // Adjust screen size to account for menu bar
+                    // Screen size in logical coordinates using full screen height
                     let screen_size = Vec2::new(
                         ui.ctx().screen_rect().width(),
-                        ui.ctx().screen_rect().height() - self.current_menu_bar_height
+                        ui.ctx().screen_rect().height()
                     );
                     
                     // Get current graph for box selection preview
