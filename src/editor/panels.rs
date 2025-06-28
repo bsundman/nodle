@@ -179,7 +179,7 @@ impl PanelManager {
             let panel_width = 400.0;
             let panel_height = screen_rect.height() - menu_bar_height;
             
-            Self::create_window("Stacked Interface Panels", ctx, menu_bar_height)
+            Self::create_window("Interface Panel Stack", ctx, menu_bar_height)
                 .id(egui::Id::new("stacked_panels"))
                 .fixed_pos([screen_rect.max.x - panel_width, menu_bar_height])
                 .fixed_size([panel_width, panel_height])
@@ -212,7 +212,17 @@ impl PanelManager {
                                         result_node_id = *node_id;
                                     }
                                     
-                                    ui.separator();
+                                    // Separator with negative margin to extend to window edge
+                                    egui::Frame::none()
+                                        .inner_margin(egui::Margin {
+                                            left: 0.0,
+                                            right: -6.0,  // Negative margin to push closer to edge
+                                            top: 0.0,
+                                            bottom: 0.0,
+                                        })
+                                        .show(ui, |ui| {
+                                            ui.separator();
+                                        });
                                     
                                     // Node content in a contained frame - same as individual panels
                                     egui::Frame::none()
@@ -331,7 +341,17 @@ impl PanelManager {
                     panel_action = PanelAction::Close;
                 }
                 
-                ui.separator();
+                // Separator with negative margin to extend to window edge
+                egui::Frame::none()
+                    .inner_margin(egui::Margin {
+                        left: 0.0,
+                        right: -6.0,  // Negative margin to push closer to edge
+                        top: 0.0,
+                        bottom: 0.0,
+                    })
+                    .show(ui, |ui| {
+                        ui.separator();
+                    });
                 
                 // Node-specific content in a contained section
                 egui::Frame::none()
@@ -366,46 +386,56 @@ impl PanelManager {
         let mut panel_action = PanelAction::None;
         let mut close_requested = false;
         
-        ui.horizontal(|ui| {
-            ui.label("Panel controls:");
-            
-            // Stack button
-            let is_stacked = self.interface_panel_manager.is_panel_stacked(node_id);
-            let stack_text = if is_stacked { "📚 Stacked" } else { "📄 Stack" };
-            let stack_color = if is_stacked { 
-                Color32::from_rgb(100, 150, 255) 
-            } else { 
-                Color32::from_gray(180) 
-            };
-            
-            let stack_button = ui.button(egui::RichText::new(stack_text).color(stack_color));
-            if stack_button.clicked() {
-                panel_action = PanelAction::ToggleStack;
-            }
-            
-            // Pin button  
-            let is_pinned = self.interface_panel_manager.is_panel_pinned(node_id);
-            let pin_text = if is_pinned { "📌 Pinned" } else { "📍 Pin" };
-            let pin_color = if is_pinned { 
-                Color32::from_rgb(255, 150, 100) 
-            } else { 
-                Color32::from_gray(180) 
-            };
-            
-            let pin_button = ui.button(egui::RichText::new(pin_text).color(pin_color));
-            if pin_button.clicked() {
-                panel_action = PanelAction::TogglePin;
-            }
-            
-            // Simple approach: use with_layout to create a right-aligned section for the close button
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Close button using standard X character that renders properly
-                let close_button = ui.small_button("X");
-                if close_button.clicked() {
-                    close_requested = true;
-                }
+        // Use a frame with negative right margin to push closer to window edge
+        egui::Frame::none()
+            .inner_margin(egui::Margin {
+                left: 0.0,
+                right: -6.0,  // Negative margin to push closer to edge
+                top: 0.0,
+                bottom: 0.0,
+            })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Panel controls:");
+                    
+                    // Stack button
+                    let is_stacked = self.interface_panel_manager.is_panel_stacked(node_id);
+                    let stack_text = if is_stacked { "📚 Stacked" } else { "📄 Stack" };
+                    let stack_color = if is_stacked { 
+                        Color32::from_rgb(100, 150, 255) 
+                    } else { 
+                        Color32::from_gray(180) 
+                    };
+                    
+                    let stack_button = ui.button(egui::RichText::new(stack_text).color(stack_color));
+                    if stack_button.clicked() {
+                        panel_action = PanelAction::ToggleStack;
+                    }
+                    
+                    // Pin button  
+                    let is_pinned = self.interface_panel_manager.is_panel_pinned(node_id);
+                    let pin_text = if is_pinned { "📌 Pinned" } else { "📍 Pin" };
+                    let pin_color = if is_pinned { 
+                        Color32::from_rgb(255, 150, 100) 
+                    } else { 
+                        Color32::from_gray(180) 
+                    };
+                    
+                    let pin_button = ui.button(egui::RichText::new(pin_text).color(pin_color));
+                    if pin_button.clicked() {
+                        panel_action = PanelAction::TogglePin;
+                    }
+                    
+                    // Simple approach: use with_layout to create a right-aligned section for the close button
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Close button using standard X character that renders properly
+                        let close_button = ui.small_button("X");
+                        if close_button.clicked() {
+                            close_requested = true;
+                        }
+                    });
+                });
             });
-        });
         
         (panel_action, close_requested)
     }
