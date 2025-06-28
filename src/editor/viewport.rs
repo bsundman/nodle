@@ -49,6 +49,14 @@ impl Viewport {
             (screen_pos.y - self.pan_offset.y) / self.zoom,
         )
     }
+
+    /// Get GPU pan offset adjusted for menu bar height (Method 2: Viewport Coordinate System)
+    pub fn get_gpu_pan_offset(&self, menu_bar_height: f32) -> Vec2 {
+        Vec2::new(
+            self.pan_offset.x,
+            self.pan_offset.y - menu_bar_height,
+        )
+    }
 }
 
 impl Default for Viewport {

@@ -375,11 +375,17 @@ impl InterfacePanelManager {
         
         let panel_id = egui::Id::new(format!("interface_panel_{}", node_id));
         
+        // TODO: Move this to use NodeEditor.create_window() for consistency
+        // For now, manually apply menu bar constraint since this module doesn't have access to NodeEditor
         Some(egui::Window::new(node.panel_title())
             .id(panel_id)
             .default_pos(position + egui::vec2(200.0, 0.0))
             .resizable(true)
             .collapsible(false)
+            .constrain_to(egui::Rect::from_min_size(
+                egui::Pos2::new(0.0, 34.0), // Hardcoded menu bar height for now
+                egui::Vec2::new(ctx.screen_rect().width(), ctx.screen_rect().height() - 34.0)
+            ))
             .show(ctx, |ui| {
                 // Get current parameters
                 let mut parameters = node.get_parameters();
