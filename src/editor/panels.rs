@@ -3,7 +3,7 @@
 //! Handles rendering and managing interface panels for nodes, including
 //! parameter editing, panel positioning, and state management.
 
-use egui::{Pos2, Ui, Context};
+use egui::{Pos2, Ui, Context, Color32};
 use crate::nodes::{
     NodeGraph, Node, NodeId, InterfacePanelManager, PanelType,
 };
@@ -17,8 +17,11 @@ use super::GraphView;
 pub enum PanelAction {
     None,
     Close,
+    CloseAll, // Close all panels in a stacked window
     Minimize,
     Restore,
+    ToggleStack,
+    TogglePin,
 }
 
 /// Manages interface panels for the node editor
@@ -75,25 +78,44 @@ impl PanelManager {
         self.set_menu_bar_height(menu_bar_height);
         let ctx = ui.ctx();
         
-        // Track which nodes to close (to avoid borrowing issues)
+        // Track which nodes to close and which actions to apply (to avoid borrowing issues)
         let mut nodes_to_close: Vec<NodeId> = Vec::new();
+        let mut nodes_to_toggle_stack: Vec<NodeId> = Vec::new();
+        let mut nodes_to_toggle_pin: Vec<NodeId> = Vec::new();
         
-        // Find nodes that should have interface panels visible
+        // Separate nodes into stacked and non-stacked groups
+        let mut stacked_nodes: Vec<(NodeId, &Node)> = Vec::new();
+        let mut individual_nodes: Vec<(NodeId, &Node)> = Vec::new();
+        
         for (&node_id, node) in viewed_nodes {
-            // All nodes can have interface panels when visible
             if node.visible {
-                // Determine panel position based on panel type (default: Parameter = top right)
-                let panel_position = self.get_panel_position(ui, PanelType::Parameter, menu_bar_height);
-                
-                // Render the universal interface panel
-                let panel_action = self.render_universal_interface_panel(ctx, node_id, node, panel_position);
-                
-                // Handle panel actions
-                match panel_action {
-                    PanelAction::Close => nodes_to_close.push(node_id),
-                    PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {
-                        // egui handles minimize/restore automatically with collapsible(true)
-                    }
+                if self.interface_panel_manager.is_panel_stacked(node_id) {
+                    stacked_nodes.push((node_id, node));
+                } else {
+                    individual_nodes.push((node_id, node));
+                }
+            }
+        }
+        
+        // Render stacked nodes in a single scrollable window
+        if !stacked_nodes.is_empty() {
+            let panel_action = self.render_stacked_panels(ctx, &stacked_nodes, menu_bar_height);
+            self.handle_stacked_panel_action(panel_action, &stacked_nodes, &mut nodes_to_close, &mut nodes_to_toggle_stack, &mut nodes_to_toggle_pin);
+        }
+        
+        // Render individual nodes in separate windows
+        for (node_id, node) in individual_nodes {
+            let panel_position = self.get_panel_position(ui, PanelType::Parameter, menu_bar_height);
+            let panel_action = self.render_universal_interface_panel(ctx, node_id, node, panel_position);
+            
+            // Handle panel actions
+            match panel_action {
+                PanelAction::Close => nodes_to_close.push(node_id),
+                PanelAction::CloseAll => nodes_to_close.push(node_id), // Individual panels don't use CloseAll
+                PanelAction::ToggleStack => nodes_to_toggle_stack.push(node_id),
+                PanelAction::TogglePin => nodes_to_toggle_pin.push(node_id),
+                PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {
+                    // egui handles minimize/restore automatically with collapsible(true)
                 }
             }
         }
@@ -101,6 +123,16 @@ impl PanelManager {
         // Apply panel actions (after iteration to avoid borrowing conflicts)
         for node_id in nodes_to_close {
             self.close_node_panel(node_id, current_view, graph);
+        }
+        
+        // Apply stack toggle actions
+        for node_id in nodes_to_toggle_stack {
+            self.interface_panel_manager.toggle_panel_stacked(node_id);
+        }
+        
+        // Apply pin toggle actions  
+        for node_id in nodes_to_toggle_pin {
+            self.interface_panel_manager.toggle_panel_pinned(node_id);
         }
     }
 
@@ -125,6 +157,114 @@ impl PanelManager {
                 // Bottom left corner
                 Pos2::new(screen_rect.min.x + 20.0, screen_rect.max.y - 250.0)
             },
+        }
+    }
+
+    /// Render stacked panels in a single scrollable window
+    fn render_stacked_panels(
+        &mut self,
+        ctx: &Context,
+        stacked_nodes: &[(NodeId, &Node)],
+        menu_bar_height: f32,
+    ) -> (NodeId, PanelAction) {
+        let mut result_action = PanelAction::None;
+        let mut result_node_id = 0; // Default node ID
+        
+        // Get window open state for the stack (use first node's ID for tracking)
+        if let Some((first_node_id, _)) = stacked_nodes.first() {
+            result_node_id = *first_node_id;
+            let mut window_open = self.interface_panel_manager.is_panel_open(*first_node_id);
+            
+            let screen_rect = ctx.screen_rect();
+            let panel_width = 400.0;
+            let panel_height = screen_rect.height() - menu_bar_height;
+            
+            Self::create_window("Stacked Interface Panels", ctx, menu_bar_height)
+                .id(egui::Id::new("stacked_panels"))
+                .fixed_pos([screen_rect.max.x - panel_width, menu_bar_height])
+                .fixed_size([panel_width, panel_height])
+                .resizable(false) // Fixed size to maintain right edge alignment
+                .collapsible(false) // Disable collapse to maintain full height
+                .open(&mut window_open)
+                .show(ctx, |ui| {
+                    // Scrollable area for all stacked interfaces - use full available height
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            // Force consistent width for all content
+                            let full_width = ui.available_width();
+                            
+                            for (node_id, node) in stacked_nodes {
+                                // Create a full-width container for each panel
+                                ui.allocate_ui_with_layout(
+                                    egui::vec2(full_width, 0.0),
+                                    egui::Layout::top_down(egui::Align::LEFT),
+                                    |ui| {
+                                        ui.set_width(full_width);
+                                    // Panel controls for this node - directly rendered like individual panels
+                                    let (panel_control_action, close_requested) = self.render_panel_controls(ui, *node_id);
+                                    if panel_control_action != PanelAction::None {
+                                        result_action = panel_control_action;
+                                        result_node_id = *node_id;
+                                    }
+                                    if close_requested {
+                                        result_action = PanelAction::Close;
+                                        result_node_id = *node_id;
+                                    }
+                                    
+                                    ui.separator();
+                                    
+                                    // Node content in a contained frame - same as individual panels
+                                    egui::Frame::none()
+                                        .inner_margin(egui::Margin::same(8.0))
+                                        .fill(Color32::from_gray(45))
+                                        .rounding(egui::Rounding::same(4.0))
+                                        .stroke(egui::Stroke::new(1.0, Color32::from_gray(80)))
+                                        .show(ui, |ui| {
+                                            let (_, _) = self.render_node_header_and_content(ui, *node_id, node);
+                                        });
+                                });
+                                
+                                ui.add_space(10.0); // Space between nodes
+                            }
+                        });
+                });
+            
+            // Update window open state for the stack
+            self.interface_panel_manager.set_panel_open(*first_node_id, window_open);
+            
+            // If window was closed, close all stacked panels (this is when the window X is clicked)
+            if !window_open {
+                result_action = PanelAction::CloseAll;
+            }
+        }
+        
+        (result_node_id, result_action)
+    }
+    
+    /// Handle panel actions from stacked panels
+    fn handle_stacked_panel_action(
+        &self,
+        (node_id, action): (NodeId, PanelAction),
+        stacked_nodes: &[(NodeId, &Node)],
+        nodes_to_close: &mut Vec<NodeId>,
+        nodes_to_toggle_stack: &mut Vec<NodeId>,
+        nodes_to_toggle_pin: &mut Vec<NodeId>,
+    ) {
+        match action {
+            PanelAction::Close => {
+                // Only close the specific node that requested closure, not all stacked panels
+                nodes_to_close.push(node_id);
+            }
+            PanelAction::CloseAll => {
+                // Close all stacked panels (when the entire stacked window is closed)
+                for (stacked_node_id, _) in stacked_nodes {
+                    nodes_to_close.push(*stacked_node_id);
+                }
+            }
+            PanelAction::ToggleStack => nodes_to_toggle_stack.push(node_id),
+            PanelAction::TogglePin => nodes_to_toggle_pin.push(node_id),
+            PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {}
         }
     }
 
@@ -182,19 +322,32 @@ impl PanelManager {
             .open(&mut window_open) // Track if window is closed via X button
             .constrain(true) // Enable automatic constraint
             .show(ctx, |ui| {
-                // Render standardized header section
-                let header_changed = self.render_standard_panel_header(ui, node_id, node);
+                // Panel controls at the very top
+                let (panel_control_action, close_requested) = self.render_panel_controls(ui, node_id);
+                if panel_control_action != PanelAction::None {
+                    panel_action = panel_control_action;
+                }
+                if close_requested {
+                    panel_action = PanelAction::Close;
+                }
                 
                 ui.separator();
                 
-                // Render node-specific content below header
-                self.render_node_specific_content(ui, node_id, node);
-                
-                // Apply node name changes if header was modified
-                if header_changed {
-                    // Note: This would need access to the graph to apply changes
-                    // For now, we'll handle this in the editor
-                }
+                // Node-specific content in a contained section
+                egui::Frame::none()
+                    .inner_margin(egui::Margin::same(8.0))
+                    .fill(Color32::from_gray(40))
+                    .rounding(egui::Rounding::same(4.0))
+                    .show(ui, |ui| {
+                        // Render node header and content
+                        let (header_changed, _) = self.render_node_header_and_content(ui, node_id, node);
+                        
+                        // Apply node name changes if header was modified
+                        if header_changed {
+                            // Note: This would need access to the graph to apply changes
+                            // For now, we'll handle this in the editor
+                        }
+                    });
             });
         
         // Update the panel manager with the new state
@@ -208,8 +361,57 @@ impl PanelManager {
         panel_action
     }
 
-    /// Render the standard header for all interface panels
-    fn render_standard_panel_header(&mut self, ui: &mut Ui, node_id: NodeId, node: &Node) -> bool {
+    /// Render panel controls (stack/pin buttons) at the top of the panel
+    fn render_panel_controls(&mut self, ui: &mut Ui, node_id: NodeId) -> (PanelAction, bool) {
+        let mut panel_action = PanelAction::None;
+        let mut close_requested = false;
+        
+        ui.horizontal(|ui| {
+            ui.label("Panel controls:");
+            
+            // Stack button
+            let is_stacked = self.interface_panel_manager.is_panel_stacked(node_id);
+            let stack_text = if is_stacked { "📚 Stacked" } else { "📄 Stack" };
+            let stack_color = if is_stacked { 
+                Color32::from_rgb(100, 150, 255) 
+            } else { 
+                Color32::from_gray(180) 
+            };
+            
+            let stack_button = ui.button(egui::RichText::new(stack_text).color(stack_color));
+            if stack_button.clicked() {
+                panel_action = PanelAction::ToggleStack;
+            }
+            
+            // Pin button  
+            let is_pinned = self.interface_panel_manager.is_panel_pinned(node_id);
+            let pin_text = if is_pinned { "📌 Pinned" } else { "📍 Pin" };
+            let pin_color = if is_pinned { 
+                Color32::from_rgb(255, 150, 100) 
+            } else { 
+                Color32::from_gray(180) 
+            };
+            
+            let pin_button = ui.button(egui::RichText::new(pin_text).color(pin_color));
+            if pin_button.clicked() {
+                panel_action = PanelAction::TogglePin;
+            }
+            
+            // Simple approach: use with_layout to create a right-aligned section for the close button
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Close button using standard X character that renders properly
+                let close_button = ui.small_button("X");
+                if close_button.clicked() {
+                    close_requested = true;
+                }
+            });
+        });
+        
+        (panel_action, close_requested)
+    }
+
+    /// Render node header and content (previously render_standard_panel_header)
+    fn render_node_header_and_content(&mut self, ui: &mut Ui, node_id: NodeId, node: &Node) -> (bool, PanelAction) {
         let mut changed = false;
         
         // Get current custom name or use node's default title
@@ -255,7 +457,12 @@ impl PanelManager {
             ui.label(format!("{:.0}px", node.size.x));
         });
         
-        changed
+        ui.separator();
+        
+        // Render node-specific content
+        self.render_node_specific_content(ui, node_id, node);
+        
+        (changed, PanelAction::None)
     }
 
     /// Render node-specific content in the interface panel

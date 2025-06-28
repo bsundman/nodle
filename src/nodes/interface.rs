@@ -293,6 +293,10 @@ pub struct InterfacePanelManager {
     parameter_cache: HashMap<NodeId, Vec<(&'static str, InterfaceParameter)>>,
     /// Panel positions and sizes
     panel_rects: HashMap<NodeId, egui::Rect>,
+    /// Which panels are stacked (grouped together)
+    stacked_panels: HashMap<NodeId, bool>,
+    /// Which panels are pinned (stay on top and locked position)
+    pinned_panels: HashMap<NodeId, bool>,
 }
 
 impl InterfacePanelManager {
@@ -359,6 +363,38 @@ impl InterfacePanelManager {
     /// Get fit name flag
     pub fn get_fit_name(&self, node_id: NodeId) -> bool {
         self.fit_name_flags.get(&node_id).copied().unwrap_or(false)
+    }
+    
+    /// Toggle panel stacked state
+    pub fn toggle_panel_stacked(&mut self, node_id: NodeId) {
+        let current = self.stacked_panels.get(&node_id).copied().unwrap_or(true); // Match the default in is_panel_stacked
+        self.stacked_panels.insert(node_id, !current);
+    }
+    
+    /// Set panel stacked state
+    pub fn set_panel_stacked(&mut self, node_id: NodeId, stacked: bool) {
+        self.stacked_panels.insert(node_id, stacked);
+    }
+    
+    /// Check if a panel is stacked
+    pub fn is_panel_stacked(&self, node_id: NodeId) -> bool {
+        self.stacked_panels.get(&node_id).copied().unwrap_or(true) // Default to stacked
+    }
+    
+    /// Toggle panel pinned state
+    pub fn toggle_panel_pinned(&mut self, node_id: NodeId) {
+        let current = self.pinned_panels.get(&node_id).copied().unwrap_or(false);
+        self.pinned_panels.insert(node_id, !current);
+    }
+    
+    /// Set panel pinned state
+    pub fn set_panel_pinned(&mut self, node_id: NodeId, pinned: bool) {
+        self.pinned_panels.insert(node_id, pinned);
+    }
+    
+    /// Check if a panel is pinned
+    pub fn is_panel_pinned(&self, node_id: NodeId) -> bool {
+        self.pinned_panels.get(&node_id).copied().unwrap_or(false)
     }
     
     /// Render interface panel for a node
