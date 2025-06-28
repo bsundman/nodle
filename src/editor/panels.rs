@@ -135,11 +135,22 @@ impl PanelManager {
         current_view: &GraphView,
         graph: &mut NodeGraph,
     ) {
-        // Find the node in the current graph and set its visibility to false
-        // Note: For workspace nodes, we'd need to access their internal graph
-        // For now, we only work with the provided graph
-        if let Some(node) = graph.nodes.get_mut(&node_id) {
-            node.visible = false;
+        // Find the node in the correct graph based on current view and set its visibility to false
+        match current_view {
+            GraphView::Root => {
+                if let Some(node) = graph.nodes.get_mut(&node_id) {
+                    node.visible = false;
+                }
+            }
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = graph.nodes.get_mut(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        if let Some(node) = internal_graph.nodes.get_mut(&node_id) {
+                            node.visible = false;
+                        }
+                    }
+                }
+            }
         }
         
         // Clear all panel state
