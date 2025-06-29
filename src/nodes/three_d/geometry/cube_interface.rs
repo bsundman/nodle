@@ -143,22 +143,26 @@ impl CubeNodeWithInterface {
 
 impl NodeFactory for CubeNodeWithInterface {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "3D_CubeInterface",
-            display_name: "Cube (Interface)",
-            category: NodeCategory::new(&["3D", "Geometry"]),
-            description: "Creates a cube primitive with interface panel controls",
-            color: Color32::from_rgb(100, 150, 200), // Blue tint for geometry
-            inputs: vec![
-                // Optional transform input for positioning
-                PortDefinition::optional("Transform", DataType::Any)
-                    .with_description("Optional transform matrix to position the cube"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Geometry", DataType::Any)
-                    .with_description("Generated cube geometry"),
-            ],
-        }
+        NodeMetadata::new(
+            "3D_CubeInterface",
+            "Cube (Interface)",
+            NodeCategory::new(&["3D", "Geometry"]),
+            "Creates a cube primitive with interface panel controls"
+        )
+        .with_color(Color32::from_rgb(100, 150, 200)) // Blue tint for geometry
+        .with_icon("🟫")
+        .with_inputs(vec![
+            // Optional transform input for positioning
+            PortDefinition::optional("Transform", DataType::Any)
+                .with_description("Optional transform matrix to position the cube"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Geometry", DataType::Any)
+                .with_description("Generated cube geometry"),
+        ])
+        .with_tags(vec!["3d", "geometry", "primitive", "cube", "interface"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Medium)
+        .with_workspace_compatibility(vec!["3d", "modeling"])
     }
 }
 

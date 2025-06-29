@@ -9,18 +9,21 @@ pub struct ConstantNodeEnhanced;
 
 impl NodeFactory for ConstantNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "Constant",
-            display_name: "Constant",
-            category: NodeCategory::data(),
-            description: "Provides a configurable constant value",
-            color: Color32::from_rgb(65, 45, 65), // Purple tint
-            inputs: vec![], // No inputs - generates constant value
-            outputs: vec![
-                PortDefinition::required("Value", DataType::Float)
-                    .with_description("Constant output value"),
-            ],
-        }
+        NodeMetadata::new(
+            "Constant",
+            "Constant",
+            NodeCategory::data(),
+            "Provides a configurable constant value"
+        )
+        .with_color(Color32::from_rgb(65, 45, 65)) // Purple tint
+        .with_icon("🔢")
+        .with_inputs(vec![]) // No inputs - generates constant value
+        .with_outputs(vec![
+            PortDefinition::required("Value", DataType::Float)
+                .with_description("Constant output value"),
+        ])
+        .with_tags(vec!["data", "constant", "value", "generator"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Minimal)
     }
 }
 

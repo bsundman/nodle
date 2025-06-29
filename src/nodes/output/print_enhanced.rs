@@ -9,18 +9,21 @@ pub struct PrintNodeEnhanced;
 
 impl NodeFactory for PrintNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "Print",
-            display_name: "Print",
-            category: NodeCategory::output(),
-            description: "Prints input values to console output",
-            color: Color32::from_rgb(65, 55, 45), // Red-orange tint
-            inputs: vec![
-                PortDefinition::required("Value", DataType::Any)
-                    .with_description("Value to print to console"),
-            ],
-            outputs: vec![], // No outputs - terminal node
-        }
+        NodeMetadata::new(
+            "Print",
+            "Print",
+            NodeCategory::output(),
+            "Prints input values to console output"
+        )
+        .with_color(Color32::from_rgb(65, 55, 45)) // Red-orange tint
+        .with_icon("🖨️")
+        .with_inputs(vec![
+            PortDefinition::required("Value", DataType::Any)
+                .with_description("Value to print to console"),
+        ])
+        .with_outputs(vec![]) // No outputs - terminal node
+        .with_tags(vec!["output", "print", "console", "terminal"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Low)
     }
 }
 

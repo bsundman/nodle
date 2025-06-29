@@ -433,16 +433,13 @@ impl InterfacePanelManager {
     pub fn ensure_panel_type_set(&mut self, node_id: NodeId, node: &crate::nodes::Node) {
         // Only set if not already set
         if !self.has_panel_type_set(node_id) {
-            // Detect panel type based on node title
-            let panel_type = if node.title.contains("Viewport") || node.title.contains("viewport") {
-                PanelType::Viewport
-            } else if node.title.contains("Viewer") || node.title.contains("viewer") {
-                PanelType::Viewer
-            } else if node.title.contains("Editor") || node.title.contains("editor") {
-                PanelType::Editor
-            } else if node.title.contains("Inspector") || node.title.contains("inspector") {
-                PanelType::Inspector
+            // Get panel type from node metadata (pure node-centric approach)
+            let registry = crate::nodes::factory::NodeRegistry::default();
+            let panel_type = if let Some((_, metadata)) = registry.create_node_with_metadata(&node.title, node.position) {
+                // Use the panel type defined in the node's metadata
+                metadata.panel_type
             } else {
+                // Ultimate fallback for legacy nodes
                 PanelType::Parameter
             };
             

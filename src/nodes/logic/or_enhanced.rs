@@ -9,23 +9,26 @@ pub struct OrNodeEnhanced;
 
 impl NodeFactory for OrNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "OR",
-            display_name: "OR", 
-            category: NodeCategory::logic(),
-            description: "Logical OR operation (true if either input is true)",
-            color: Color32::from_rgb(55, 45, 65), // Blue-purple tint
-            inputs: vec![
-                PortDefinition::required("A", DataType::Boolean)
-                    .with_description("First boolean input"),
-                PortDefinition::required("B", DataType::Boolean)
-                    .with_description("Second boolean input"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Result", DataType::Boolean)
-                    .with_description("Logical OR result (A || B)"),
-            ],
-        }
+        NodeMetadata::new(
+            "OR",
+            "OR",
+            NodeCategory::logic(),
+            "Logical OR operation (true if either input is true)"
+        )
+        .with_color(Color32::from_rgb(55, 45, 65)) // Blue-purple tint
+        .with_icon("∨")
+        .with_inputs(vec![
+            PortDefinition::required("A", DataType::Boolean)
+                .with_description("First boolean input"),
+            PortDefinition::required("B", DataType::Boolean)
+                .with_description("Second boolean input"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Result", DataType::Boolean)
+                .with_description("Logical OR result (A || B)"),
+        ])
+        .with_tags(vec!["logic", "boolean", "or", "gate"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Minimal)
     }
 }
 

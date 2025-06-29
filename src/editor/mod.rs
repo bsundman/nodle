@@ -270,6 +270,34 @@ impl NodeEditor {
             &self.workspace_manager,
             &mut self.graph,
         ) {
+            // Find the newly created node ID (it will be the last one added)
+            let viewed_nodes = self.get_viewed_nodes();
+            if let Some((&node_id, node)) = viewed_nodes.iter().last() {
+                // Get the panel type from the node's metadata if available
+                let registry = crate::nodes::factory::NodeRegistry::default();
+                let panel_type = if let Some((_, metadata)) = registry.create_node_with_metadata(node_type, position) {
+                    metadata.panel_type
+                } else {
+                    // Fallback to parameter type for legacy nodes
+                    crate::nodes::interface::PanelType::Parameter
+                };
+                
+                self.panel_manager.interface_panel_manager_mut()
+                    .set_panel_type(node_id, panel_type);
+                
+                // Set appropriate stacking defaults based on panel type
+                match panel_type {
+                    crate::nodes::interface::PanelType::Viewport => {
+                        self.panel_manager.interface_panel_manager_mut()
+                            .set_panel_stacked(node_id, false); // Float by default
+                    },
+                    _ => {
+                        self.panel_manager.interface_panel_manager_mut()
+                            .set_panel_stacked(node_id, true); // Stack by default
+                    }
+                }
+            }
+            
             self.mark_modified();
             // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         }
@@ -737,9 +765,10 @@ impl eframe::App for NodeEditor {
                                             handled_button_click = true;
                                         } else if node.is_point_in_visibility_flag(mouse_pos) {
                                             node.toggle_visibility();
-                                            // If toggling visibility ON, ensure panel type is detected
+                                            // If toggling visibility ON, ensure panel type is detected and panel is visible
                                             if node.visible {
                                                 self.panel_manager.interface_panel_manager_mut().ensure_panel_type_set(node_id, node);
+                                                self.panel_manager.interface_panel_manager_mut().set_panel_visibility(node_id, true);
                                             }
                                             self.mark_modified();
                                             // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -775,9 +804,10 @@ impl eframe::App for NodeEditor {
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_visibility_flag(mouse_pos) {
                                                     node.toggle_visibility();
-                                                    // If toggling visibility ON, ensure panel type is detected
+                                                    // If toggling visibility ON, ensure panel type is detected and panel is visible
                                                     if node.visible {
                                                         self.panel_manager.interface_panel_manager_mut().ensure_panel_type_set(node_id, node);
+                                                        self.panel_manager.interface_panel_manager_mut().set_panel_visibility(node_id, true);
                                                     }
                                                     self.mark_modified();
                                                     // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now

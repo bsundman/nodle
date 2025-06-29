@@ -153,22 +153,26 @@ impl SphereNodeWithInterface {
 
 impl NodeFactory for SphereNodeWithInterface {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "3D_SphereInterface",
-            display_name: "Sphere (Interface)",
-            category: NodeCategory::new(&["3D", "Geometry"]),
-            description: "Creates a sphere primitive with interface panel controls",
-            color: Color32::from_rgb(100, 150, 200), // Blue tint for geometry
-            inputs: vec![
-                // Optional transform input for positioning
-                PortDefinition::optional("Transform", DataType::Any)
-                    .with_description("Optional transform matrix to position the sphere"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Geometry", DataType::Any)
-                    .with_description("Generated sphere geometry"),
-            ],
-        }
+        NodeMetadata::new(
+            "3D_SphereInterface",
+            "Sphere (Interface)",
+            NodeCategory::new(&["3D", "Geometry"]),
+            "Creates a sphere primitive with interface panel controls"
+        )
+        .with_color(Color32::from_rgb(100, 150, 200)) // Blue tint for geometry
+        .with_icon("🔵")
+        .with_inputs(vec![
+            // Optional transform input for positioning
+            PortDefinition::optional("Transform", DataType::Any)
+                .with_description("Optional transform matrix to position the sphere"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Geometry", DataType::Any)
+                .with_description("Generated sphere geometry"),
+        ])
+        .with_tags(vec!["3d", "geometry", "primitive", "sphere", "interface"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Medium)
+        .with_workspace_compatibility(vec!["3d", "modeling"])
     }
 }
 

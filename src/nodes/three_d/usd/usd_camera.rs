@@ -1,7 +1,7 @@
 //! USD Camera node - creates a camera primitive
 
 use egui::Color32;
-use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition};
+use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition, ProcessingCost};
 use super::usd_engine::with_usd_engine;
 
 /// Creates a USD Camera primitive
@@ -36,30 +36,34 @@ impl USDCamera {
 
 impl NodeFactory for USDCamera {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "USD_Camera",
-            display_name: "USD Camera",
-            category: NodeCategory::new(&["3D", "USD", "Primitives"]),
-            description: "Creates a USD camera primitive with lens parameters",
-            color: Color32::from_rgb(200, 150, 100), // Orange-brown for USD nodes
-            inputs: vec![
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("USD Stage reference"),
-                PortDefinition::required("Path", DataType::String)
-                    .with_description("Prim path (e.g., /World/MainCamera)"),
-                PortDefinition::optional("Focal Length", DataType::Float)
-                    .with_description("Camera focal length in mm (default: 50.0)"),
-                PortDefinition::optional("Near Clip", DataType::Float)
-                    .with_description("Near clipping plane (default: 0.1)"),
-                PortDefinition::optional("Far Clip", DataType::Float)
-                    .with_description("Far clipping plane (default: 1000.0)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Prim", DataType::Any)
-                    .with_description("USD Camera prim"),
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("Pass-through stage reference"),
-            ],
-        }
+        NodeMetadata::new(
+            "USD_Camera",
+            "USD Camera",
+            NodeCategory::new(&["3D", "USD", "Primitives"]),
+            "Creates a USD camera primitive with lens parameters"
+        )
+        .with_color(Color32::from_rgb(200, 150, 100))
+        .with_icon("🎥")
+        .with_inputs(vec![
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("USD Stage reference"),
+            PortDefinition::required("Path", DataType::String)
+                .with_description("Prim path (e.g., /World/MainCamera)"),
+            PortDefinition::optional("Focal Length", DataType::Float)
+                .with_description("Camera focal length in mm (default: 50.0)"),
+            PortDefinition::optional("Near Clip", DataType::Float)
+                .with_description("Near clipping plane (default: 0.1)"),
+            PortDefinition::optional("Far Clip", DataType::Float)
+                .with_description("Far clipping plane (default: 1000.0)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Prim", DataType::Any)
+                .with_description("USD Camera prim"),
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("Pass-through stage reference"),
+        ])
+        .with_workspace_compatibility(vec!["3D", "USD"])
+        .with_tags(vec!["usd", "3d", "camera", "lens"])
+        .with_processing_cost(ProcessingCost::Low)
     }
 }

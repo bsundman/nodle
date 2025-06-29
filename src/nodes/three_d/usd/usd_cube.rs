@@ -1,7 +1,7 @@
 //! USD Cube node - creates a cube primitive
 
 use egui::Color32;
-use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition};
+use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition, ProcessingCost};
 use super::usd_engine::with_usd_engine;
 
 /// Creates a USD Cube primitive
@@ -34,26 +34,30 @@ impl USDCube {
 
 impl NodeFactory for USDCube {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "USD_Cube",
-            display_name: "USD Cube",
-            category: NodeCategory::new(&["3D", "USD", "Primitives"]),
-            description: "Creates a USD cube primitive",
-            color: Color32::from_rgb(200, 150, 100), // Orange-brown for USD nodes
-            inputs: vec![
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("USD Stage reference"),
-                PortDefinition::required("Path", DataType::String)
-                    .with_description("Prim path (e.g., /World/MyCube)"),
-                PortDefinition::optional("Size", DataType::Float)
-                    .with_description("Cube size (default: 1.0)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Prim", DataType::Any)
-                    .with_description("USD Cube prim"),
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("Pass-through stage reference"),
-            ],
-        }
+        NodeMetadata::new(
+            "USD_Cube",
+            "USD Cube",
+            NodeCategory::new(&["3D", "USD", "Primitives"]),
+            "Creates a USD cube primitive"
+        )
+        .with_color(Color32::from_rgb(200, 150, 100))
+        .with_icon("📦")
+        .with_inputs(vec![
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("USD Stage reference"),
+            PortDefinition::required("Path", DataType::String)
+                .with_description("Prim path (e.g., /World/MyCube)"),
+            PortDefinition::optional("Size", DataType::Float)
+                .with_description("Cube size (default: 1.0)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Prim", DataType::Any)
+                .with_description("USD Cube prim"),
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("Pass-through stage reference"),
+        ])
+        .with_workspace_compatibility(vec!["3D", "USD"])
+        .with_tags(vec!["usd", "3d", "geometry", "primitive"])
+        .with_processing_cost(ProcessingCost::Low)
     }
 }

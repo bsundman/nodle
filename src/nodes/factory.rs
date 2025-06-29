@@ -1,6 +1,6 @@
 //! Enhanced node factory system with self-registration and rich metadata
 
-use egui::{Color32, Pos2};
+use egui::{Color32, Pos2, Vec2};
 use crate::nodes::{Node, NodeId, NodeGraph};
 use crate::NodeFactory as OldNodeFactory; // Import the old trait
 use std::collections::HashMap;
@@ -158,16 +158,247 @@ impl PortDefinition {
     }
 }
 
-/// Rich metadata for nodes
+/// Panel positioning preferences
+#[derive(Debug, Clone, PartialEq)]
+pub enum PanelPosition {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Center,
+    Custom(Vec2), // Custom offset from top-left
+}
+
+/// Stacking behavior for panels
+#[derive(Debug, Clone, PartialEq)]
+pub enum StackingMode {
+    Floating,      // Individual windows
+    VerticalStack, // Stacked vertically (parameter style)
+    TabbedStack,   // Stacked with tabs (viewport style)
+    Docked,        // Docked to window edges
+}
+
+/// Node execution behavior
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutionMode {
+    Realtime,     // Executes continuously
+    OnDemand,     // Executes when inputs change
+    Manual,       // Executes only when triggered
+    Background,   // Executes in background thread
+}
+
+/// Processing cost hint for scheduling
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProcessingCost {
+    Minimal,      // < 1ms
+    Low,          // 1-10ms
+    Medium,       // 10-100ms
+    High,         // 100ms-1s
+    VeryHigh,     // > 1s
+}
+
+/// Rich metadata for nodes - the single source of truth for all node behavior
 #[derive(Debug, Clone)]
 pub struct NodeMetadata {
+    // Core identity
     pub node_type: &'static str,
     pub display_name: &'static str,
-    pub category: NodeCategory,
     pub description: &'static str,
+    pub version: &'static str,
+    
+    // Visual appearance
     pub color: Color32,
+    pub icon: &'static str,
+    pub size_hint: Vec2,
+    
+    // Organization & categorization
+    pub category: NodeCategory,
+    pub workspace_compatibility: Vec<&'static str>,
+    pub tags: Vec<&'static str>,
+    
+    // Interface behavior
+    pub panel_type: crate::nodes::interface::PanelType,
+    pub default_panel_position: PanelPosition,
+    pub default_stacking_mode: StackingMode,
+    pub resizable: bool,
+    
+    // Connectivity
     pub inputs: Vec<PortDefinition>,
     pub outputs: Vec<PortDefinition>,
+    pub allow_multiple_connections: bool,
+    
+    // Execution behavior
+    pub execution_mode: ExecutionMode,
+    pub processing_cost: ProcessingCost,
+    pub requires_gpu: bool,
+    
+    // Advanced properties
+    pub is_workspace_node: bool,
+    pub supports_preview: bool,
+}
+
+impl NodeMetadata {
+    /// Create node metadata with sensible defaults
+    pub fn new(
+        node_type: &'static str,
+        display_name: &'static str,
+        category: NodeCategory,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            // Core identity
+            node_type,
+            display_name,
+            description,
+            version: "1.0",
+            
+            // Visual appearance - defaults
+            color: Color32::from_rgb(100, 100, 100),
+            icon: "⚡",
+            size_hint: Vec2::new(120.0, 80.0),
+            
+            // Organization & categorization
+            category,
+            workspace_compatibility: vec![], // Compatible with all workspaces
+            tags: vec![],
+            
+            // Interface behavior - parameter panel by default
+            panel_type: crate::nodes::interface::PanelType::Parameter,
+            default_panel_position: PanelPosition::TopRight,
+            default_stacking_mode: StackingMode::VerticalStack,
+            resizable: true,
+            
+            // Connectivity - defaults
+            inputs: vec![],
+            outputs: vec![],
+            allow_multiple_connections: true,
+            
+            // Execution behavior - sensible defaults
+            execution_mode: ExecutionMode::OnDemand,
+            processing_cost: ProcessingCost::Low,
+            requires_gpu: false,
+            
+            // Advanced properties - defaults
+            is_workspace_node: false,
+            supports_preview: false,
+        }
+    }
+    
+    /// Create viewport node metadata with viewport-specific defaults
+    pub fn viewport(
+        node_type: &'static str,
+        display_name: &'static str,
+        category: NodeCategory,
+        description: &'static str,
+    ) -> Self {
+        Self::new(node_type, display_name, category, description)
+            .with_color(Color32::from_rgb(50, 150, 255))
+            .with_icon("🖼️")
+            .with_panel_type(crate::nodes::interface::PanelType::Viewport)
+            .with_default_position(PanelPosition::TopLeft)
+            .with_stacking_mode(StackingMode::TabbedStack)
+            .with_execution_mode(ExecutionMode::Realtime)
+            .with_gpu_requirement(true)
+            .with_preview_support(true)
+    }
+    
+    /// Create workspace node metadata with workspace-specific defaults
+    pub fn workspace(
+        node_type: &'static str,
+        display_name: &'static str,
+        category: NodeCategory,
+        description: &'static str,
+    ) -> Self {
+        Self::new(node_type, display_name, category, description)
+            .with_color(Color32::from_rgb(150, 100, 255))
+            .with_icon("📂")
+            .with_size_hint(Vec2::new(160.0, 100.0))
+            .with_workspace_node(true)
+            .with_panel_type(crate::nodes::interface::PanelType::Editor)
+            .with_default_position(PanelPosition::Center)
+            .with_stacking_mode(StackingMode::Floating)
+    }
+    
+    /// Builder pattern methods for fluent configuration
+    pub fn with_color(mut self, color: Color32) -> Self {
+        self.color = color;
+        self
+    }
+    
+    pub fn with_icon(mut self, icon: &'static str) -> Self {
+        self.icon = icon;
+        self
+    }
+    
+    pub fn with_size_hint(mut self, size: Vec2) -> Self {
+        self.size_hint = size;
+        self
+    }
+    
+    pub fn with_panel_type(mut self, panel_type: crate::nodes::interface::PanelType) -> Self {
+        self.panel_type = panel_type;
+        self
+    }
+    
+    pub fn with_default_position(mut self, position: PanelPosition) -> Self {
+        self.default_panel_position = position;
+        self
+    }
+    
+    pub fn with_stacking_mode(mut self, mode: StackingMode) -> Self {
+        self.default_stacking_mode = mode;
+        self
+    }
+    
+    pub fn with_execution_mode(mut self, mode: ExecutionMode) -> Self {
+        self.execution_mode = mode;
+        self
+    }
+    
+    pub fn with_gpu_requirement(mut self, requires_gpu: bool) -> Self {
+        self.requires_gpu = requires_gpu;
+        self
+    }
+    
+    pub fn with_preview_support(mut self, supports_preview: bool) -> Self {
+        self.supports_preview = supports_preview;
+        self
+    }
+    
+    pub fn with_workspace_node(mut self, is_workspace_node: bool) -> Self {
+        self.is_workspace_node = is_workspace_node;
+        self
+    }
+    
+    pub fn with_inputs(mut self, inputs: Vec<PortDefinition>) -> Self {
+        self.inputs = inputs;
+        self
+    }
+    
+    pub fn with_outputs(mut self, outputs: Vec<PortDefinition>) -> Self {
+        self.outputs = outputs;
+        self
+    }
+    
+    pub fn with_workspace_compatibility(mut self, workspaces: Vec<&'static str>) -> Self {
+        self.workspace_compatibility = workspaces;
+        self
+    }
+    
+    pub fn with_tags(mut self, tags: Vec<&'static str>) -> Self {
+        self.tags = tags;
+        self
+    }
+    
+    pub fn with_processing_cost(mut self, cost: ProcessingCost) -> Self {
+        self.processing_cost = cost;
+        self
+    }
+    
+    pub fn with_version(mut self, version: &'static str) -> Self {
+        self.version = version;
+        self
+    }
 }
 
 /// Enhanced node factory trait with rich metadata
@@ -249,6 +480,30 @@ impl NodeRegistry {
         
         // Fall back to legacy system for nodes not yet migrated
         self.create_node_legacy(node_type, position)
+    }
+
+    /// Create a node by type name and return both node and metadata
+    pub fn create_node_with_metadata(&self, node_type: &str, position: Pos2) -> Option<(Node, NodeMetadata)> {
+        // Try dynamic factory first - use the metadata providers from registry
+        if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
+            let metadata = metadata_provider();
+            if let Some(node) = self.create_node(node_type, position) {
+                return Some((node, metadata));
+            }
+        }
+        
+        // For legacy nodes, create with default parameter panel type
+        if let Some(node) = self.create_node(node_type, position) {
+            let metadata = NodeMetadata::new(
+                "Legacy",
+                "Legacy Node",
+                NodeCategory::new(&["General"]),
+                "Legacy node"
+            ).with_color(node.color);
+            return Some((node, metadata));
+        }
+        
+        None
     }
     
     /// Legacy node creation (temporary during migration)

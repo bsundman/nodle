@@ -9,21 +9,24 @@ pub struct NotNodeEnhanced;
 
 impl NodeFactory for NotNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "NOT",
-            display_name: "NOT",
-            category: NodeCategory::logic(),
-            description: "Logical NOT operation (inverts boolean input)",
-            color: Color32::from_rgb(55, 45, 65), // Blue-purple tint
-            inputs: vec![
-                PortDefinition::required("Input", DataType::Boolean)
-                    .with_description("Boolean input to invert"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Result", DataType::Boolean)
-                    .with_description("Logical NOT result (!Input)"),
-            ],
-        }
+        NodeMetadata::new(
+            "NOT",
+            "NOT",
+            NodeCategory::logic(),
+            "Logical NOT operation (inverts boolean input)"
+        )
+        .with_color(Color32::from_rgb(55, 45, 65)) // Blue-purple tint
+        .with_icon("¬")
+        .with_inputs(vec![
+            PortDefinition::required("Input", DataType::Boolean)
+                .with_description("Boolean input to invert"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Result", DataType::Boolean)
+                .with_description("Logical NOT result (!Input)"),
+        ])
+        .with_tags(vec!["logic", "boolean", "not", "invert", "gate"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Minimal)
     }
 }
 

@@ -9,18 +9,21 @@ pub struct DebugNodeEnhanced;
 
 impl NodeFactory for DebugNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "Debug",
-            display_name: "Debug",
-            category: NodeCategory::output(),
-            description: "Outputs values with detailed debugging information",
-            color: Color32::from_rgb(65, 55, 45), // Red-orange tint
-            inputs: vec![
-                PortDefinition::required("Value", DataType::Any)
-                    .with_description("Value to debug output"),
-            ],
-            outputs: vec![], // No outputs - terminal node
-        }
+        NodeMetadata::new(
+            "Debug",
+            "Debug",
+            NodeCategory::output(),
+            "Outputs values with detailed debugging information"
+        )
+        .with_color(Color32::from_rgb(65, 55, 45)) // Red-orange tint
+        .with_icon("🐛")
+        .with_inputs(vec![
+            PortDefinition::required("Value", DataType::Any)
+                .with_description("Value to debug output"),
+        ])
+        .with_outputs(vec![]) // No outputs - terminal node
+        .with_tags(vec!["output", "debug", "inspect", "terminal"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Low)
     }
 }
 

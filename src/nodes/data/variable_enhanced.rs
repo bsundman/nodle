@@ -9,21 +9,24 @@ pub struct VariableNodeEnhanced;
 
 impl NodeFactory for VariableNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "Variable",
-            display_name: "Variable",
-            category: NodeCategory::data(),
-            description: "Stores and outputs a variable value",
-            color: Color32::from_rgb(65, 45, 65), // Purple tint
-            inputs: vec![
-                PortDefinition::optional("Set", DataType::Float)
-                    .with_description("Optional input to set variable value"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Value", DataType::Float)
-                    .with_description("Current variable value"),
-            ],
-        }
+        NodeMetadata::new(
+            "Variable",
+            "Variable",
+            NodeCategory::data(),
+            "Stores and outputs a variable value"
+        )
+        .with_color(Color32::from_rgb(65, 45, 65)) // Purple tint
+        .with_icon("📦")
+        .with_inputs(vec![
+            PortDefinition::optional("Set", DataType::Float)
+                .with_description("Optional input to set variable value"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Value", DataType::Float)
+                .with_description("Current variable value"),
+        ])
+        .with_tags(vec!["data", "variable", "storage", "state"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Minimal)
     }
 }
 

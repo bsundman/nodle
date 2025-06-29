@@ -60,23 +60,18 @@ impl NodeCategory {
 pub struct NodeRegistry;
 
 impl NodeRegistry {
-    /// Create a node by type name (includes both generic and context-specific nodes)
+    /// Create a node by type name and return both node and metadata
+    pub fn create_node_with_metadata(node_type: &str, position: Pos2) -> Option<(Node, nodes::NodeMetadata)> {
+        // Use the factory registry - pure node-centric approach!
+        let registry = nodes::factory::NodeRegistry::default();
+        registry.create_node_with_metadata(node_type, position)
+    }
+
+    /// Create a node by type name using the factory registry (pure node-centric approach)
     pub fn create_node(node_type: &str, position: Pos2) -> Option<Node> {
-        // Try generic nodes first
-        match node_type {
-            "Add" => Some(nodes::math::AddNode::create(position)),
-            "Subtract" => Some(nodes::math::SubtractNode::create(position)),
-            "Multiply" => Some(nodes::math::MultiplyNode::create(position)),
-            "Divide" => Some(nodes::math::DivideNode::create(position)),
-            "AND" => Some(nodes::logic::AndNode::create(position)),
-            "OR" => Some(nodes::logic::OrNode::create(position)),
-            "NOT" => Some(nodes::logic::NotNode::create(position)),
-            "Constant" => Some(nodes::data::ConstantNode::create(position)),
-            "Variable" => Some(nodes::data::VariableNode::create(position)),
-            "Print" => Some(nodes::output::PrintNode::create(position)),
-            "Debug" => Some(nodes::output::DebugNode::create(position)),
-            _ => None,
-        }
+        // Use the factory registry - no more hardcoded matches!
+        let registry = nodes::factory::NodeRegistry::default();
+        registry.create_node(node_type, position)
     }
     
     /// Create a workspace-specific node

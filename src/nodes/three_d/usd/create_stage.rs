@@ -32,20 +32,24 @@ impl USDCreateStage {
 
 impl NodeFactory for USDCreateStage {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "USD_CreateStage",
-            display_name: "Create Stage",
-            category: NodeCategory::new(&["3D", "USD", "Stage"]),
-            description: "Creates a new USD stage for scene assembly",
-            color: Color32::from_rgb(200, 150, 100), // Orange-brown for USD nodes
-            inputs: vec![
-                PortDefinition::optional("Identifier", DataType::String)
-                    .with_description("Optional stage identifier"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("USD Stage reference"),
-            ],
-        }
+        NodeMetadata::new(
+            "USD_CreateStage",
+            "Create Stage",
+            NodeCategory::new(&["3D", "USD", "Stage"]),
+            "Creates a new USD stage for scene assembly"
+        )
+        .with_color(Color32::from_rgb(200, 150, 100)) // Orange-brown for USD nodes
+        .with_icon("🎬")
+        .with_inputs(vec![
+            PortDefinition::optional("Identifier", DataType::String)
+                .with_description("Optional stage identifier"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("USD Stage reference"),
+        ])
+        .with_tags(vec!["3d", "usd", "stage", "create", "pixar"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Medium)
+        .with_workspace_compatibility(vec!["3d", "usd", "pipeline"])
     }
 }

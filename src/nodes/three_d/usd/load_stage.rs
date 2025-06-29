@@ -9,20 +9,24 @@ pub struct USDLoadStage;
 
 impl NodeFactory for USDLoadStage {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "USD_LoadStage",
-            display_name: "Load Stage",
-            category: NodeCategory::new(&["3D", "USD", "Stage"]),
-            description: "Loads a USD stage from a .usd, .usda, or .usdc file",
-            color: Color32::from_rgb(200, 150, 100), // Orange-brown for USD nodes
-            inputs: vec![
-                PortDefinition::required("File Path", DataType::String)
-                    .with_description("Path to USD file"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("Loaded USD Stage"),
-            ],
-        }
+        NodeMetadata::new(
+            "USD_LoadStage",
+            "Load Stage",
+            NodeCategory::new(&["3D", "USD", "Stage"]),
+            "Loads a USD stage from a .usd, .usda, or .usdc file"
+        )
+        .with_color(Color32::from_rgb(200, 150, 100)) // Orange-brown for USD nodes
+        .with_icon("📂")
+        .with_inputs(vec![
+            PortDefinition::required("File Path", DataType::String)
+                .with_description("Path to USD file"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("Loaded USD Stage"),
+        ])
+        .with_tags(vec!["3d", "usd", "stage", "load", "import", "pixar"])
+        .with_processing_cost(crate::nodes::ProcessingCost::High)
+        .with_workspace_compatibility(vec!["3d", "usd", "pipeline"])
     }
 }

@@ -9,23 +9,26 @@ pub struct SubtractNodeEnhanced;
 
 impl NodeFactory for SubtractNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "Subtract",
-            display_name: "Subtract",
-            category: NodeCategory::math(),
-            description: "Subtracts the second input from the first",
-            color: Color32::from_rgb(45, 55, 65),
-            inputs: vec![
-                PortDefinition::required("A", DataType::Float)
-                    .with_description("Minuend (value to subtract from)"),
-                PortDefinition::required("B", DataType::Float)
-                    .with_description("Subtrahend (value to subtract)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Result", DataType::Float)
-                    .with_description("Difference (A - B)"),
-            ],
-        }
+        NodeMetadata::new(
+            "Subtract",
+            "Subtract",
+            NodeCategory::math(),
+            "Subtracts the second input from the first"
+        )
+        .with_color(Color32::from_rgb(45, 55, 65))
+        .with_icon("➖")
+        .with_inputs(vec![
+            PortDefinition::required("A", DataType::Float)
+                .with_description("Minuend (value to subtract from)"),
+            PortDefinition::required("B", DataType::Float)
+                .with_description("Subtrahend (value to subtract)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Result", DataType::Float)
+                .with_description("Difference (A - B)"),
+        ])
+        .with_tags(vec!["math", "arithmetic", "subtract"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Minimal)
     }
 }
 

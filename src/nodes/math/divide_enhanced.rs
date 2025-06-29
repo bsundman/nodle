@@ -9,23 +9,26 @@ pub struct DivideNodeEnhanced;
 
 impl NodeFactory for DivideNodeEnhanced {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "Divide",
-            display_name: "Divide",
-            category: NodeCategory::math(),
-            description: "Divides the first input by the second",
-            color: Color32::from_rgb(45, 55, 65),
-            inputs: vec![
-                PortDefinition::required("A", DataType::Float)
-                    .with_description("Dividend (value to be divided)"),
-                PortDefinition::required("B", DataType::Float)
-                    .with_description("Divisor (value to divide by)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Result", DataType::Float)
-                    .with_description("Quotient (A / B)"),
-            ],
-        }
+        NodeMetadata::new(
+            "Divide",
+            "Divide",
+            NodeCategory::math(),
+            "Divides the first input by the second"
+        )
+        .with_color(Color32::from_rgb(45, 55, 65))
+        .with_icon("➗")
+        .with_inputs(vec![
+            PortDefinition::required("A", DataType::Float)
+                .with_description("Dividend (value to be divided)"),
+            PortDefinition::required("B", DataType::Float)
+                .with_description("Divisor (value to divide by)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Result", DataType::Float)
+                .with_description("Quotient (A / B)"),
+        ])
+        .with_tags(vec!["math", "arithmetic", "divide"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Minimal)
     }
 }
 

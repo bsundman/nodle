@@ -28,7 +28,7 @@ pub use port::PortId;
 // Re-export factory types
 pub use factory::{
     NodeFactory, NodeMetadata, NodeCategory,
-    DataType, PortDefinition,
+    DataType, PortDefinition, ProcessingCost, ExecutionMode, PanelPosition, StackingMode,
 };
 
 // Re-export interface types

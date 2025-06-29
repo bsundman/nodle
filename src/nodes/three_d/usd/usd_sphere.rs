@@ -1,7 +1,7 @@
 //! USD Sphere node - creates a sphere primitive
 
 use egui::Color32;
-use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition};
+use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition, ProcessingCost};
 use super::usd_engine::with_usd_engine;
 
 /// Creates a USD Sphere primitive
@@ -34,26 +34,30 @@ impl USDSphere {
 
 impl NodeFactory for USDSphere {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "USD_Sphere",
-            display_name: "USD Sphere",
-            category: NodeCategory::new(&["3D", "USD", "Primitives"]),
-            description: "Creates a USD sphere primitive",
-            color: Color32::from_rgb(200, 150, 100), // Orange-brown for USD nodes
-            inputs: vec![
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("USD Stage reference"),
-                PortDefinition::required("Path", DataType::String)
-                    .with_description("Prim path (e.g., /World/MySphere)"),
-                PortDefinition::optional("Radius", DataType::Float)
-                    .with_description("Sphere radius (default: 1.0)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Prim", DataType::Any)
-                    .with_description("USD Sphere prim"),
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("Pass-through stage reference"),
-            ],
-        }
+        NodeMetadata::new(
+            "USD_Sphere",
+            "USD Sphere",
+            NodeCategory::new(&["3D", "USD", "Primitives"]),
+            "Creates a USD sphere primitive"
+        )
+        .with_color(Color32::from_rgb(200, 150, 100))
+        .with_icon("⚽")
+        .with_inputs(vec![
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("USD Stage reference"),
+            PortDefinition::required("Path", DataType::String)
+                .with_description("Prim path (e.g., /World/MySphere)"),
+            PortDefinition::optional("Radius", DataType::Float)
+                .with_description("Sphere radius (default: 1.0)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Prim", DataType::Any)
+                .with_description("USD Sphere prim"),
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("Pass-through stage reference"),
+        ])
+        .with_workspace_compatibility(vec!["3D", "USD"])
+        .with_tags(vec!["usd", "3d", "geometry", "primitive"])
+        .with_processing_cost(ProcessingCost::Low)
     }
 }

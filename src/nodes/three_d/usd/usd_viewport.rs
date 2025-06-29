@@ -34,32 +34,36 @@ impl USDViewport {
 
 impl NodeFactory for USDViewport {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "USD_Viewport",
-            display_name: "USD Viewport",
-            category: NodeCategory::new(&["3D", "USD", "Output"]),
-            description: "Viewport for visualizing and rendering USD stages",
-            color: Color32::from_rgb(100, 200, 100), // Green for viewport/output
-            inputs: vec![
-                PortDefinition::required("Stage", DataType::Any)
-                    .with_description("USD Stage to render"),
-                PortDefinition::optional("Camera", DataType::Any)
-                    .with_description("Camera prim for rendering (optional)"),
-                PortDefinition::optional("Width", DataType::Float)
-                    .with_description("Render width in pixels (default: 1920)"),
-                PortDefinition::optional("Height", DataType::Float)
-                    .with_description("Render height in pixels (default: 1080)"),
-                PortDefinition::optional("Samples", DataType::Float)
-                    .with_description("Anti-aliasing samples (default: 4)"),
-                PortDefinition::optional("Max Depth", DataType::Float)
-                    .with_description("Maximum ray tracing depth (default: 8)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Image", DataType::Any)
-                    .with_description("Rendered image output"),
-                PortDefinition::required("Render Stats", DataType::String)
-                    .with_description("Rendering statistics and info"),
-            ],
-        }
+        NodeMetadata::viewport(
+            "USD_Viewport",
+            "USD Viewport",
+            NodeCategory::new(&["3D", "USD", "Output"]),
+            "Viewport for visualizing and rendering USD stages"
+        )
+        .with_color(Color32::from_rgb(100, 200, 100)) // Green for viewport/output
+        .with_icon("🎥")
+        .with_inputs(vec![
+            PortDefinition::required("Stage", DataType::Any)
+                .with_description("USD Stage to render"),
+            PortDefinition::optional("Camera", DataType::Any)
+                .with_description("Camera prim for rendering (optional)"),
+            PortDefinition::optional("Width", DataType::Float)
+                .with_description("Render width in pixels (default: 1920)"),
+            PortDefinition::optional("Height", DataType::Float)
+                .with_description("Render height in pixels (default: 1080)"),
+            PortDefinition::optional("Samples", DataType::Float)
+                .with_description("Anti-aliasing samples (default: 4)"),
+            PortDefinition::optional("Max Depth", DataType::Float)
+                .with_description("Maximum ray tracing depth (default: 8)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Image", DataType::Any)
+                .with_description("Rendered image output"),
+            PortDefinition::required("Render Stats", DataType::String)
+                .with_description("Rendering statistics and info"),
+        ])
+        .with_tags(vec!["3d", "usd", "viewport", "render", "output", "pixar"])
+        .with_processing_cost(crate::nodes::ProcessingCost::High)
+        .with_workspace_compatibility(vec!["3d", "usd", "rendering"])
     }
 }

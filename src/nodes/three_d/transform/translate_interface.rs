@@ -90,23 +90,27 @@ impl TranslateNodeWithInterface {
 
 impl NodeFactory for TranslateNodeWithInterface {
     fn metadata() -> NodeMetadata {
-        NodeMetadata {
-            node_type: "3D_TranslateInterface",
-            display_name: "Translate (Interface)",
-            category: NodeCategory::new(&["3D", "Transform"]),
-            description: "Translates (moves) geometry with interface panel controls",
-            color: Color32::from_rgb(150, 100, 200), // Purple tint for transforms
-            inputs: vec![
-                PortDefinition::required("Input", DataType::Any)
-                    .with_description("Scene or geometry data to transform"),
-                PortDefinition::optional("Vector", DataType::Vector3)
-                    .with_description("Optional translation vector (overrides interface values)"),
-            ],
-            outputs: vec![
-                PortDefinition::required("Output", DataType::Any)
-                    .with_description("Transformed scene or geometry data"),
-            ],
-        }
+        NodeMetadata::new(
+            "3D_TranslateInterface",
+            "Translate (Interface)",
+            NodeCategory::new(&["3D", "Transform"]),
+            "Translates (moves) geometry with interface panel controls"
+        )
+        .with_color(Color32::from_rgb(150, 100, 200)) // Purple tint for transforms
+        .with_icon("↔️")
+        .with_inputs(vec![
+            PortDefinition::required("Input", DataType::Any)
+                .with_description("Scene or geometry data to transform"),
+            PortDefinition::optional("Vector", DataType::Vector3)
+                .with_description("Optional translation vector (overrides interface values)"),
+        ])
+        .with_outputs(vec![
+            PortDefinition::required("Output", DataType::Any)
+                .with_description("Transformed scene or geometry data"),
+        ])
+        .with_tags(vec!["3d", "transform", "translate", "move", "interface"])
+        .with_processing_cost(crate::nodes::ProcessingCost::Medium)
+        .with_workspace_compatibility(vec!["3d", "modeling"])
     }
 }
 
