@@ -6,6 +6,7 @@ use egui::{Context, Color32, Pos2};
 use crate::nodes::{Node, NodeId, InterfacePanelManager, NodeType};
 use crate::nodes::interface::PanelType;
 use crate::editor::panels::PanelAction;
+use std::collections::HashMap;
 
 /// Viewport panel renderer
 pub struct ViewportPanel {
@@ -28,11 +29,28 @@ impl ViewportPanel {
         node: &Node,
         panel_manager: &mut InterfacePanelManager,
         menu_bar_height: f32,
+        viewed_nodes: &HashMap<NodeId, Node>,
     ) -> PanelAction {
         // Check if this panel should be stacked
         if panel_manager.is_panel_stacked(node_id) {
-            // Render in tabbed stacking mode
-            self.render_tabbed_viewport(ctx, node_id, node, panel_manager, menu_bar_height)
+            // For stacked panels, only render the shared window from the first stacked node
+            // to avoid creating multiple windows
+            let stacked_viewport_nodes = panel_manager.get_stacked_panels_by_type(
+                PanelType::Viewport, 
+                viewed_nodes
+            );
+            
+            if let Some(&first_node_id) = stacked_viewport_nodes.first() {
+                if node_id == first_node_id {
+                    // This is the first stacked viewport node, render the shared window
+                    self.render_tabbed_viewports(ctx, &stacked_viewport_nodes, panel_manager, menu_bar_height, viewed_nodes)
+                } else {
+                    // This is not the first node, don't render a window (already handled by first node)
+                    PanelAction::None
+                }
+            } else {
+                PanelAction::None
+            }
         } else {
             // Render as individual floating window (default)
             self.render_individual_viewport(ctx, node_id, node, panel_manager, menu_bar_height)
@@ -54,9 +72,9 @@ impl ViewportPanel {
         // Get current window open state
         let mut window_open = panel_manager.is_panel_open(node_id);
         
-        // Viewport panel specific position - top left
+        // Viewport panel specific position - top left corner, touching edges
         let screen_rect = ctx.screen_rect();
-        let position = Pos2::new(screen_rect.min.x + 20.0, screen_rect.min.y + menu_bar_height + 20.0);
+        let position = Pos2::new(screen_rect.min.x, screen_rect.min.y + menu_bar_height);
         
         // Create viewport panel window
         let window_title = format!("{} Viewport", node.title);
@@ -106,32 +124,44 @@ impl ViewportPanel {
         panel_action
     }
 
-    /// Render viewport panels in tabbed stacking mode
-    fn render_tabbed_viewport(
+    /// Render multiple viewport panels in tabbed stacking mode
+    fn render_tabbed_viewports(
         &mut self,
         ctx: &Context,
-        node_id: NodeId,
-        node: &Node,
+        stacked_node_ids: &[NodeId],
         panel_manager: &mut InterfacePanelManager,
         menu_bar_height: f32,
+        viewed_nodes: &HashMap<NodeId, Node>,
     ) -> PanelAction {
         let mut panel_action = PanelAction::None;
         
-        // Get current window open state
-        let mut window_open = panel_manager.is_panel_open(node_id);
+        if stacked_node_ids.is_empty() {
+            return PanelAction::None;
+        }
         
-        // Viewport tabbed stacking positioning - top left, large size
+        // Use the first node's open state for the shared window
+        let first_node_id = stacked_node_ids[0];
+        let mut window_open = panel_manager.is_panel_open(first_node_id);
+        
+        // Track which viewport tab is selected (default to first)
+        static mut SELECTED_VIEWPORT_TAB: usize = 0;
+        let selected_tab = unsafe { &mut SELECTED_VIEWPORT_TAB };
+        
+        // Ensure selected tab is valid
+        if *selected_tab >= stacked_node_ids.len() {
+            *selected_tab = 0;
+        }
+        
+        // Viewport tabbed stacking positioning - same as floating viewport (top left corner)
         let screen_rect = ctx.screen_rect();
-        let panel_width = 900.0;
-        let panel_height = 700.0;
-        let window_pos = [screen_rect.min.x + 20.0, menu_bar_height + 20.0];
+        let position = Pos2::new(screen_rect.min.x, screen_rect.min.y + menu_bar_height);
         
-        // Create tabbed viewport window
-        let window_title = "Viewport Panel Tabs";
+        // Create tabbed viewport window (movable, not fixed)
+        let window_title = format!("Viewport Tabs ({})", stacked_node_ids.len());
         egui::Window::new(window_title)
             .id(egui::Id::new("tabbed_viewport_panels"))
-            .fixed_pos(window_pos)
-            .default_size([panel_width, panel_height])
+            .default_pos(position)
+            .default_size(self.default_size)
             .min_size([600.0, 400.0])
             .max_size([1600.0, 1200.0])
             .resizable(true)
@@ -144,42 +174,50 @@ impl ViewportPanel {
             .show(ctx, |ui| {
                 // Create tab bar for multiple viewport panels
                 ui.horizontal(|ui| {
-                    ui.label("Viewports:");
-                    
-                    // Tab for this viewport
-                    let tab_text = format!("{}", node.title);
-                    let tab_selected = true; // For now, always show this tab as selected
-                    
-                    if ui.selectable_label(tab_selected, &tab_text).clicked() {
-                        // Tab switching logic would go here for multiple viewports
+                    for (i, &node_id) in stacked_node_ids.iter().enumerate() {
+                        if let Some(node) = viewed_nodes.get(&node_id) {
+                            let tab_text = &node.title;
+                            let is_selected = i == *selected_tab;
+                            
+                            if ui.selectable_label(is_selected, tab_text).clicked() {
+                                *selected_tab = i;
+                            }
+                        }
                     }
                 });
                 
                 ui.separator();
                 
-                // Panel controls at the top
-                let (control_action, close_requested) = self.render_panel_controls(ui, node_id, panel_manager);
-                if control_action != PanelAction::None {
-                    panel_action = control_action;
+                // Render the selected viewport
+                if let Some(&selected_node_id) = stacked_node_ids.get(*selected_tab) {
+                    if let Some(node) = viewed_nodes.get(&selected_node_id) {
+                        // Panel controls for the selected viewport
+                        let (control_action, close_requested) = self.render_panel_controls(ui, selected_node_id, panel_manager);
+                        if control_action != PanelAction::None {
+                            panel_action = control_action;
+                        }
+                        if close_requested {
+                            panel_action = PanelAction::Close;
+                        }
+                        
+                        ui.separator();
+                        
+                        // Viewport content area
+                        egui::Frame::none()
+                            .inner_margin(egui::Margin::same(4.0))
+                            .fill(Color32::from_gray(25))
+                            .rounding(egui::Rounding::same(4.0))
+                            .show(ui, |ui| {
+                                self.render_viewport_content(ui, selected_node_id, node);
+                            });
+                    }
                 }
-                if close_requested {
-                    panel_action = PanelAction::Close;
-                }
-                
-                ui.separator();
-                
-                // Viewport content area
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::same(4.0))
-                    .fill(Color32::from_gray(25))
-                    .rounding(egui::Rounding::same(4.0))
-                    .show(ui, |ui| {
-                        self.render_viewport_content(ui, node_id, node);
-                    });
             });
         
-        // Update the panel manager with the new state
-        panel_manager.set_panel_open(node_id, window_open);
+        // Update all stacked nodes' panel open state
+        for &node_id in stacked_node_ids {
+            panel_manager.set_panel_open(node_id, window_open);
+        }
         
         // Check if window was closed via X button
         if !window_open {
@@ -249,7 +287,7 @@ impl ViewportPanel {
         // Check if this is a viewport node via metadata (pure node-centric approach)
         if let NodeType::Regular = node.node_type {
             let registry = crate::nodes::factory::NodeRegistry::default();
-            if let Some((_, metadata)) = registry.create_node_with_metadata(&node.title, node.position) {
+            if let Some(metadata) = registry.get_node_metadata(&node.title) {
                 if metadata.panel_type == PanelType::Viewport {
                     // Create a viewport node instance for interface rendering
                     let mut viewport_node = crate::nodes::three_d::ViewportNode3D::default();

@@ -482,6 +482,27 @@ impl NodeRegistry {
         self.create_node_legacy(node_type, position)
     }
 
+    /// Get metadata for a node type without creating the node
+    pub fn get_node_metadata(&self, node_type: &str) -> Option<NodeMetadata> {
+        // Try dynamic factory first - use the metadata providers from registry
+        if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
+            return Some(metadata_provider());
+        }
+        
+        // For legacy nodes, return default metadata
+        let legacy_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
+        if legacy_types.contains(&node_type) {
+            return Some(NodeMetadata::new(
+                "Legacy",
+                "Legacy Node",
+                NodeCategory::new(&["General"]),
+                "Legacy node"
+            ).with_color(Color32::from_gray(128)));
+        }
+        
+        None
+    }
+
     /// Create a node by type name and return both node and metadata
     pub fn create_node_with_metadata(&self, node_type: &str, position: Pos2) -> Option<(Node, NodeMetadata)> {
         // Try dynamic factory first - use the metadata providers from registry

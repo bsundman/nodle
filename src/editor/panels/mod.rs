@@ -110,6 +110,7 @@ impl PanelManager {
                             node,
                             &mut self.interface_panel_manager,
                             menu_bar_height,
+                            viewed_nodes,
                         )
                     },
                     _ => {
@@ -201,8 +202,9 @@ impl PanelManager {
         }
         
         // Get panel type from node metadata (pure node-centric approach)
+        // Use a shared registry instance to avoid creating it repeatedly
         let registry = crate::nodes::factory::NodeRegistry::default();
-        let panel_type = if let Some((_, metadata)) = registry.create_node_with_metadata(&node.title, node.position) {
+        let panel_type = if let Some(metadata) = registry.get_node_metadata(&node.title) {
             // Use the panel type defined in the node's metadata
             metadata.panel_type
         } else {

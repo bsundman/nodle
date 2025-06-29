@@ -165,18 +165,24 @@ impl ParameterPanel {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        // Calculate the consistent content width for all panels
+                        // The issue is that egui's ScrollArea reserves different amounts of space
+                        // for the first item vs subsequent items. We need to normalize this.
+                        let available_width = ui.available_width();
+                        // No scrollbar spacing - let egui handle it automatically
+                        let scrollbar_width = 0.0;
+                        let content_width = (available_width - scrollbar_width).max(100.0);
+                        
                         // Render each stacked parameter node
                         for &node_id in stacked_node_ids {
                             if let Some(node) = viewed_nodes.get(&node_id) {
-                                // Force consistent width for all content
-                                let full_width = ui.available_width();
                                 
-                                // Create a full-width container for this panel
+                                // Create a consistent-width container for this panel
                                 ui.allocate_ui_with_layout(
-                                    egui::vec2(full_width, 0.0),
+                                    egui::vec2(content_width, 0.0),
                                     egui::Layout::top_down(egui::Align::LEFT),
                                     |ui| {
-                                        ui.set_width(full_width);
+                                        ui.set_width(content_width);
                                         
                                         // Panel controls for this node
                                         let (panel_control_action, close_requested) = self.render_panel_controls(ui, node_id, panel_manager);
