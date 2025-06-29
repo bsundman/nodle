@@ -147,6 +147,42 @@ impl NodeEditor {
         self.view_manager.get_active_graph(&self.graph)
     }
     
+    /// Add a connection to the appropriate graph based on current view
+    fn add_connection_to_active_graph(&mut self, connection: Connection) -> Result<(), &'static str> {
+        match self.view_manager.current_view() {
+            GraphView::Root => {
+                self.graph.add_connection(connection)
+            }
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = self.graph.nodes.get_mut(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        internal_graph.add_connection(connection)
+                    } else {
+                        Err("Workspace node has no internal graph")
+                    }
+                } else {
+                    Err("Workspace node not found")
+                }
+            }
+        }
+    }
+    
+    /// Remove a connection from the appropriate graph based on current view
+    fn remove_connection_from_active_graph(&mut self, idx: usize) {
+        match self.view_manager.current_view() {
+            GraphView::Root => {
+                self.graph.remove_connection(idx);
+            }
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = self.graph.nodes.get_mut(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        internal_graph.remove_connection(idx);
+                    }
+                }
+            }
+        }
+    }
+    
 
     fn zoom_at_point(&mut self, screen_point: Pos2, zoom_delta: f32) {
         // Convert zoom delta to multiplication factor for viewport compatibility
@@ -633,21 +669,22 @@ impl eframe::App for NodeEditor {
                 if !self.input_state.is_panning {
                     // Handle clicks (not just drags)
                     if self.input_state.clicked_this_frame {
-                        // Check if we clicked on a port first
-                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(&self.build_temp_graph(&viewed_nodes), 10.0) {
+                        // Check if we clicked on a port first - use active graph for consistency
+                        let active_graph = self.view_manager.get_active_graph(&self.graph);
+                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, 20.0) {
                             // Handle connection logic
                             if self.input_state.is_connecting_active() {
                                 // Try to complete connection
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
                                     // Check if target is an input port and already has a connection
                                     if is_input {
-                                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
                                             // Remove existing connection to input port
-                                            self.graph.remove_connection(existing_idx);
+                                            self.remove_connection_from_active_graph(existing_idx);
                                             self.mark_modified();
                                         }
                                     }
-                                    let _ = self.graph.add_connection(connection);
+                                    let _ = self.add_connection_to_active_graph(connection);
                                     self.mark_modified();
                                     // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
@@ -658,9 +695,9 @@ impl eframe::App for NodeEditor {
                             } else {
                                 // Not currently connecting - check if clicking on connected input port
                                 if is_input {
-                                    if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                    if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
                                         // Disconnect and start new connection from original source
-                                        self.graph.remove_connection(conn_idx);
+                                        self.remove_connection_from_active_graph(conn_idx);
                                         self.mark_modified();
                                         self.input_state.start_connection(from_node, from_port, false);
                                         // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -826,13 +863,14 @@ impl eframe::App for NodeEditor {
 
                     // Handle drag start for connections, node movement and box selection
                     if self.input_state.drag_started_this_frame {
-                        // Check if we're starting to drag from a port for connections
-                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(&self.build_temp_graph(&viewed_nodes), 10.0) {
+                        // Check if we're starting to drag from a port for connections - use active graph for consistency
+                        let active_graph = self.view_manager.get_active_graph(&self.graph);
+                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, 20.0) {
                             // Handle input port disconnection on drag
                             if is_input {
-                                if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
                                     // Disconnect and start new connection from original source
-                                    self.graph.remove_connection(conn_idx);
+                                    self.remove_connection_from_active_graph(conn_idx);
                                     self.mark_modified();
                                     self.input_state.start_connection(from_node, from_port, false);
                                     // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -922,10 +960,11 @@ impl eframe::App for NodeEditor {
                     // Handle connection completion
                     if self.input_state.drag_stopped_this_frame {
                         if self.input_state.is_connecting_active() {
-                            // Check if we released on a port to complete connection
-                            if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(&self.build_temp_graph(&viewed_nodes), 10.0) {
+                            // Check if we released on a port to complete connection - use active graph for consistency
+                            let active_graph = self.view_manager.get_active_graph(&self.graph);
+                            if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(active_graph, 20.0) {
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
-                                    let _ = self.graph.add_connection(connection);
+                                    let _ = self.add_connection_to_active_graph(connection);
                                     self.mark_modified();
                                 }
                             } else {
@@ -1018,10 +1057,16 @@ impl eframe::App for NodeEditor {
                 // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
+            // Update port positions BEFORE connection handling
+            self.graph.update_all_port_positions();
+            
             // Handle connection cutting when X key is released
             if !self.input_state.is_cutting_mode() && (!self.input_state.get_cut_paths().is_empty() || !self.input_state.get_current_cut_path().is_empty()) {
                 // X key was just released - apply cuts
-                let cut_connections = self.input_state.find_cut_connections(&self.graph, self.viewport.zoom);
+                let cut_connections = {
+                    let active_graph = self.view_manager.get_active_graph(&self.graph);
+                    self.input_state.find_cut_connections(active_graph, self.viewport.zoom)
+                };
                 
                 if !cut_connections.is_empty() {
                     // Sort in reverse order to maintain indices during deletion
@@ -1029,7 +1074,7 @@ impl eframe::App for NodeEditor {
                     sorted_cuts.sort_by(|a, b| b.cmp(a));
                     
                     for conn_idx in sorted_cuts {
-                        self.graph.remove_connection(conn_idx);
+                        self.remove_connection_from_active_graph(conn_idx);
                         self.mark_modified();
                     }
                     
@@ -1043,18 +1088,31 @@ impl eframe::App for NodeEditor {
             // Handle connection drawing when C key is released
             if !self.input_state.is_connecting_mode() && (!self.input_state.get_connect_paths().is_empty() || !self.input_state.get_current_connect_path().is_empty()) {
                 // C key was just released - create connections from drawn paths
-                let new_connections = self.input_state.create_connections_from_paths(&self.graph);
+                let (new_connections, connections_to_remove) = {
+                    let active_graph = self.view_manager.get_active_graph(&self.graph);
+                    let new_connections = self.input_state.create_connections_from_paths(active_graph);
+                    
+                    // Process connections to find existing ones to remove
+                    let mut connections_to_remove = Vec::new();
+                    for connection in &new_connections {
+                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(active_graph, connection.to_node, connection.to_port) {
+                            connections_to_remove.push(existing_idx);
+                        }
+                    }
+                    
+                    (new_connections, connections_to_remove)
+                };
                 
                 if !new_connections.is_empty() {
+                    // Remove existing connections
+                    for existing_idx in connections_to_remove {
+                        self.remove_connection_from_active_graph(existing_idx);
+                        self.mark_modified();
+                    }
+                    
+                    // Add new connections
                     for connection in new_connections {
-                        // Check if target is an input port and already has a connection
-                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(&self.graph, connection.to_node, connection.to_port) {
-                            // Remove existing connection to input port
-                            self.graph.remove_connection(existing_idx);
-                            self.mark_modified();
-                        }
-                        
-                        let _ = self.graph.add_connection(connection);
+                        let _ = self.add_connection_to_active_graph(connection);
                         self.mark_modified();
                     }
                     
@@ -1107,8 +1165,6 @@ impl eframe::App for NodeEditor {
             }
 
 
-            // Update port positions
-            self.graph.update_all_port_positions();
 
             // Draw nodes - GPU vs CPU rendering
             if self.use_gpu_rendering && !viewed_nodes.is_empty() {
@@ -1398,13 +1454,9 @@ impl eframe::App for NodeEditor {
                         let transformed_from = transform_pos(from_pos);
                         let transformed_to = transform_pos(to_pos);
 
-                        // Draw bezier curve (vertical flow: top to bottom)
-                        let vertical_distance = (transformed_to.y - transformed_from.y).abs();
-                        let control_offset = if vertical_distance > 10.0 {
-                            vertical_distance * 0.4
-                        } else {
-                            60.0 * zoom // Minimum offset for short connections
-                        };
+                        // Draw bezier curve with handle length proportional to total distance
+                        let total_distance = (transformed_to - transformed_from).length();
+                        let control_offset = total_distance * 0.3;
 
                         let points = [
                             transformed_from,
@@ -1444,9 +1496,9 @@ impl eframe::App for NodeEditor {
                         let transformed_from = transform_pos(from_pos);
                         let transformed_to = mouse_pos;
 
-                        // Draw bezier curve for connection preview (vertical flow)
-                        // Use fixed control offset to prevent popping when curve goes horizontal
-                        let control_offset = 60.0 * zoom;
+                        // Draw bezier curve for connection preview with proportional handle length
+                        let total_distance = (transformed_to - transformed_from).length();
+                        let control_offset = total_distance * 0.3;
 
                         // Control points should aim in the correct direction based on port type
                         let from_control = if from_is_input {
