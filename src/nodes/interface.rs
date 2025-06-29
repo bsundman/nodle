@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
 /// Types of interface panels that nodes can specify
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PanelType {
     /// Parameter panels for node settings (default, positioned top-right)
     Parameter,
@@ -16,6 +16,8 @@ pub enum PanelType {
     Editor,
     /// Inspector panels for debugging/analysis
     Inspector,
+    /// Viewport panels for 3D scene visualization and rendering
+    Viewport,
 }
 
 /// Core data types that flow between nodes
@@ -297,6 +299,8 @@ pub struct InterfacePanelManager {
     stacked_panels: HashMap<NodeId, bool>,
     /// Which panels are pinned (stay on top and locked position)
     pinned_panels: HashMap<NodeId, bool>,
+    /// Panel types for each node (for type-specific stacking)
+    panel_types: HashMap<NodeId, PanelType>,
 }
 
 impl InterfacePanelManager {
@@ -367,7 +371,9 @@ impl InterfacePanelManager {
     
     /// Toggle panel stacked state
     pub fn toggle_panel_stacked(&mut self, node_id: NodeId) {
-        let current = self.stacked_panels.get(&node_id).copied().unwrap_or(true); // Match the default in is_panel_stacked
+        let panel_type = self.get_panel_type(node_id);
+        let default_stacked = if panel_type == PanelType::Viewport { false } else { true };
+        let current = self.stacked_panels.get(&node_id).copied().unwrap_or(default_stacked);
         self.stacked_panels.insert(node_id, !current);
     }
     
@@ -378,7 +384,13 @@ impl InterfacePanelManager {
     
     /// Check if a panel is stacked
     pub fn is_panel_stacked(&self, node_id: NodeId) -> bool {
-        self.stacked_panels.get(&node_id).copied().unwrap_or(true) // Default to stacked
+        // Viewport panels should never be stacked by default
+        let panel_type = self.get_panel_type(node_id);
+        if panel_type == PanelType::Viewport {
+            self.stacked_panels.get(&node_id).copied().unwrap_or(false) // Viewport panels default to unstacked
+        } else {
+            self.stacked_panels.get(&node_id).copied().unwrap_or(true) // Other panels default to stacked
+        }
     }
     
     /// Toggle panel pinned state
@@ -395,6 +407,86 @@ impl InterfacePanelManager {
     /// Check if a panel is pinned
     pub fn is_panel_pinned(&self, node_id: NodeId) -> bool {
         self.pinned_panels.get(&node_id).copied().unwrap_or(false)
+    }
+    
+    /// Set panel type
+    pub fn set_panel_type(&mut self, node_id: NodeId, panel_type: PanelType) {
+        self.panel_types.insert(node_id, panel_type);
+    }
+    
+    /// Get panel type (defaults to Parameter)
+    pub fn get_panel_type(&self, node_id: NodeId) -> PanelType {
+        self.panel_types.get(&node_id).copied().unwrap_or(PanelType::Parameter)
+    }
+    
+    /// Check if panel type has been explicitly set for a node
+    pub fn has_panel_type_set(&self, node_id: NodeId) -> bool {
+        self.panel_types.contains_key(&node_id)
+    }
+    
+    /// Check if stacking preference has been explicitly set for a node
+    pub fn has_stacking_preference_set(&self, node_id: NodeId) -> bool {
+        self.stacked_panels.contains_key(&node_id)
+    }
+    
+    /// Ensure panel type is set for a node based on its properties
+    pub fn ensure_panel_type_set(&mut self, node_id: NodeId, node: &crate::nodes::Node) {
+        // Only set if not already set
+        if !self.has_panel_type_set(node_id) {
+            // Detect panel type based on node title
+            let panel_type = if node.title.contains("Viewport") || node.title.contains("viewport") {
+                PanelType::Viewport
+            } else if node.title.contains("Viewer") || node.title.contains("viewer") {
+                PanelType::Viewer
+            } else if node.title.contains("Editor") || node.title.contains("editor") {
+                PanelType::Editor
+            } else if node.title.contains("Inspector") || node.title.contains("inspector") {
+                PanelType::Inspector
+            } else {
+                PanelType::Parameter
+            };
+            
+            self.set_panel_type(node_id, panel_type);
+            
+            // Set default stacking preference based on type
+            if !self.has_stacking_preference_set(node_id) {
+                match panel_type {
+                    PanelType::Viewport | PanelType::Editor => {
+                        self.set_panel_stacked(node_id, false); // Float by default
+                    },
+                    _ => {
+                        self.set_panel_stacked(node_id, true); // Stack by default
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Check if two panels can stack together based on their types
+    pub fn can_stack_with(&self, node_id: NodeId, other_node_id: NodeId) -> bool {
+        let self_type = self.get_panel_type(node_id);
+        let other_type = self.get_panel_type(other_node_id);
+        
+        match (self_type, other_type) {
+            // Viewport panels only stack with other viewport panels
+            (PanelType::Viewport, PanelType::Viewport) => true,
+            (PanelType::Viewport, _) | (_, PanelType::Viewport) => false,
+            // All other types can stack together
+            _ => true,
+        }
+    }
+    
+    /// Get all visible stacked panels of a specific type
+    pub fn get_stacked_panels_by_type(&self, panel_type: PanelType, viewed_nodes: &HashMap<NodeId, crate::nodes::Node>) -> Vec<NodeId> {
+        viewed_nodes.keys()
+            .filter(|&&node_id| {
+                viewed_nodes[&node_id].visible 
+                && self.is_panel_visible(node_id)
+                && self.is_panel_stacked(node_id) 
+                && self.get_panel_type(node_id) == panel_type
+            })
+            .copied()
+            .collect()
     }
     
     /// Render interface panel for a node

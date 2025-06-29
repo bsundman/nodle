@@ -737,6 +737,10 @@ impl eframe::App for NodeEditor {
                                             handled_button_click = true;
                                         } else if node.is_point_in_visibility_flag(mouse_pos) {
                                             node.toggle_visibility();
+                                            // If toggling visibility ON, ensure panel type is detected
+                                            if node.visible {
+                                                self.panel_manager.interface_panel_manager_mut().ensure_panel_type_set(node_id, node);
+                                            }
                                             self.mark_modified();
                                             // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
@@ -771,6 +775,10 @@ impl eframe::App for NodeEditor {
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_visibility_flag(mouse_pos) {
                                                     node.toggle_visibility();
+                                                    // If toggling visibility ON, ensure panel type is detected
+                                                    if node.visible {
+                                                        self.panel_manager.interface_panel_manager_mut().ensure_panel_type_set(node_id, node);
+                                                    }
                                                     self.mark_modified();
                                                     // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes

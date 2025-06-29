@@ -5,8 +5,9 @@
 
 use egui::{Pos2, Ui, Context, Color32};
 use crate::nodes::{
-    NodeGraph, Node, NodeId, InterfacePanelManager, PanelType,
+    NodeGraph, Node, NodeId, InterfacePanelManager, PanelType, NodeType,
 };
+use crate::nodes::interface::NodeInterfacePanel;
 use std::collections::HashMap;
 
 // Import GraphView from the parent module
@@ -83,29 +84,40 @@ impl PanelManager {
         let mut nodes_to_toggle_stack: Vec<NodeId> = Vec::new();
         let mut nodes_to_toggle_pin: Vec<NodeId> = Vec::new();
         
-        // Separate nodes into stacked and non-stacked groups
-        let mut stacked_nodes: Vec<(NodeId, &Node)> = Vec::new();
+        // Separate nodes into stacked and non-stacked groups by panel type
+        let mut stacked_nodes_by_type: HashMap<PanelType, Vec<(NodeId, &Node)>> = HashMap::new();
         let mut individual_nodes: Vec<(NodeId, &Node)> = Vec::new();
         
         for (&node_id, node) in viewed_nodes {
             if node.visible {
+                // Auto-detect panel type based on node type
+                self.auto_detect_panel_type(node_id, node);
+                
+                let panel_type = self.interface_panel_manager.get_panel_type(node_id);
+                
+                // Check if panel should be stacked (respects user's choice)
                 if self.interface_panel_manager.is_panel_stacked(node_id) {
-                    stacked_nodes.push((node_id, node));
+                    stacked_nodes_by_type.entry(panel_type).or_insert_with(Vec::new).push((node_id, node));
                 } else {
                     individual_nodes.push((node_id, node));
                 }
             }
         }
         
-        // Render stacked nodes in a single scrollable window
-        if !stacked_nodes.is_empty() {
-            let panel_action = self.render_stacked_panels(ctx, &stacked_nodes, menu_bar_height);
-            self.handle_stacked_panel_action(panel_action, &stacked_nodes, &mut nodes_to_close, &mut nodes_to_toggle_stack, &mut nodes_to_toggle_pin);
+        // Render stacked nodes by type in separate scrollable windows
+        for (panel_type, stacked_nodes) in stacked_nodes_by_type {
+            if !stacked_nodes.is_empty() {
+                let panel_action = self.render_stacked_panels_by_type(ctx, &stacked_nodes, panel_type, menu_bar_height);
+                self.handle_stacked_panel_action(panel_action, &stacked_nodes, &mut nodes_to_close, &mut nodes_to_toggle_stack, &mut nodes_to_toggle_pin);
+            }
         }
         
         // Render individual nodes in separate windows
         for (node_id, node) in individual_nodes {
-            let panel_position = self.get_panel_position(ui, PanelType::Parameter, menu_bar_height);
+            // Ensure panel type is detected before rendering
+            self.auto_detect_panel_type(node_id, node);
+            let panel_type = self.interface_panel_manager.get_panel_type(node_id);
+            let panel_position = self.get_panel_position(ui, panel_type, menu_bar_height);
             let panel_action = self.render_universal_interface_panel(ctx, node_id, node, panel_position);
             
             // Handle panel actions
@@ -157,14 +169,19 @@ impl PanelManager {
                 // Bottom left corner
                 Pos2::new(screen_rect.min.x + 20.0, screen_rect.max.y - 250.0)
             },
+            PanelType::Viewport => {
+                // Top left corner - large viewports positioned prominently
+                Pos2::new(screen_rect.min.x + 20.0, screen_rect.min.y + menu_bar_height + 10.0)
+            },
         }
     }
 
-    /// Render stacked panels in a single scrollable window
-    fn render_stacked_panels(
+    /// Render stacked panels of a specific type in a single scrollable window
+    fn render_stacked_panels_by_type(
         &mut self,
         ctx: &Context,
         stacked_nodes: &[(NodeId, &Node)],
+        panel_type: PanelType,
         menu_bar_height: f32,
     ) -> (NodeId, PanelAction) {
         let mut result_action = PanelAction::None;
@@ -176,14 +193,28 @@ impl PanelManager {
             let mut window_open = self.interface_panel_manager.is_panel_open(*first_node_id);
             
             let screen_rect = ctx.screen_rect();
-            let panel_width = 400.0;
-            let panel_height = screen_rect.height() - menu_bar_height;
+            let (panel_width, panel_height, window_title, window_pos) = match panel_type {
+                PanelType::Viewport => {
+                    // Large viewport panels - positioned like individual windows, NOT full height
+                    let width = 900.0;
+                    let height = 700.0;
+                    let pos = [screen_rect.min.x + 20.0, menu_bar_height + 20.0];
+                    (width, height, "Viewport Panel Stack", pos)
+                },
+                _ => {
+                    // Default parameter panels on right side - full height
+                    let width = 400.0;
+                    let height = screen_rect.height() - menu_bar_height;
+                    let pos = [screen_rect.max.x - width, menu_bar_height];
+                    (width, height, "Interface Panel Stack", pos)
+                }
+            };
             
-            Self::create_window("Interface Panel Stack", ctx, menu_bar_height)
-                .id(egui::Id::new("stacked_panels"))
-                .fixed_pos([screen_rect.max.x - panel_width, menu_bar_height])
+            Self::create_window(window_title, ctx, menu_bar_height)
+                .id(egui::Id::new(format!("stacked_panels_{:?}", panel_type)))
+                .fixed_pos(window_pos)
                 .fixed_size([panel_width, panel_height])
-                .resizable(false) // Fixed size to maintain right edge alignment
+                .resizable(false) // Fixed size to maintain alignment
                 .collapsible(false) // Disable collapse to maintain full height
                 .open(&mut window_open)
                 .show(ctx, |ui| {
@@ -323,14 +354,55 @@ impl PanelManager {
         // Get current window open state (avoiding borrowing conflicts)
         let mut window_open = self.interface_panel_manager.is_panel_open(node_id);
         
+        // Get panel type for type-specific defaults (ensure it's detected first)
+        self.auto_detect_panel_type(node_id, node);
+        let panel_type = self.interface_panel_manager.get_panel_type(node_id);
+        
         // Use global window creator with automatic menu bar constraint
-        let _window_response = Self::create_window(&format!("{} Panel", node.title), ctx, self.current_menu_bar_height)
+        let window_title = format!("{} Panel", node.title);
+        let mut window = Self::create_window(&window_title, ctx, self.current_menu_bar_height)
             .id(panel_id)
             .default_pos(position)
             .resizable(true)
             .collapsible(true) // Enable built-in collapse/minimize button
             .open(&mut window_open) // Track if window is closed via X button
-            .constrain(true) // Enable automatic constraint
+            .constrain(true); // Enable automatic constraint
+        
+        // Apply panel type-specific defaults
+        window = match panel_type {
+            PanelType::Viewport => {
+                window
+                    .default_size([900.0, 700.0])
+                    .min_size([600.0, 400.0])
+                    .max_size([1600.0, 1200.0])
+            },
+            PanelType::Parameter => {
+                window
+                    .default_size([380.0, 500.0])
+                    .min_size([300.0, 200.0])
+                    .max_size([500.0, 800.0])
+            },
+            PanelType::Viewer => {
+                window
+                    .default_size([600.0, 400.0])
+                    .min_size([400.0, 300.0])
+                    .max_size([1000.0, 800.0])
+            },
+            PanelType::Editor => {
+                window
+                    .default_size([700.0, 500.0])
+                    .min_size([500.0, 400.0])
+                    .max_size([1200.0, 900.0])
+            },
+            PanelType::Inspector => {
+                window
+                    .default_size([400.0, 600.0])
+                    .min_size([350.0, 400.0])
+                    .max_size([600.0, 900.0])
+            },
+        };
+        
+        let _window_response = window
             .show(ctx, |ui| {
                 // Panel controls at the very top
                 let (panel_control_action, close_requested) = self.render_panel_controls(ui, node_id);
@@ -495,9 +567,102 @@ impl PanelManager {
         (changed, PanelAction::None)
     }
 
+    /// Auto-detect and set panel type based on node type
+    fn auto_detect_panel_type(&mut self, node_id: NodeId, node: &Node) {
+        // Check if panel type has already been set
+        if self.interface_panel_manager.has_panel_type_set(node_id) {
+            return; // Already set, don't override
+        }
+        
+        // Detect panel type based on node type
+        let panel_type = match node.title.as_str() {
+            // 3D Viewport nodes should use Viewport panel type
+            "Viewport" | "3D Viewport" | "USD Viewport" => PanelType::Viewport,
+            // Viewer nodes for displaying results
+            "Viewer" | "Image Viewer" | "Preview" => PanelType::Viewer,
+            // Editor nodes for complex editing
+            "Material Editor" | "Shader Editor" | "Graph Editor" => PanelType::Editor,
+            // Inspector nodes for debugging
+            "Inspector" | "Debug" | "Properties" => PanelType::Inspector,
+            // Everything else defaults to Parameter
+            _ => {
+                // Also check if title contains "Viewport" substring
+                if node.title.contains("Viewport") || node.title.contains("viewport") {
+                    PanelType::Viewport
+                } else {
+                    PanelType::Parameter
+                }
+            }
+        };
+        
+        // Also detect by node type if available
+        let detected_type = match &node.node_type {
+            NodeType::Regular => {
+                // For regular nodes, also check for specific patterns
+                if node.title.contains("Viewport") || node.title.contains("viewport") {
+                    PanelType::Viewport
+                } else {
+                    panel_type
+                }
+            },
+            NodeType::Workspace { workspace_type, .. } => {
+                // Workspace nodes typically use parameter panels, but could be specialized
+                if workspace_type.contains("viewport") || workspace_type.contains("Viewport") {
+                    PanelType::Viewport
+                } else {
+                    PanelType::Parameter
+                }
+            }
+        };
+        
+        // Set the detected panel type
+        self.interface_panel_manager.set_panel_type(node_id, detected_type);
+        
+        // Set panel type-specific defaults if not already set
+        if !self.interface_panel_manager.has_stacking_preference_set(node_id) {
+            match detected_type {
+                PanelType::Viewport => {
+                    // Viewport panels should be unstacked by default (floating independently)
+                    self.interface_panel_manager.set_panel_stacked(node_id, false);
+                },
+                PanelType::Parameter => {
+                    // Parameter panels should be stacked by default
+                    self.interface_panel_manager.set_panel_stacked(node_id, true);
+                },
+                PanelType::Viewer => {
+                    // Viewer panels can be stacked
+                    self.interface_panel_manager.set_panel_stacked(node_id, true);
+                },
+                PanelType::Editor => {
+                    // Editor panels should float by default
+                    self.interface_panel_manager.set_panel_stacked(node_id, false);
+                },
+                PanelType::Inspector => {
+                    // Inspector panels can be stacked
+                    self.interface_panel_manager.set_panel_stacked(node_id, true);
+                },
+            }
+        }
+    }
+
     /// Render node-specific content in the interface panel
     fn render_node_specific_content(&mut self, ui: &mut Ui, node_id: NodeId, node: &Node) {
-        // Default content for all nodes
+        // Check if this is a viewport node and render its custom interface
+        if let NodeType::Regular = node.node_type {
+            if node.title == "Viewport" || node.title.contains("Viewport") {
+                // Create a viewport node instance for interface rendering
+                let mut viewport_node = crate::nodes::three_d::ViewportNode3D::default();
+                
+                // Render the custom viewport interface
+                let changed = viewport_node.render_custom_ui(ui);
+                if changed {
+                    // Handle parameter changes if needed
+                }
+                return;
+            }
+        }
+        
+        // Default content for all other nodes
         ui.label(format!("Node: {}", node.title));
         ui.label(format!("Type: {:?}", node.node_type));
         ui.label(format!("Position: ({:.1}, {:.1})", node.position.x, node.position.y));
