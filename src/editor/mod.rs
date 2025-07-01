@@ -273,27 +273,32 @@ impl NodeEditor {
             // Find the newly created node ID (it will be the last one added)
             let viewed_nodes = self.get_viewed_nodes();
             if let Some((&node_id, node)) = viewed_nodes.iter().last() {
-                // Get the panel type from the node's metadata if available
-                let registry = crate::nodes::factory::NodeRegistry::default();
-                let panel_type = if let Some((_, metadata)) = registry.create_node_with_metadata(node_type, position) {
-                    metadata.panel_type
-                } else {
-                    // Fallback to parameter type for legacy nodes
-                    crate::nodes::interface::PanelType::Parameter
-                };
-                
-                self.panel_manager.interface_panel_manager_mut()
-                    .set_panel_type(node_id, panel_type);
-                
-                // Set appropriate stacking defaults based on panel type
-                match panel_type {
-                    crate::nodes::interface::PanelType::Viewport => {
-                        self.panel_manager.interface_panel_manager_mut()
-                            .set_panel_stacked(node_id, false); // Float by default
-                    },
-                    _ => {
-                        self.panel_manager.interface_panel_manager_mut()
-                            .set_panel_stacked(node_id, true); // Stack by default
+                // The node should already have its panel type set by the factory
+                if let Some(panel_type) = node.get_panel_type() {
+                    // Set appropriate stacking defaults based on panel type
+                    match panel_type {
+                        crate::nodes::interface::PanelType::Viewport => {
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_stacked(node_id, false); // Float by default
+                        },
+                        _ => {
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_stacked(node_id, true); // Stack by default
+                        }
+                    }
+                    
+                    // Automatically open panels for newly created nodes
+                    match panel_type {
+                        crate::nodes::interface::PanelType::Parameter |
+                        crate::nodes::interface::PanelType::Viewport => {
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_visibility(node_id, true);
+                        },
+                        crate::nodes::interface::PanelType::Viewer |
+                        crate::nodes::interface::PanelType::Editor |
+                        crate::nodes::interface::PanelType::Inspector => {
+                            // Other panel types could auto-open in the future
+                        }
                     }
                 }
             }
@@ -699,7 +704,9 @@ impl eframe::App for NodeEditor {
                     if self.input_state.clicked_this_frame {
                         // Check if we clicked on a port first - use active graph for consistency
                         let active_graph = self.view_manager.get_active_graph(&self.graph);
-                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, 20.0) {
+                        // Use smaller radius for precise clicks when not in connecting mode
+                        let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
+                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
                             // Handle connection logic
                             if self.input_state.is_connecting_active() {
                                 // Try to complete connection
@@ -765,9 +772,8 @@ impl eframe::App for NodeEditor {
                                             handled_button_click = true;
                                         } else if node.is_point_in_visibility_flag(mouse_pos) {
                                             node.toggle_visibility();
-                                            // If toggling visibility ON, ensure panel type is detected and panel is visible
+                                            // If toggling visibility ON, make panel visible
                                             if node.visible {
-                                                self.panel_manager.interface_panel_manager_mut().ensure_panel_type_set(node_id, node);
                                                 self.panel_manager.interface_panel_manager_mut().set_panel_visibility(node_id, true);
                                             }
                                             self.mark_modified();
@@ -804,9 +810,8 @@ impl eframe::App for NodeEditor {
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_visibility_flag(mouse_pos) {
                                                     node.toggle_visibility();
-                                                    // If toggling visibility ON, ensure panel type is detected and panel is visible
+                                                    // If toggling visibility ON, make panel visible
                                                     if node.visible {
-                                                        self.panel_manager.interface_panel_manager_mut().ensure_panel_type_set(node_id, node);
                                                         self.panel_manager.interface_panel_manager_mut().set_panel_visibility(node_id, true);
                                                     }
                                                     self.mark_modified();
@@ -903,7 +908,9 @@ impl eframe::App for NodeEditor {
                     if self.input_state.drag_started_this_frame {
                         // Check if we're starting to drag from a port for connections - use active graph for consistency
                         let active_graph = self.view_manager.get_active_graph(&self.graph);
-                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, 20.0) {
+                        // Use smaller radius for precise clicks when not in connecting mode
+                        let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
+                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
                             // Handle input port disconnection on drag
                             if is_input {
                                 if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
@@ -1000,7 +1007,9 @@ impl eframe::App for NodeEditor {
                         if self.input_state.is_connecting_active() {
                             // Check if we released on a port to complete connection - use active graph for consistency
                             let active_graph = self.view_manager.get_active_graph(&self.graph);
-                            if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(active_graph, 20.0) {
+                            // Use smaller radius for precise clicks when not in connecting mode
+                            let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
+                            if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(active_graph, click_radius) {
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
                                     let _ = self.add_connection_to_active_graph(connection);
                                     self.mark_modified();
@@ -1494,7 +1503,7 @@ impl eframe::App for NodeEditor {
 
                         // Draw bezier curve with handle length proportional to total distance
                         let total_distance = (transformed_to - transformed_from).length();
-                        let control_offset = total_distance * 0.3;
+                        let control_offset = total_distance.sqrt() * 4.0;
 
                         let points = [
                             transformed_from,
@@ -1536,7 +1545,7 @@ impl eframe::App for NodeEditor {
 
                         // Draw bezier curve for connection preview with proportional handle length
                         let total_distance = (transformed_to - transformed_from).length();
-                        let control_offset = total_distance * 0.3;
+                        let control_offset = total_distance.sqrt() * 4.0;
 
                         // Control points should aim in the correct direction based on port type
                         let from_control = if from_is_input {

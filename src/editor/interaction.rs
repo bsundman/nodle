@@ -242,7 +242,7 @@ impl InteractionManager {
     fn connection_intersects_box(&self, from_pos: Pos2, to_pos: Pos2, min_x: f32, max_x: f32, min_y: f32, max_y: f32) -> bool {
         // Sample points along the bezier curve to check intersection
         let total_distance = (to_pos - from_pos).length();
-        let control_offset = total_distance * 0.3;
+        let control_offset = total_distance.sqrt() * 4.0;
         
         let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
         let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);

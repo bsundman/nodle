@@ -375,7 +375,7 @@ impl InputState {
 
                         // Calculate bezier curve control points (same logic as in rendering)
                         let total_distance = (to_pos - from_pos).length();
-                        let control_offset = total_distance * 0.3;
+                        let control_offset = total_distance.sqrt() * 4.0;
 
                         let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
                         let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);
@@ -550,7 +550,7 @@ impl InputState {
         
         // Calculate bezier curve control points (same logic as rendering)
         let total_distance = (to_pos - from_pos).length();
-        let control_offset = total_distance * 0.3;
+        let control_offset = total_distance.sqrt() * 4.0;
         
         let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
         let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);
