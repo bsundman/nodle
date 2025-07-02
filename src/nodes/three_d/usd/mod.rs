@@ -1,39 +1,48 @@
 //! USD (Universal Scene Description) nodes for 3D workflows
 
+// Local USD installation management
+pub mod local_usd;
+
 // USD engine for Python API integration
 pub mod usd_engine;
 
-// Stage management nodes
-mod create_stage;
-mod load_stage;
-mod save_stage;
+// Categorized USD node modules
+pub mod stage;
+pub mod geometry;
+pub mod transform;
+pub mod lighting;
+pub mod shading;
 
-// Primitive nodes
+// Legacy nodes (keeping for compatibility)
 mod usd_xform;
 mod usd_mesh;
 mod usd_sphere;
 mod usd_cube;
 mod usd_camera;
 mod usd_light;
-
-// Material and shader nodes
 mod usd_material;
-
-// Viewport and output nodes
 mod usd_viewport;
-
-// Composition nodes (layer management)
 mod usd_composition;
-
-// Attribute nodes
 mod set_attribute;
 mod get_attribute;
+mod create_stage;
+mod load_stage;
+mod save_stage;
 
 // Test module
 pub mod test_usd;
 
-// Re-export all USD components
+// Re-export USD engine
 pub use usd_engine::{USDEngine, USDStage, USDPrim, with_usd_engine};
+
+// Re-export categorized nodes
+pub use stage::*;
+pub use geometry::*;
+pub use transform::*;
+pub use lighting::*;
+pub use shading::*;
+
+// Re-export legacy nodes
 pub use create_stage::*;
 pub use load_stage::*;
 pub use save_stage::*;

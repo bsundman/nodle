@@ -2,6 +2,7 @@
 
 use egui::{Color32, Pos2, Rect, Vec2, Painter, Stroke};
 use crate::nodes::Node;
+use crate::theme;
 
 /// Button color type for CPU rendering
 #[derive(Debug, Clone, Copy)]
@@ -36,19 +37,19 @@ impl MeshRenderer {
         );
         
         // NODE BODY COMPONENTS
-        let radius = 5.0 * zoom;
+        let radius = theme::dimensions().corner_radius * zoom;
         
         // BACKGROUND: Inner gradient mesh - same for all nodes
-        let (background_top_color, background_bottom_color) = (Color32::from_rgb(127, 127, 127), Color32::from_rgb(64, 64, 64));
+        let (background_top_color, background_bottom_color) = (theme::colors().node_bg_top, theme::colors().node_bg_bottom);
         
         // BORDER: Outermost layer (1px larger than node rect, scaled by zoom)
-        let border_expand = 1.0 * zoom;
+        let border_expand = theme::dimensions().border_width * zoom;
         let border_rect = Rect::from_min_max(
             transformed_rect.min - Vec2::splat(border_expand),
             transformed_rect.max + Vec2::splat(border_expand),
         );
         let border_color = if selected {
-            Color32::from_rgb(100, 150, 255) // Blue selection
+            theme::colors().selection_blue // Blue selection
         } else {
             Color32::from_rgb(64, 64, 64)    // Dark grey unselected
         };
@@ -112,12 +113,12 @@ impl MeshRenderer {
         zoom: f32,
         transform_pos: impl Fn(Pos2) -> Pos2,
     ) {
-        let port_radius = 5.0 * zoom;
+        let port_radius = theme::dimensions().corner_radius * zoom;
         let transformed_pos = transform_pos(port_pos);
         
         // Draw port border (2px larger) - blue if connecting, grey otherwise
         let port_border_color = if is_connecting {
-            Color32::from_rgb(100, 150, 255) // Blue selection color
+            theme::colors().selection_blue // Blue selection color
         } else {
             Color32::from_rgb(64, 64, 64) // Unselected node border color
         };
@@ -137,9 +138,9 @@ impl MeshRenderer {
         
         // Draw port background (main port)
         let port_bg_color = if is_input {
-            Color32::from_rgb(70, 120, 90) // Darker green for input ports
+            theme::colors().port_input // Darker green for input ports
         } else {
-            Color32::from_rgb(120, 70, 70) // Darker red for output ports
+            theme::colors().port_output // Darker red for output ports
         };
         
         painter.circle_filled(
@@ -161,12 +162,12 @@ impl MeshRenderer {
         
         // Draw border outline (outer layer) - blue if enabled, grey if disabled
         let border_color = if is_visible {
-            Color32::from_rgb(100, 150, 255) // Blue selection color when enabled
+            theme::colors().selection_blue // Blue selection color when enabled
         } else {
             Color32::from_rgb(64, 64, 64) // Grey when disabled
         };
         
-        let border_radius = 5.0 * zoom + 2.0 * zoom;
+        let border_radius = theme::dimensions().corner_radius * zoom + 2.0 * zoom;
         painter.circle_stroke(
             transformed_pos,
             border_radius,
@@ -174,7 +175,7 @@ impl MeshRenderer {
         );
         
         // Draw bevel outline (inner layer) - 1px smaller than border
-        let bevel_radius = 5.0 * zoom + 1.0 * zoom;
+        let bevel_radius = theme::dimensions().corner_radius * zoom + 1.0 * zoom;
         painter.circle_stroke(
             transformed_pos,
             bevel_radius,
@@ -242,7 +243,7 @@ impl MeshRenderer {
         
         // Create 3-layer rendering: border, bevel, background
         let border_color = if selected {
-            Color32::from_rgb(100, 150, 255) // Blue when selected
+            theme::colors().selection_blue // Blue when selected
         } else {
             Color32::from_rgb(64, 64, 64) // Grey when not selected
         };
@@ -315,11 +316,11 @@ impl MeshRenderer {
         is_connecting: bool,
         zoom: f32,
     ) {
-        let radius = 5.0 * zoom;
+        let radius = theme::dimensions().corner_radius * zoom;
         
         // Port colors
         let border_color = if is_connecting {
-            Color32::from_rgb(100, 150, 255) // Blue when connecting
+            theme::colors().selection_blue // Blue when connecting
         } else {
             Color32::from_rgb(64, 64, 64) // Grey normally
         };

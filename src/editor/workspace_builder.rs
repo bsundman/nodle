@@ -49,6 +49,9 @@ impl WorkspaceBuilder {
 
         let mut workspace_node = Node::new_workspace(0, workspace_type, position);
         
+        // Workspace nodes have parameter panels for configuration
+        workspace_node.set_panel_type(crate::nodes::interface::PanelType::Parameter);
+        
         // Populate workspace with sample nodes
         Self::populate_workspace(&mut workspace_node, workspace_type);
         
@@ -79,17 +82,33 @@ impl WorkspaceBuilder {
         };
         
         // Create the node using the factory system
+        println!("DEBUG: Attempting to create node type: '{}'", internal_node_type);
         let new_node = if let Some(workspace) = workspace_manager.get_active_workspace() {
-            crate::NodeRegistry::create_workspace_node(workspace, internal_node_type, position)
+            println!("DEBUG: Using workspace to create node");
+            let result = workspace.create_workspace_node(internal_node_type, position);
+            if result.is_none() {
+                println!("DEBUG: Workspace failed to create node '{}'", internal_node_type);
+            }
+            result
         } else {
-            None
-        }.or_else(|| crate::NodeRegistry::create_node(internal_node_type, position));
+            // Fall back to default registry for nodes outside workspaces
+            println!("DEBUG: Using default registry to create node");
+            let registry = crate::nodes::factory::NodeRegistry::default();
+            let result = registry.create_node(internal_node_type, position);
+            if result.is_none() {
+                println!("DEBUG: Default registry failed to create node '{}'", internal_node_type);
+            }
+            result
+        };
         
         // Add the node to the appropriate graph based on current view
         if let Some(node) = new_node {
+            println!("DEBUG: Successfully created node, adding to graph");
             Self::place_node_in_graph(node, view_manager, graph);
+            println!("DEBUG: Node creation completed successfully");
             true
         } else {
+            println!("DEBUG: Failed to create node");
             false
         }
     }

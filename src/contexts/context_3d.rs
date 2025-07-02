@@ -13,17 +13,17 @@ impl Context3D {
     pub fn new() -> Self {
         let mut node_registry = NodeRegistry::default();
         
-        // Register 3D-specific nodes using the standard NodeFactory pattern
-        node_registry.register::<TranslateNode3D>();
-        node_registry.register::<RotateNode3D>();
-        node_registry.register::<ScaleNode3D>();
-        node_registry.register::<CubeNode3D>();
-        node_registry.register::<SphereNode3D>();
-        node_registry.register::<PlaneNode3D>();
-        node_registry.register::<PointLightNode3D>();
-        node_registry.register::<DirectionalLightNode3D>();
-        node_registry.register::<SpotLightNode3D>();
-        node_registry.register::<ViewportNode3D>();
+        // Register 3D-specific nodes with interface panels
+        node_registry.register::<crate::nodes::three_d::transform::TranslateNode>();
+        node_registry.register::<crate::nodes::three_d::transform::RotateNode>();
+        node_registry.register::<crate::nodes::three_d::transform::ScaleNode>();
+        node_registry.register::<crate::nodes::three_d::geometry::CubeNode>();
+        node_registry.register::<crate::nodes::three_d::geometry::SphereNode>();
+        node_registry.register::<crate::nodes::three_d::geometry::PlaneNode>();
+        node_registry.register::<crate::nodes::three_d::lighting::PointLightNode>();
+        node_registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
+        node_registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
+        node_registry.register::<crate::nodes::three_d::output::viewport::ViewportNode>();
         
         Self {
             node_registry,

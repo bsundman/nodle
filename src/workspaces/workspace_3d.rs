@@ -3,8 +3,8 @@
 use crate::workspace::{Workspace, WorkspaceMenuItem};
 use crate::nodes::factory::NodeRegistry;
 use crate::nodes::three_d::*;
-use crate::nodes::three_d::geometry::{CubeNodeWithInterface, SphereNodeWithInterface};
-use crate::nodes::three_d::transform::TranslateNodeWithInterface;
+use crate::nodes::three_d::geometry::{CubeNode, SphereNode};
+use crate::nodes::three_d::transform::TranslateNode;
 
 /// 3D workspace for 3D graphics, rendering, and modeling workflows
 pub struct Workspace3D {
@@ -15,26 +15,21 @@ impl Workspace3D {
     pub fn new() -> Self {
         let mut node_registry = NodeRegistry::default();
         
-        // Register 3D-specific nodes using the standard NodeFactory pattern
-        node_registry.register::<TranslateNode3D>();
-        node_registry.register::<RotateNode3D>();
-        node_registry.register::<ScaleNode3D>();
-        node_registry.register::<CubeNode3D>();
-        node_registry.register::<SphereNode3D>();
-        node_registry.register::<PlaneNode3D>();
-        node_registry.register::<PointLightNode3D>();
-        node_registry.register::<DirectionalLightNode3D>();
-        node_registry.register::<SpotLightNode3D>();
-        node_registry.register::<ViewportNode3D>();
-        
-        // Register interface panel versions
-        node_registry.register::<TranslateNodeWithInterface>();
-        node_registry.register::<CubeNodeWithInterface>();
-        node_registry.register::<SphereNodeWithInterface>();
+        // Register 3D-specific nodes with interface panels
+        node_registry.register::<TranslateNode>();
+        node_registry.register::<crate::nodes::three_d::transform::RotateNode>();
+        node_registry.register::<crate::nodes::three_d::transform::ScaleNode>();
+        node_registry.register::<CubeNode>();
+        node_registry.register::<SphereNode>();
+        node_registry.register::<crate::nodes::three_d::geometry::PlaneNode>();
+        node_registry.register::<crate::nodes::three_d::lighting::PointLightNode>();
+        node_registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
+        node_registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
+        node_registry.register::<crate::nodes::three_d::output::viewport::ViewportNode>();
         
         // Register USD nodes
         node_registry.register::<USDCreateStage>();
-        node_registry.register::<USDLoadStage>();
+        node_registry.register::<crate::nodes::three_d::usd::stage::load_stage::LoadStageNode>();
         node_registry.register::<USDSaveStage>();
         node_registry.register::<USDXform>();
         node_registry.register::<USDMesh>();
@@ -90,15 +85,26 @@ impl Workspace for Workspace3D {
     }
     
     fn create_workspace_node(&self, node_type: &str, position: egui::Pos2) -> Option<crate::nodes::Node> {
+        println!("DEBUG: Workspace3D attempting to create node type: '{}'", node_type);
         // Try to create 3D-specific nodes using the registry first
         if let Some(node) = self.node_registry.create_node(node_type, position) {
+            println!("DEBUG: Workspace3D successfully created node type: '{}'", node_type);
             return Some(node);
         }
         
+        println!("DEBUG: Workspace3D registry failed to create '{}', trying fallback", node_type);
         // Fall back to generic node registry for whitelisted nodes
         if self.is_generic_node_compatible(node_type) {
-            self.node_registry.create_node(node_type, position)
+            println!("DEBUG: Node '{}' is generic-compatible, trying generic registry", node_type);
+            let result = self.node_registry.create_node(node_type, position);
+            if result.is_some() {
+                println!("DEBUG: Generic registry created node '{}'", node_type);
+            } else {
+                println!("DEBUG: Generic registry also failed to create '{}'", node_type);
+            }
+            result
         } else {
+            println!("DEBUG: Node '{}' is not generic-compatible", node_type);
             None
         }
     }

@@ -291,8 +291,9 @@ impl NodeEditor {
                     match panel_type {
                         crate::nodes::interface::PanelType::Parameter |
                         crate::nodes::interface::PanelType::Viewport => {
-                            self.panel_manager.interface_panel_manager_mut()
-                                .set_panel_visibility(node_id, true);
+                            let panel_manager = self.panel_manager.interface_panel_manager_mut();
+                            panel_manager.set_panel_visibility(node_id, true);
+                            panel_manager.set_panel_open(node_id, true);
                         },
                         crate::nodes::interface::PanelType::Viewer |
                         crate::nodes::interface::PanelType::Editor |
@@ -492,6 +493,50 @@ impl NodeEditor {
             self.view_manager.current_view(), 
             &mut self.graph
         );
+    }
+
+    /// Check for USD LoadStage to Viewport connections and execute automatic data flow
+    fn check_and_execute_connections(&mut self, viewed_nodes: &HashMap<NodeId, Node>) {
+        // Find all USD_LoadStage nodes that have output connections to Viewport nodes
+        let connections = self.graph.connections.clone(); // Clone to avoid borrow conflicts
+        
+        for connection in &connections {
+            if let (Some(source_node), Some(target_node)) = (
+                viewed_nodes.get(&connection.from_node),
+                viewed_nodes.get(&connection.to_node)
+            ) {
+                // Check if this is a USD LoadStage -> Viewport connection
+                if source_node.title.contains("Load Stage") && target_node.title.contains("Viewport") {
+                    // First check the LoadStage interface panel for the file path
+                    let file_path = if let Some(loadstage_panel) = self.panel_manager.get_loadstage_file_path(connection.from_node) {
+                        Some(loadstage_panel)
+                    } else if let Some(file_path_param) = source_node.parameters.get("file_path") {
+                        // Fallback to checking node parameters
+                        if let crate::nodes::interface::NodeData::String(file_path) = file_path_param {
+                            Some(file_path.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    
+                    if let Some(file_path) = file_path {
+                        if !file_path.is_empty() && std::path::Path::new(&file_path).exists() {
+                            // Create stage ID from file path
+                            let stage_id = format!("file://{}", file_path);
+                            
+                            // Log the automatic execution
+                            println!("Auto-executing: USD LoadStage {} -> Viewport {} with file: {}", 
+                                connection.from_node, connection.to_node, file_path);
+                            
+                            // Use the panel manager to auto-load USD into the viewport
+                            self.panel_manager.auto_load_usd_into_viewport(connection.to_node, &stage_id);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -772,9 +817,11 @@ impl eframe::App for NodeEditor {
                                             handled_button_click = true;
                                         } else if node.is_point_in_visibility_flag(mouse_pos) {
                                             node.toggle_visibility();
-                                            // If toggling visibility ON, make panel visible
+                                            // If toggling visibility ON, make panel visible and open
                                             if node.visible {
-                                                self.panel_manager.interface_panel_manager_mut().set_panel_visibility(node_id, true);
+                                                let panel_manager = self.panel_manager.interface_panel_manager_mut();
+                                                panel_manager.set_panel_visibility(node_id, true);
+                                                panel_manager.set_panel_open(node_id, true);
                                             }
                                             self.mark_modified();
                                             // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -810,9 +857,11 @@ impl eframe::App for NodeEditor {
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_visibility_flag(mouse_pos) {
                                                     node.toggle_visibility();
-                                                    // If toggling visibility ON, make panel visible
+                                                    // If toggling visibility ON, make panel visible and open
                                                     if node.visible {
-                                                        self.panel_manager.interface_panel_manager_mut().set_panel_visibility(node_id, true);
+                                                        let panel_manager = self.panel_manager.interface_panel_manager_mut();
+                                                        panel_manager.set_panel_visibility(node_id, true);
+                                                        panel_manager.set_panel_open(node_id, true);
                                                     }
                                                     self.mark_modified();
                                                     // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -1627,8 +1676,12 @@ impl eframe::App for NodeEditor {
             // Interface panel rendering - render panels for nodes that have them
             self.render_interface_panels(ui, &viewed_nodes, menu_bar_height);
 
+            // Connection-based execution - check for USD LoadStage to Viewport connections
+            self.check_and_execute_connections(&viewed_nodes);
+
             // Performance info overlay
             self.debug_tools.render_performance_info(ui, self.use_gpu_rendering, self.graph.nodes.len(), self.current_menu_bar_height);
         });
     }
+
 }

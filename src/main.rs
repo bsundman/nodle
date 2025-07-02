@@ -6,55 +6,17 @@ use crate::nodes::{NodeGraph, Node};
 
 mod editor;
 mod menu_hierarchy;
+mod menu_hierarchy_usd;
 mod nodes;
 mod workspaces;
 mod workspace;
 mod gpu;
+mod startup_checks;
+mod theme;
 
 use editor::NodeEditor;
 
-/// Trait for creating standardized nodes
-pub trait NodeFactory {
-    /// Get the node type name
-    fn node_type() -> &'static str where Self: Sized;
-    
-    /// Get the display name for the node
-    fn display_name() -> &'static str where Self: Sized;
-    
-    /// Get the category for context menu organization
-    fn category() -> NodeCategory where Self: Sized;
-    
-    /// Get the node color
-    fn color() -> Color32 where Self: Sized;
-    
-    /// Create a new instance of this node at the given position
-    fn create(position: Pos2) -> Node where Self: Sized;
-    
-    /// Add this node to the graph at the given position
-    fn add_to_graph(graph: &mut NodeGraph, position: Pos2) -> crate::nodes::NodeId where Self: Sized {
-        graph.add_node(Self::create(position))
-    }
-}
 
-/// Categories for organizing nodes in the context menu
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeCategory {
-    Math,
-    Logic,
-    Data,
-    Output,
-}
-
-impl NodeCategory {
-    pub fn name(&self) -> &'static str {
-        match self {
-            NodeCategory::Math => "Math",
-            NodeCategory::Logic => "Logic", 
-            NodeCategory::Data => "Data",
-            NodeCategory::Output => "Output",
-        }
-    }
-}
 
 /// Registry of all available node types
 pub struct NodeRegistry;
@@ -123,29 +85,45 @@ pub fn create_test_nodes(graph: &mut NodeGraph) {
 
 /// Application entry point
 fn main() -> Result<(), eframe::Error> {
-    // Test USD functionality at startup
-    // #[cfg(debug_assertions)]
-    // {
-    //     println!("Testing USD integration...");
-    //     test_usd_nodes::test_usd_node_creation();
-    //     test_usd_nodes::test_usd_execution();
-    // }
+    // Run startup checks
+    if let Err(e) = startup_checks::check_dependencies() {
+        eprintln!("\nStartup check failed: {}\n", e);
+        
+        // Check if Python is available for setup
+        if !startup_checks::check_python_available() {
+            eprintln!("❌ Python not found. Please install Python 3.8+ to continue.");
+        }
+        
+        startup_checks::show_setup_help();
+        std::process::exit(1);
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([800.0, 600.0])
             .with_app_id("com.nodle.editor")
             .with_decorations(true)
-            .with_title_shown(true),
-        multisampling: 4, // Enable 4x multisampling antialiasing
+            .with_title_shown(true)
+            .with_resizable(true), // Explicitly allow resizing
+        multisampling: 1, // Disable multisampling to avoid surface capability issues
         renderer: eframe::Renderer::Wgpu, // Use wgpu renderer for GPU acceleration
         wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-            supported_backends: wgpu::Backends::all(),
-            device_descriptor: std::sync::Arc::new(|_adapter| wgpu::DeviceDescriptor {
-                label: Some("Nōdle Device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
+            supported_backends: wgpu::Backends::all(), // Allow all backends, not just Metal
+            power_preference: wgpu::PowerPreference::LowPower, // Use low power to avoid compatibility issues
+            device_descriptor: std::sync::Arc::new(|adapter| {
+                // Get very conservative limits for maximum compatibility
+                let mut limits = wgpu::Limits::downlevel_webgl2_defaults();
+                // Limit texture dimensions to ensure compatibility across all surface configurations
+                limits.max_texture_dimension_2d = 4096;
+                limits.max_buffer_size = 256 * 1024 * 1024; // 256 MB max buffer
+                
+                wgpu::DeviceDescriptor {
+                    label: Some("Nōdle Device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: limits,
+                    memory_hints: wgpu::MemoryHints::MemoryUsage, // Conservative memory usage
+                }
             }),
+            present_mode: wgpu::PresentMode::Fifo, // Use VSync to avoid tearing during resize
             ..Default::default()
         },
         ..Default::default()

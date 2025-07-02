@@ -2,7 +2,6 @@
 
 use egui::{Color32, Pos2, Vec2};
 use crate::nodes::{Node, NodeId, NodeGraph};
-use crate::NodeFactory as OldNodeFactory; // Import the old trait
 use std::collections::HashMap;
 
 /// Data types that can flow through ports
@@ -422,6 +421,9 @@ pub trait NodeFactory: Send + Sync {
             node.add_output(&output.name);
         }
         
+        // Set panel type from metadata
+        node.set_panel_type(meta.panel_type);
+        
         // CRITICAL: Update port positions after adding ports
         node.update_port_positions();
         
@@ -475,11 +477,18 @@ impl NodeRegistry {
     pub fn create_node(&self, node_type: &str, position: Pos2) -> Option<Node> {
         // Try dynamic factory first
         if let Some(creator) = self.creators.get(node_type) {
-            return Some(creator(position));
+            let mut node = creator(position);
+            
+            // Set the panel type from metadata
+            if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
+                let metadata = metadata_provider();
+                node.set_panel_type(metadata.panel_type);
+            }
+            
+            return Some(node);
         }
         
-        // Fall back to legacy system for nodes not yet migrated
-        self.create_node_legacy(node_type, position)
+        None
     }
 
     /// Get metadata for a node type without creating the node
@@ -487,17 +496,6 @@ impl NodeRegistry {
         // Try dynamic factory first - use the metadata providers from registry
         if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
             return Some(metadata_provider());
-        }
-        
-        // For legacy nodes, return default metadata
-        let legacy_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
-        if legacy_types.contains(&node_type) {
-            return Some(NodeMetadata::new(
-                "Legacy",
-                "Legacy Node",
-                NodeCategory::new(&["General"]),
-                "Legacy node"
-            ).with_color(Color32::from_gray(128)));
         }
         
         None
@@ -513,51 +511,13 @@ impl NodeRegistry {
             }
         }
         
-        // For legacy nodes, create with default parameter panel type
-        if let Some(node) = self.create_node(node_type, position) {
-            let metadata = NodeMetadata::new(
-                "Legacy",
-                "Legacy Node",
-                NodeCategory::new(&["General"]),
-                "Legacy node"
-            ).with_color(node.color);
-            return Some((node, metadata));
-        }
-        
         None
     }
     
-    /// Legacy node creation (temporary during migration)
-    fn create_node_legacy(&self, node_type: &str, position: Pos2) -> Option<Node> {
-        match node_type {
-            "Add" => Some(<crate::nodes::math::AddNode as OldNodeFactory>::create(position)),
-            "Subtract" => Some(<crate::nodes::math::SubtractNode as OldNodeFactory>::create(position)),
-            "Multiply" => Some(<crate::nodes::math::MultiplyNode as OldNodeFactory>::create(position)),
-            "Divide" => Some(<crate::nodes::math::DivideNode as OldNodeFactory>::create(position)),
-            "AND" => Some(<crate::nodes::logic::AndNode as OldNodeFactory>::create(position)),
-            "OR" => Some(<crate::nodes::logic::OrNode as OldNodeFactory>::create(position)),
-            "NOT" => Some(<crate::nodes::logic::NotNode as OldNodeFactory>::create(position)),
-            "Constant" => Some(<crate::nodes::data::ConstantNode as OldNodeFactory>::create(position)),
-            "Variable" => Some(<crate::nodes::data::VariableNode as OldNodeFactory>::create(position)),
-            "Print" => Some(<crate::nodes::output::PrintNode as OldNodeFactory>::create(position)),
-            "Debug" => Some(<crate::nodes::output::DebugNode as OldNodeFactory>::create(position)),
-            _ => None,
-        }
-    }
     
     /// Get all available node types
     pub fn node_types(&self) -> Vec<&str> {
-        // Include both dynamic and legacy node types
         let mut types: Vec<&str> = self.creators.keys().map(|s| s.as_str()).collect();
-        
-        // Add legacy types that aren't in dynamic registry
-        let legacy_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
-        for legacy_type in &legacy_types {
-            if !self.creators.contains_key(*legacy_type) {
-                types.push(legacy_type);
-            }
-        }
-        
         types.sort();
         types
     }
@@ -666,40 +626,40 @@ impl Default for NodeRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
         
-        // Register enhanced math nodes
-        registry.register::<crate::nodes::math::AddNodeEnhanced>();
-        registry.register::<crate::nodes::math::SubtractNodeEnhanced>();
-        registry.register::<crate::nodes::math::MultiplyNodeEnhanced>();
-        registry.register::<crate::nodes::math::DivideNodeEnhanced>();
+        // Register modular math nodes
+        registry.register::<crate::nodes::math::add::AddNodeFactory>();
+        registry.register::<crate::nodes::math::subtract::SubtractNodeFactory>();
+        registry.register::<crate::nodes::math::multiply::MultiplyNodeFactory>();
+        registry.register::<crate::nodes::math::DivideNodeFactory>();
         
-        // Register enhanced logic nodes
-        registry.register::<crate::nodes::logic::AndNodeEnhanced>();
-        registry.register::<crate::nodes::logic::OrNodeEnhanced>();
-        registry.register::<crate::nodes::logic::NotNodeEnhanced>();
+        // Register modular logic nodes
+        registry.register::<crate::nodes::logic::AndNodeFactory>();
+        registry.register::<crate::nodes::logic::OrNodeFactory>();
+        registry.register::<crate::nodes::logic::NotNodeFactory>();
         
-        // Register enhanced data nodes
-        registry.register::<crate::nodes::data::ConstantNodeEnhanced>();
-        registry.register::<crate::nodes::data::VariableNodeEnhanced>();
+        // Register modular data nodes
+        registry.register::<crate::nodes::data::constant::ConstantNodeFactory>();
+        registry.register::<crate::nodes::data::variable::VariableNodeFactory>();
         
-        // Register enhanced output nodes
-        registry.register::<crate::nodes::output::PrintNodeEnhanced>();
-        registry.register::<crate::nodes::output::DebugNodeEnhanced>();
+        // Register modular output nodes
+        registry.register::<crate::nodes::output::PrintNodeFactory>();
+        registry.register::<crate::nodes::output::DebugNodeFactory>();
         
-        // Register 3D nodes
-        registry.register::<crate::nodes::three_d::TranslateNode3D>();
-        registry.register::<crate::nodes::three_d::RotateNode3D>();
-        registry.register::<crate::nodes::three_d::ScaleNode3D>();
-        registry.register::<crate::nodes::three_d::CubeNode3D>();
-        registry.register::<crate::nodes::three_d::SphereNode3D>();
-        registry.register::<crate::nodes::three_d::PlaneNode3D>();
-        registry.register::<crate::nodes::three_d::PointLightNode3D>();
-        registry.register::<crate::nodes::three_d::DirectionalLightNode3D>();
-        registry.register::<crate::nodes::three_d::SpotLightNode3D>();
-        registry.register::<crate::nodes::three_d::ViewportNode3D>();
+        // Register 3D nodes and their interface versions
+        registry.register::<crate::nodes::three_d::transform::TranslateNode>();
+        registry.register::<crate::nodes::three_d::transform::RotateNode>();
+        registry.register::<crate::nodes::three_d::transform::ScaleNode>();
+        registry.register::<crate::nodes::three_d::geometry::CubeNode>();
+        registry.register::<crate::nodes::three_d::geometry::SphereNode>();
+        registry.register::<crate::nodes::three_d::geometry::PlaneNode>();
+        registry.register::<crate::nodes::three_d::lighting::PointLightNode>();
+        registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
+        registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
+        registry.register::<crate::nodes::three_d::output::ViewportNode>();
         
         // Register USD nodes
         registry.register::<crate::nodes::three_d::USDCreateStage>();
-        registry.register::<crate::nodes::three_d::USDLoadStage>();
+        registry.register::<crate::nodes::three_d::usd::stage::load_stage::LoadStageNode>();
         registry.register::<crate::nodes::three_d::USDSaveStage>();
         registry.register::<crate::nodes::three_d::USDXform>();
         registry.register::<crate::nodes::three_d::USDMesh>();

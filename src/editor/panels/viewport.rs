@@ -12,12 +12,18 @@ use std::collections::HashMap;
 pub struct ViewportPanel {
     /// Default viewport size
     default_size: [f32; 2],
+    /// Selected tab for each stacked viewport window
+    selected_tabs: HashMap<String, usize>,
+    /// Viewport node instances (to maintain camera state)
+    viewport_instances: HashMap<NodeId, crate::nodes::three_d::output::viewport::ViewportNode>,
 }
 
 impl ViewportPanel {
     pub fn new() -> Self {
         Self {
             default_size: [900.0, 700.0],
+            selected_tabs: HashMap::new(),
+            viewport_instances: HashMap::new(),
         }
     }
 
@@ -82,7 +88,6 @@ impl ViewportPanel {
             .id(panel_id)
             .default_pos(position)
             .default_size(self.default_size)
-            .min_size([600.0, 400.0])
             .max_size([1600.0, 1200.0])
             .resizable(true)
             .collapsible(true)
@@ -103,14 +108,15 @@ impl ViewportPanel {
                 
                 ui.separator();
                 
-                // Viewport-specific content
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::same(8.0))
-                    .fill(Color32::from_gray(30))
-                    .rounding(egui::Rounding::same(4.0))
-                    .show(ui, |ui| {
-                        self.render_viewport_content(ui, node_id, node);
-                    });
+                // Viewport-specific content - get or create viewport interface instance
+                if let Some(crate::nodes::interface::PanelType::Viewport) = node.get_panel_type() {
+                    let viewport_node = self.viewport_instances.entry(node_id)
+                        .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
+                    // Use Pattern A build_interface function
+                    let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                } else {
+                    ui.label("Error: Node does not have viewport panel type");
+                }
             });
         
         // Update the panel manager with the new state
@@ -144,12 +150,19 @@ impl ViewportPanel {
         let mut window_open = panel_manager.is_panel_open(first_node_id);
         
         // Track which viewport tab is selected (default to first)
-        static mut SELECTED_VIEWPORT_TAB: usize = 0;
-        let selected_tab = unsafe { &mut SELECTED_VIEWPORT_TAB };
+        let window_id = "tabbed_viewport_panels";
+        let current_selected_tab = *self.selected_tabs.entry(window_id.to_string()).or_insert(0);
         
         // Ensure selected tab is valid
-        if *selected_tab >= stacked_node_ids.len() {
-            *selected_tab = 0;
+        let selected_tab_index = if current_selected_tab >= stacked_node_ids.len() {
+            0
+        } else {
+            current_selected_tab
+        };
+        
+        // Update the stored value if it changed
+        if selected_tab_index != current_selected_tab {
+            self.selected_tabs.insert(window_id.to_string(), selected_tab_index);
         }
         
         // Viewport tabbed stacking positioning - same as floating viewport (top left corner)
@@ -157,12 +170,13 @@ impl ViewportPanel {
         let position = Pos2::new(screen_rect.min.x, screen_rect.min.y + menu_bar_height);
         
         // Create tabbed viewport window (movable, not fixed)
-        let window_title = format!("Viewport Tabs ({})", stacked_node_ids.len());
+        let window_title = format!("🔲 Viewport Tabs ({})", stacked_node_ids.len());
         egui::Window::new(window_title)
             .id(egui::Id::new("tabbed_viewport_panels"))
             .default_pos(position)
             .default_size(self.default_size)
-            .min_size([600.0, 400.0])
+            .min_width(400.0)
+            .min_height(300.0)
             .max_size([1600.0, 1200.0])
             .resizable(true)
             .collapsible(true)
@@ -172,24 +186,33 @@ impl ViewportPanel {
                 egui::Vec2::new(screen_rect.width(), screen_rect.height() - menu_bar_height)
             ))
             .show(ctx, |ui| {
+                // Debug: Add a label to see if window content is rendering
+                ui.label(format!("Stacked Viewports: {}", stacked_node_ids.len()));
+                
                 // Create tab bar for multiple viewport panels
+                let mut new_selected_tab = selected_tab_index;
                 ui.horizontal(|ui| {
                     for (i, &node_id) in stacked_node_ids.iter().enumerate() {
                         if let Some(node) = viewed_nodes.get(&node_id) {
                             let tab_text = &node.title;
-                            let is_selected = i == *selected_tab;
+                            let is_selected = i == selected_tab_index;
                             
                             if ui.selectable_label(is_selected, tab_text).clicked() {
-                                *selected_tab = i;
+                                new_selected_tab = i;
                             }
                         }
                     }
                 });
                 
+                // Update selected tab if it changed
+                if new_selected_tab != selected_tab_index {
+                    self.selected_tabs.insert(window_id.to_string(), new_selected_tab);
+                }
+                
                 ui.separator();
                 
                 // Render the selected viewport
-                if let Some(&selected_node_id) = stacked_node_ids.get(*selected_tab) {
+                if let Some(&selected_node_id) = stacked_node_ids.get(new_selected_tab) {
                     if let Some(node) = viewed_nodes.get(&selected_node_id) {
                         // Panel controls for the selected viewport
                         let (control_action, close_requested) = self.render_panel_controls(ui, selected_node_id, panel_manager);
@@ -202,14 +225,15 @@ impl ViewportPanel {
                         
                         ui.separator();
                         
-                        // Viewport content area
-                        egui::Frame::none()
-                            .inner_margin(egui::Margin::same(4.0))
-                            .fill(Color32::from_gray(25))
-                            .rounding(egui::Rounding::same(4.0))
-                            .show(ui, |ui| {
-                                self.render_viewport_content(ui, selected_node_id, node);
-                            });
+                        // Viewport content area - get or create viewport interface instance
+                        if let Some(crate::nodes::interface::PanelType::Viewport) = node.get_panel_type() {
+                            let viewport_node = self.viewport_instances.entry(selected_node_id)
+                                .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
+                            // Use Pattern A build_interface function
+                            let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                        } else {
+                            ui.label("Error: Node does not have viewport panel type");
+                        }
                     }
                 }
             });
@@ -277,65 +301,19 @@ impl ViewportPanel {
         (panel_action, close_requested)
     }
 
-    /// Render viewport-specific content (3D rendering area)
-    fn render_viewport_content(
-        &mut self,
-        ui: &mut egui::Ui,
-        _node_id: NodeId,
-        node: &Node,
-    ) {
-        // Check if this is a viewport node via metadata (pure node-centric approach)
-        if let NodeType::Regular = node.node_type {
-            let registry = crate::nodes::factory::NodeRegistry::default();
-            if let Some(metadata) = registry.get_node_metadata(&node.title) {
-                if metadata.panel_type == PanelType::Viewport {
-                    // Create a viewport node instance for interface rendering
-                    let mut viewport_node = crate::nodes::three_d::ViewportNode3D::default();
-                    
-                    // Render the custom viewport interface
-                    use crate::nodes::interface::NodeInterfacePanel;
-                    viewport_node.render_custom_ui(ui);
-                    return;
-                }
-            }
+    /// Auto-load USD stage into a viewport node
+    pub fn auto_load_usd_into_viewport(&mut self, viewport_node_id: NodeId, stage_id: &str) {
+        // Get the viewport instance and load the USD stage
+        if let Some(viewport_instance) = self.viewport_instances.get_mut(&viewport_node_id) {
+            println!("Viewport Panel: Auto-loading USD stage {} into viewport {}", stage_id, viewport_node_id);
+            viewport_instance.load_usd_scene(stage_id);
+        } else {
+            // Create a new viewport instance if it doesn't exist
+            let mut new_viewport = crate::nodes::three_d::output::viewport::ViewportNode::default();
+            new_viewport.load_usd_scene(stage_id);
+            self.viewport_instances.insert(viewport_node_id, new_viewport);
+            println!("Viewport Panel: Created new viewport instance and loaded USD stage {} into viewport {}", stage_id, viewport_node_id);
         }
-        
-        // Fallback content if not a proper viewport node
-        ui.label("Viewport Display");
-        
-        // Large area for 3D content
-        let available_size = ui.available_size();
-        let viewport_size = egui::vec2(
-            available_size.x.max(600.0),
-            available_size.y.max(400.0)
-        );
-        
-        let (rect, _response) = ui.allocate_exact_size(
-            viewport_size,
-            egui::Sense::click_and_drag()
-        );
-        
-        // Draw placeholder 3D viewport
-        ui.painter().rect_filled(
-            rect,
-            egui::Rounding::same(4.0),
-            Color32::from_gray(20)
-        );
-        
-        // Draw border
-        ui.painter().rect_stroke(
-            rect,
-            egui::Rounding::same(4.0),
-            egui::Stroke::new(2.0, Color32::from_gray(100))
-        );
-        
-        // Placeholder text
-        ui.painter().text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "3D Viewport",
-            egui::FontId::default(),
-            Color32::from_gray(150)
-        );
     }
+
 }

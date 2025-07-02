@@ -1,15 +1,15 @@
-//! Logic operation nodes
+//! Logic operation nodes - modular structure with Pattern A interfaces
 
-mod and;
-mod and_enhanced;
-mod or;
-mod or_enhanced;
-mod not;
-mod not_enhanced;
+pub mod and;    // AND logic gate with Pattern A interface
+pub mod or;     // OR/XOR logic gate with Pattern A interface
+pub mod not;    // NOT/BUFFER logic gate with Pattern A interface
 
+// Export all node factories
+pub use and::AndNodeFactory;
+pub use or::OrNodeFactory;
+pub use not::NotNodeFactory;
+
+// Export parameter structs for direct use
 pub use and::AndNode;
-pub use and_enhanced::AndNodeEnhanced;
 pub use or::OrNode;
-pub use or_enhanced::OrNodeEnhanced;
 pub use not::NotNode;
-pub use not_enhanced::NotNodeEnhanced;

@@ -150,14 +150,20 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
             // Set viewport to match the full screen area scaled by DPI
             // Calculate DPI-aware viewport dimensions
             let pixels_per_point = info.pixels_per_point;
-            let viewport_width = self.uniforms.screen_size[0] * pixels_per_point;
-            let viewport_height = self.uniforms.screen_size[1] * pixels_per_point;
+            let viewport_width = (self.uniforms.screen_size[0] * pixels_per_point).max(1.0);
+            let viewport_height = (self.uniforms.screen_size[1] * pixels_per_point).max(1.0);
+            
+            // Validate against actual screen size
+            let render_target_width = info.screen_size_px[0] as f32;
+            let render_target_height = info.screen_size_px[1] as f32;
+            let clamped_width = viewport_width.min(render_target_width);
+            let clamped_height = viewport_height.min(render_target_height);
             
             render_pass.set_viewport(
                 0.0,
                 0.0,
-                viewport_width,
-                viewport_height,
+                clamped_width,
+                clamped_height,
                 0.0,
                 1.0,
             );

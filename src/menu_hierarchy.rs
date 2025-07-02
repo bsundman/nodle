@@ -3,7 +3,7 @@
 //! This module provides the single source of truth for all node menu structures.
 //! All menus (workspace menus, file menus, etc.) should use this system to ensure consistency.
 
-use crate::workspace::WorkspaceMenuItem;
+pub use crate::workspace::WorkspaceMenuItem;
 
 /// Central registry for all menu hierarchies
 pub struct GlobalMenuHierarchy;
@@ -86,10 +86,6 @@ impl GlobalMenuHierarchy {
                         node_type: "3D_Translate".to_string() 
                     },
                     WorkspaceMenuItem::Node { 
-                        name: "Translate (Interface)".to_string(), 
-                        node_type: "3D_TranslateInterface".to_string() 
-                    },
-                    WorkspaceMenuItem::Node { 
                         name: "Rotate".to_string(), 
                         node_type: "3D_Rotate".to_string() 
                     },
@@ -107,16 +103,8 @@ impl GlobalMenuHierarchy {
                         node_type: "3D_Cube".to_string() 
                     },
                     WorkspaceMenuItem::Node { 
-                        name: "Cube (Interface)".to_string(), 
-                        node_type: "3D_CubeInterface".to_string() 
-                    },
-                    WorkspaceMenuItem::Node { 
                         name: "Sphere".to_string(), 
                         node_type: "3D_Sphere".to_string() 
-                    },
-                    WorkspaceMenuItem::Node { 
-                        name: "Sphere (Interface)".to_string(), 
-                        node_type: "3D_SphereInterface".to_string() 
                     },
                     WorkspaceMenuItem::Node { 
                         name: "Plane".to_string(), 

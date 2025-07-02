@@ -5,6 +5,7 @@
 //! of nodes and ports.
 
 use super::instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms};
+use super::config::GraphicsConfig;
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
 use once_cell::sync::Lazy;
@@ -269,11 +270,7 @@ impl GpuNodeRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 4, // Match egui's 4x MSAA
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: GraphicsConfig::global().multisample_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &node_shader,
                 entry_point: "fs_main",
@@ -369,11 +366,7 @@ impl GpuNodeRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: GraphicsConfig::global().multisample_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &port_shader,
                 entry_point: "fs_main",
@@ -457,11 +450,7 @@ impl GpuNodeRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: GraphicsConfig::global().multisample_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &button_shader,
                 entry_point: "fs_main",
@@ -557,11 +546,7 @@ impl GpuNodeRenderer {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 4,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: GraphicsConfig::global().multisample_state(),
             fragment: Some(wgpu::FragmentState {
                 module: &flag_shader,
                 entry_point: "fs_main",

@@ -2,8 +2,11 @@
 
 use super::port::{Port, PortType};
 use super::graph::NodeGraph;
+use super::interface::{PanelType, NodeData};
 use egui::{Color32, Pos2, Rect, Vec2};
+use crate::theme;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Unique identifier for a node
 pub type NodeId = usize;
@@ -55,6 +58,12 @@ pub struct Node {
     pub button_states: [bool; 2],
     /// Whether the node is visible (true) or hidden (false)
     pub visible: bool,
+    /// The type of panel this node should display in (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub panel_type: Option<PanelType>,
+    /// Node parameters for interface panels
+    #[serde(default)]
+    pub parameters: HashMap<String, NodeData>,
 }
 
 impl Node {
@@ -65,13 +74,15 @@ impl Node {
             id,
             title: title_str.clone(),
             position,
-            size: Vec2::new(150.0, 30.0),
+            size: theme::dimensions().default_node_size,
             inputs: vec![],
             outputs: vec![],
             color: Color32::from_rgb(60, 60, 60),
             node_type: NodeType::Regular,
             button_states: [false, false],
             visible: true,
+            panel_type: None, // Will be set by factory or with_panel_type()
+            parameters: HashMap::new(),
         };
         
         
@@ -86,7 +97,7 @@ impl Node {
             id,
             title: title.clone(),
             position,
-            size: Vec2::new(180.0, 50.0), // Slightly larger
+            size: theme::dimensions().workspace_node_size,
             inputs: vec![],
             outputs: vec![],
             color: Color32::from_rgb(80, 100, 120), // Different color for workspace nodes
@@ -97,6 +108,8 @@ impl Node {
             },
             button_states: [false, false],
             visible: true,
+            panel_type: None, // Workspace nodes typically don't have panels
+            parameters: HashMap::new(),
         };
         
         
@@ -119,7 +132,7 @@ impl Node {
 
     /// Updates the positions of all ports based on the node's position and size
     pub fn update_port_positions(&mut self) {
-        let port_spacing = 30.0;
+        let port_spacing = theme::dimensions().port_spacing;
 
         // Input ports on TOP of node
         let input_start_x = if self.inputs.len() > 1 {
@@ -155,6 +168,22 @@ impl Node {
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
+    }
+    
+    /// Sets the panel type for this node
+    pub fn with_panel_type(mut self, panel_type: PanelType) -> Self {
+        self.panel_type = Some(panel_type);
+        self
+    }
+    
+    /// Gets the panel type for this node
+    pub fn get_panel_type(&self) -> Option<PanelType> {
+        self.panel_type
+    }
+    
+    /// Sets the panel type for this node (mutable reference)
+    pub fn set_panel_type(&mut self, panel_type: PanelType) {
+        self.panel_type = Some(panel_type);
     }
 
     /// Sets the size of the node

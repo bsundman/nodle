@@ -1,0 +1,21 @@
+# Cargo configuration for embedded Python and USD
+[env]
+# Point PyO3 to our embedded Python
+PYO3_PYTHON = "/Users/brian/nodle-working/vendor/python-runtime/python/bin/python3"
+PYO3_PYTHON_VERSION = "3.9"
+PYTHONPATH = "/Users/brian/nodle-working/vendor/python-runtime/python/lib/python3.9/site-packages"
+
+# USD paths
+NODLE_USD_ROOT = "/Users/brian/nodle-working/vendor/python-runtime/python"
+USD_INSTALL_ROOT = "/Users/brian/nodle-working/vendor/python-runtime/python"
+
+# Library path for embedded Python
+DYLD_LIBRARY_PATH = "/Users/brian/nodle-working/vendor/python-runtime/python/lib"
+LD_LIBRARY_PATH = "/Users/brian/nodle-working/vendor/python-runtime/python/lib"
+
+[build]
+# Link against our embedded Python library
+rustflags = [
+    "-L", "/Users/brian/nodle-working/vendor/python-runtime/python/lib",
+    "-Wl,-rpath,/Users/brian/nodle-working/vendor/python-runtime/python/lib"
+]

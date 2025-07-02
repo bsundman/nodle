@@ -87,19 +87,24 @@ impl PanelManager {
         let mut nodes_to_toggle_stack: Vec<NodeId> = Vec::new();
         let mut nodes_to_toggle_pin: Vec<NodeId> = Vec::new();
         
-        // CRITICAL FIX: First pass - auto-detect panel types and visibility for ALL visible nodes
-        // This ensures all panel visibility is set before any rendering logic that depends on it
+        // First pass - ensure panel manager knows about all visible nodes with their panel types
         for (&node_id, node) in viewed_nodes {
             if node.visible {
-                self.auto_detect_panel_type(node_id, node);
+                // Use the node's own panel type if it has one
+                if let Some(panel_type) = node.get_panel_type() {
+                    // Only update if not already set to avoid overwriting user preferences
+                    if !self.interface_panel_manager.has_panel_type_set(node_id) {
+                        self.interface_panel_manager.set_panel_type(node_id, panel_type);
+                    }
+                }
             }
         }
         
-        // Second pass - render panels now that all auto-detection is complete
+        // Second pass - render panels based on node's panel type
         for (&node_id, node) in viewed_nodes {
             if node.visible {
-                
-                let panel_type = self.interface_panel_manager.get_panel_type(node_id);
+                // Use the node's panel type directly
+                let panel_type = node.get_panel_type().unwrap_or(PanelType::Parameter);
                 
                 // Delegate to the appropriate panel type renderer
                 let panel_action = match panel_type {
@@ -122,22 +127,23 @@ impl PanelManager {
                             &mut self.interface_panel_manager,
                             menu_bar_height,
                             viewed_nodes,
+                            graph,
                         )
                     }
                 };
                 
-                // Handle panel actions
-                match panel_action {
-                    PanelAction::Close => nodes_to_close.push(node_id),
-                    PanelAction::CloseAll => nodes_to_close.push(node_id),
-                    PanelAction::ToggleStack => nodes_to_toggle_stack.push(node_id),
-                    PanelAction::TogglePin => nodes_to_toggle_pin.push(node_id),
-                    PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {
-                        // egui handles minimize/restore automatically with collapsible(true)
-                    }
+            // Handle panel actions
+            match panel_action {
+                PanelAction::Close => nodes_to_close.push(node_id),
+                PanelAction::CloseAll => nodes_to_close.push(node_id),
+                PanelAction::ToggleStack => nodes_to_toggle_stack.push(node_id),
+                PanelAction::TogglePin => nodes_to_toggle_pin.push(node_id),
+                PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {
+                    // egui handles minimize/restore automatically with collapsible(true)
                 }
             }
         }
+    }
         
         // Apply panel actions (after iteration to avoid borrowing conflicts)
         for node_id in nodes_to_close {
@@ -186,61 +192,23 @@ impl PanelManager {
         self.interface_panel_manager.set_panel_open(node_id, true); // Reset for next time
     }
 
-    /// Auto-detect and set panel type based on node type
-    fn auto_detect_panel_type(&mut self, node_id: NodeId, node: &Node) {
-        // CRITICAL FIX: Always ensure panel visibility matches node visibility
-        // This must happen on every call, not just the first time
-        if node.visible {
-            self.interface_panel_manager.set_panel_visibility(node_id, true);
-        } else {
-            self.interface_panel_manager.set_panel_visibility(node_id, false);
-        }
-        
-        // Check if panel type has already been set
-        if self.interface_panel_manager.has_panel_type_set(node_id) {
-            return; // Already set, don't override panel type and stacking preferences
-        }
-        
-        // Get panel type from node metadata (pure node-centric approach)
-        // Use a shared registry instance to avoid creating it repeatedly
-        let registry = crate::nodes::factory::NodeRegistry::default();
-        let panel_type = if let Some(metadata) = registry.get_node_metadata(&node.title) {
-            // Use the panel type defined in the node's metadata
-            metadata.panel_type
-        } else {
-            // Ultimate fallback - should rarely be used in a pure "everything nodes" system
-            PanelType::Parameter
-        };
-        
-        // Set the detected panel type
-        self.interface_panel_manager.set_panel_type(node_id, panel_type);
-        
-        // Set panel type-specific defaults if not already set
-        if !self.interface_panel_manager.has_stacking_preference_set(node_id) {
-            match panel_type {
-                PanelType::Viewport => {
-                    // Viewport panels should be unstacked by default (floating independently)
-                    self.interface_panel_manager.set_panel_stacked(node_id, false);
-                },
-                PanelType::Parameter => {
-                    // Parameter panels should be stacked by default
-                    self.interface_panel_manager.set_panel_stacked(node_id, true);
-                },
-                PanelType::Viewer => {
-                    // Viewer panels can be stacked
-                    self.interface_panel_manager.set_panel_stacked(node_id, true);
-                },
-                PanelType::Editor => {
-                    // Editor panels should float by default
-                    self.interface_panel_manager.set_panel_stacked(node_id, false);
-                },
-                PanelType::Inspector => {
-                    // Inspector panels can be stacked
-                    self.interface_panel_manager.set_panel_stacked(node_id, true);
-                },
-            }
-        }
+    /// Auto-load USD stage into a viewport node
+    pub fn auto_load_usd_into_viewport(&mut self, viewport_node_id: NodeId, stage_id: &str) {
+        self.viewport_panel.auto_load_usd_into_viewport(viewport_node_id, stage_id);
     }
+
+    /// Get the file path from a LoadStage node's interface panel
+    pub fn get_loadstage_file_path(&self, node_id: NodeId) -> Option<String> {
+        // For USD LoadStage nodes, the file path is managed by the NodeInterfacePanel trait
+        // The actual file path is stored in the node's interface panel implementation
+        // Since we can't access the panel instance directly, we return None here
+        // and let the connection system fall back to reading from node parameters
+        None
+    }
+
+    // DEPRECATED: Auto-detection removed in favor of node self-assignment
+    // Nodes now carry their own panel_type field and assign themselves
+    // to the appropriate panel type when created
 }
 
 impl Default for PanelManager {

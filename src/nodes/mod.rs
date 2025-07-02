@@ -7,6 +7,7 @@ pub mod port;
 pub mod math_utils;
 pub mod factory;
 pub mod interface;
+pub mod defaults;
 
 // Generic node implementations
 pub mod math;

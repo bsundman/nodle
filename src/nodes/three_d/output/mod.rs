@@ -1,5 +1,5 @@
 //! 3D Output nodes
 
-pub mod viewport;
+pub mod viewport;  // Modular directory structure
 
-pub use viewport::ViewportNode3D;
+pub use viewport::{ViewportNode3D, ViewportNode};

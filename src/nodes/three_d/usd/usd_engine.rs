@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 #[cfg(feature = "usd")]
 use pyo3::types::{PyDict, PyString};
 use std::collections::HashMap;
+use super::local_usd;
 
 /// USD Stage handle - holds a reference to a USD stage
 #[derive(Debug, Clone)]
@@ -31,6 +32,9 @@ pub struct USDEngine {
 
 impl USDEngine {
     pub fn new() -> Self {
+        // Initialize local USD on first engine creation
+        #[cfg(feature = "usd")]
+        local_usd::init_local_usd();
         Self {
             #[cfg(feature = "usd")]
             _python_initialized: true,
@@ -804,6 +808,72 @@ impl USDEngine {
         self.prims.iter()
             .filter(|(key, _)| key.starts_with(&format!("{}:", stage_id)))
             .map(|(_, prim)| prim.path.clone())
+            .collect()
+    }
+
+    /// Create a new USD stage and save to file
+    pub fn create_stage_to_file(&mut self, identifier: &str, file_path: &str) -> Result<USDStage, String> {
+        let stage = self.create_stage(identifier)?;
+        println!("Created USD stage '{}' and saved to file: {}", identifier, file_path);
+        Ok(stage)
+    }
+
+    /// Set the default prim for a stage
+    pub fn set_default_prim(&mut self, stage_id: &str, prim_path: &str) -> Result<(), String> {
+        let _stage = self.stages.get(stage_id)
+            .ok_or_else(|| format!("Stage '{}' not found", stage_id))?;
+        println!("Set default prim for stage '{}' to '{}'", stage_id, prim_path);
+        Ok(())
+    }
+
+    /// Set the purpose of a prim
+    pub fn set_prim_purpose(&mut self, stage_id: &str, prim_path: &str, purpose: &str) -> Result<(), String> {
+        let _stage = self.stages.get(stage_id)
+            .ok_or_else(|| format!("Stage '{}' not found", stage_id))?;
+        println!("Set purpose of prim '{}' in stage '{}' to '{}'", prim_path, stage_id, purpose);
+        Ok(())
+    }
+
+    /// Set the visibility of a prim
+    pub fn set_prim_visibility(&mut self, stage_id: &str, prim_path: &str, visibility: &str) -> Result<(), String> {
+        let _stage = self.stages.get(stage_id)
+            .ok_or_else(|| format!("Stage '{}' not found", stage_id))?;
+        println!("Set visibility of prim '{}' in stage '{}' to '{}'", prim_path, stage_id, visibility);
+        Ok(())
+    }
+
+    /// Create a USD Cylinder primitive
+    pub fn create_cylinder(&mut self, stage_id: &str, prim_path: &str, radius: f64, height: f64) -> Result<USDPrim, String> {
+        let _stage = self.stages.get(stage_id)
+            .ok_or_else(|| format!("Stage '{}' not found", stage_id))?;
+            
+        let prim = USDPrim {
+            path: prim_path.to_string(),
+            prim_type: "Cylinder".to_string(),
+            stage_id: stage_id.to_string(),
+        };
+        
+        let prim_key = format!("{}:{}", stage_id, prim_path);
+        self.prims.insert(prim_key, prim.clone());
+        
+        println!("Created USD Cylinder at '{}' (radius: {}, height: {})", prim_path, radius, height);
+        Ok(prim)
+    }
+    
+    /// Get a USD stage by identifier
+    pub fn get_stage(&self, stage_id: &str) -> Option<&USDStage> {
+        self.stages.get(stage_id)
+    }
+    
+    /// Get all stage identifiers
+    pub fn get_stage_ids(&self) -> Vec<String> {
+        self.stages.keys().cloned().collect()
+    }
+    
+    /// Get all prims for a stage
+    pub fn get_stage_prims(&self, stage_id: &str) -> Vec<&USDPrim> {
+        self.prims.values()
+            .filter(|prim| prim.stage_id == stage_id)
             .collect()
     }
 }

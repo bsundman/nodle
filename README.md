@@ -2,134 +2,107 @@
 
 A node-based visual programming editor built with Rust and egui.
 
-This project is structured as a workspace containing:
-- `nodle-core`: Core node graph library (can be used independently)
-- `nodle-app`: Full visual editor application
-
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
 
 ## Overview
 
-Nōdle is a custom node editor implementation featuring a vertical flow design where connections flow from top to bottom. It provides an intuitive interface for creating and connecting nodes in a visual programming environment.
+Nōdle is a high-performance node editor implementation featuring a vertical flow design where connections flow from top to bottom. It provides an intuitive interface for creating and connecting nodes in a visual programming environment with GPU-accelerated rendering.
 
 ## Features
 
 - **Vertical Flow Design**: Input ports on top, output ports on bottom
+- **GPU-Accelerated Rendering**: High-performance node and connection rendering using wgpu
+- **Rich Node System**: Extensible node factory with categories for Math, Logic, Data, 3D, USD, and more
 - **Intuitive Controls**:
   - Single-click to create connections between ports
   - Multi-select nodes with box selection
   - Drag to move selected nodes
+  - Freehand connection drawing with C key
+  - Cut connections with X key
 - **Navigation**:
-  - Pan with middle mouse button
+  - Pan with middle mouse button or space+drag
   - Zoom with mouse wheel (centered on cursor)
+  - Frame all nodes with F key
 - **Context Menu**: Right-click to create new nodes
 - **Keyboard Shortcuts**:
   - `Delete` - Remove selected nodes/connections
   - `ESC` - Cancel connection in progress
   - `Ctrl/Cmd + Click` - Multi-select nodes
-- **Node Types**:
-  - Math operations (Add, Subtract, Multiply, Divide)
-  - Logic gates (AND, OR, NOT)
-  - Data nodes (Constant, Variable)
-  - Output nodes (Print, Debug)
+  - `C` - Freehand connection drawing mode
+  - `X` - Connection cutting mode
+  - `F` - Frame all nodes
+- **USD Integration**: Comprehensive Universal Scene Description nodes for 3D workflows
+- **Workspace System**: Context-specific workspaces (General, 3D, USD, MaterialX)
+- **Interface Panels**: Parameter panels for node configuration with real-time updates
 
-## Quick Start
+## Getting Started
 
-### Prerequisites
+See [GETTING_STARTED.md](GETTING_STARTED.md) for detailed setup instructions.
 
-- Rust 1.70 or higher
-- Cargo
+### Quick Start
 
-### Building and Running
+1. **Install Dependencies**:
+   ```bash
+   # macOS/Linux
+   ./install.sh
+   
+   # Windows
+   install.bat
+   ```
+
+2. **Run Nodle**:
+   ```bash
+   cargo run --release --features usd
+   ```
+
+## Architecture
+
+Nōdle uses a node-centric architecture where nodes drive everything through their metadata:
+
+- **Node Factory System**: Self-registering nodes with rich metadata
+- **Modular Node Structure**: Each node type has `mod.rs`, `logic.rs`, and `parameters.rs`
+- **GPU Rendering Pipeline**: Efficient batch rendering of nodes and connections
+- **Interface Panel System**: Automatic UI generation from node parameters
+
+See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for detailed technical documentation.
+
+## Node Categories
+
+- **Math**: Add, Subtract, Multiply, Divide
+- **Logic**: AND, OR, NOT, Compare
+- **Data**: Constant, Variable, Convert
+- **3D Geometry**: Cube, Sphere, Plane, Transform nodes
+- **USD**: Complete USD pipeline nodes for industry-standard 3D workflows
+- **Lighting**: Point, Directional, Spot lights
+- **Output**: Print, Debug, Viewport
+
+## Building from Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/bsundman/nodle.git
 cd nodle
 
-# Run the application
-cargo run --package nodle
-
-# Or use the shorter alias
-cargo run -p nodle
-
-# Build for release
-cargo build --release -p nodle
-
-# Test the core library
-cargo test -p nodle-core
+# Build and run
+cargo build --release
+cargo run --release
 ```
 
-## Usage
+### Features
 
-1. **Creating Nodes**: Right-click on empty space to open the context menu and select a node type
-2. **Connecting Nodes**: Click on an output port, then click on an input port to create a connection
-3. **Moving Nodes**: Click and drag nodes to reposition them
-4. **Selecting Multiple Nodes**: Click and drag on empty space to create a selection box
-5. **Deleting Elements**: Select nodes or connections and press Delete
-
-## Architecture
-
-The editor is built using:
-- **egui/eframe**: Immediate mode GUI framework
-- **Custom rendering**: Bezier curves for smooth connections
-- **Efficient data structures**: HashMap for nodes, Vec for connections
-
-For detailed technical information, see [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md).
-
-## Using the Library
-
-To use `nodle-core` in your own project, add it to your `Cargo.toml`:
-
-```toml
-[dependencies]
-nodle-core = { git = "https://github.com/bsundman/nodle.git" }
-# Or when published to crates.io:
-# nodle-core = "0.1"
-```
-
-Example usage:
-
-```rust
-use nodle_core::{NodeGraph, Node, Connection};
-use egui::Pos2;
-
-let mut graph = NodeGraph::new();
-
-// Create nodes
-let mut node1 = Node::new(0, "Math", Pos2::new(100.0, 100.0));
-node1.add_input("A").add_input("B").add_output("Result");
-
-let mut node2 = Node::new(0, "Output", Pos2::new(300.0, 100.0));
-node2.add_input("Value");
-
-// Add to graph
-let id1 = graph.add_node(node1);
-let id2 = graph.add_node(node2);
-
-// Connect them
-let connection = Connection::new(id1, 0, id2, 0);
-graph.add_connection(connection).unwrap();
-```
-
-## Development
-
-See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for comprehensive documentation on:
-- Architecture and core components
-- Adding new node types
-- Coordinate systems and transforms
-- Input handling
-- Debugging tips
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- `usd` - Enable USD (Universal Scene Description) support
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Author
+## License
 
-Brian Sundman ([@bsundman](https://github.com/bsundman))
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Built with [egui](https://github.com/emilk/egui) - an immediate mode GUI library for Rust
+- GPU rendering powered by [wgpu](https://github.com/gfx-rs/wgpu) - cross-platform graphics API
+- USD integration via [PyO3](https://github.com/PyO3/pyo3) - Rust bindings for Python

@@ -15,3 +15,32 @@ Thumbs.db
 
 # Debug
 *.pdb
+
+# USD local installation
+vendor/usd/
+
+# Python (for PyO3/USD integration)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# USD artifacts (if temporary)
+*.usd
+*.usda
+*.usdc
+usd_cache/
+
+# Logs and temporary files
+*.log
+*.tmp
+tmp/
+temp/
+
+# Additional system files
+*.bak
+*.orig

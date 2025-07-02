@@ -37,10 +37,13 @@ pub enum NodeData {
     Image(ImageData),
     /// Generic value types
     Float(f32),
+    Integer(i32),
     Vector3([f32; 3]),
     Color([f32; 4]),
     String(String),
     Boolean(bool),
+    Any(String), // Generic reference/handle
+    None, // Empty/null value
 }
 
 /// Scene hierarchy data
@@ -209,13 +212,15 @@ impl InterfaceParameter {
                     });
                 changed
             }
-            InterfaceParameter::FilePath { value, filter: _ } => {
+            InterfaceParameter::FilePath { value, filter } => {
                 ui.horizontal(|ui| {
                     ui.label(label);
                     let mut changed = ui.text_edit_singleline(value).changed();
-                    if ui.button("📁").clicked() {
-                        // TODO: Implement file dialog
-                        changed = true;
+                    if ui.button("📁 Browse").clicked() {
+                        if let Ok(Some(path)) = Self::open_file_dialog(filter) {
+                            *value = path;
+                            changed = true;
+                        }
                     }
                     changed
                 }).inner
@@ -250,6 +255,38 @@ impl InterfaceParameter {
         match self {
             InterfaceParameter::Boolean { value } => Some(*value),
             _ => None,
+        }
+    }
+    
+    pub fn get_int(&self) -> Option<i32> {
+        match self {
+            InterfaceParameter::Integer { value, .. } => Some(*value),
+            _ => None,
+        }
+    }
+    
+    /// Open a file dialog with the specified filter
+    fn open_file_dialog(filter: &str) -> Result<Option<String>, String> {
+        use rfd::FileDialog;
+        
+        let mut dialog = FileDialog::new();
+        
+        // Parse filter string and add appropriate file extensions
+        if filter.contains("USD") {
+            dialog = dialog.add_filter("USD Files", &["usd", "usda", "usdc", "usdz"]);
+        }
+        
+        // Add common filters
+        dialog = dialog.add_filter("All Files", &["*"]);
+        
+        if let Some(path) = dialog.pick_file() {
+            if let Some(path_str) = path.to_str() {
+                Ok(Some(path_str.to_string()))
+            } else {
+                Err("Invalid file path encoding".to_string())
+            }
+        } else {
+            Ok(None) // User cancelled dialog
         }
     }
 }
@@ -411,6 +448,16 @@ impl InterfacePanelManager {
     
     /// Set panel type
     pub fn set_panel_type(&mut self, node_id: NodeId, panel_type: PanelType) {
+        // Debug: Log panel type changes to help track contamination
+        if let Some(old_type) = self.panel_types.get(&node_id) {
+            if *old_type != panel_type {
+                eprintln!("WARNING: Panel type changed for node {}: {:?} -> {:?}", 
+                         node_id, old_type, panel_type);
+            }
+        } else {
+            eprintln!("DEBUG: Setting panel type for node {} to {:?}", node_id, panel_type);
+        }
+        
         self.panel_types.insert(node_id, panel_type);
     }
     
@@ -429,35 +476,9 @@ impl InterfacePanelManager {
         self.stacked_panels.contains_key(&node_id)
     }
     
-    /// Ensure panel type is set for a node based on its properties
-    pub fn ensure_panel_type_set(&mut self, node_id: NodeId, node: &crate::nodes::Node) {
-        // Only set if not already set
-        if !self.has_panel_type_set(node_id) {
-            // Get panel type from node metadata (pure node-centric approach)
-            let registry = crate::nodes::factory::NodeRegistry::default();
-            let panel_type = if let Some(metadata) = registry.get_node_metadata(&node.title) {
-                // Use the panel type defined in the node's metadata
-                metadata.panel_type
-            } else {
-                // Ultimate fallback for legacy nodes
-                PanelType::Parameter
-            };
-            
-            self.set_panel_type(node_id, panel_type);
-            
-            // Set default stacking preference based on type
-            if !self.has_stacking_preference_set(node_id) {
-                match panel_type {
-                    PanelType::Viewport | PanelType::Editor => {
-                        self.set_panel_stacked(node_id, false); // Float by default
-                    },
-                    _ => {
-                        self.set_panel_stacked(node_id, true); // Stack by default
-                    }
-                }
-            }
-        }
-    }
+    // DEPRECATED: Panel type detection removed in favor of node self-assignment
+    // Nodes now carry their own panel_type field and assign themselves
+    // to the appropriate panel type when created
     
     /// Check if two panels can stack together based on their types
     pub fn can_stack_with(&self, node_id: NodeId, other_node_id: NodeId) -> bool {
@@ -477,10 +498,11 @@ impl InterfacePanelManager {
     pub fn get_stacked_panels_by_type(&self, panel_type: PanelType, viewed_nodes: &HashMap<NodeId, crate::nodes::Node>) -> Vec<NodeId> {
         viewed_nodes.keys()
             .filter(|&&node_id| {
-                viewed_nodes[&node_id].visible 
+                let node = &viewed_nodes[&node_id];
+                node.visible 
                 && self.is_panel_visible(node_id)
                 && self.is_panel_stacked(node_id) 
-                && self.get_panel_type(node_id) == panel_type
+                && node.get_panel_type() == Some(panel_type)
             })
             .copied()
             .collect()
@@ -585,4 +607,25 @@ macro_rules! interface_enum {
             options: vec![$(String::from($option)),*] 
         }
     };
+}
+
+/// Change notifications for parameter updates
+#[derive(Debug, Clone)]
+pub struct ParameterChange {
+    pub parameter: String,
+    pub value: NodeData,
+}
+
+/// Build parameter UI for a single parameter with custom renderer
+pub fn build_parameter_ui<F>(
+    ui: &mut Ui,
+    param_name: &str,
+    display_name: &str,
+    current_value: NodeData,
+    render_fn: F,
+) -> Option<NodeData>
+where
+    F: FnOnce(&mut Ui, NodeData) -> Option<NodeData>,
+{
+    render_fn(ui, current_value)
 }
