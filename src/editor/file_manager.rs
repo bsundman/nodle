@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use crate::nodes::NodeGraph;
-use crate::editor::viewport::Viewport;
+use crate::editor::canvas::Canvas;
 
 /// Save file data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,9 +25,9 @@ pub struct SaveMetadata {
     pub description: String,
 }
 
-/// Viewport state for save files
+/// Canvas state for save files (2D node editor pan/zoom)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ViewportData {
+pub struct ViewportData {  // Keep name for backwards compatibility
     pub pan_offset: [f32; 2],
     pub zoom: f32,
 }
@@ -100,7 +100,7 @@ impl FileManager {
     }
 
     /// Save the current graph to a file
-    pub fn save_to_file(&mut self, file_path: &Path, graph: &NodeGraph, viewport: &Viewport) -> Result<(), String> {
+    pub fn save_to_file(&mut self, file_path: &Path, graph: &NodeGraph, canvas: &Canvas) -> Result<(), String> {
         let save_data = SaveData {
             version: "1.0".to_string(),
             metadata: SaveMetadata {
@@ -110,8 +110,8 @@ impl FileManager {
                 description: "Node graph created with Nōdle".to_string(),
             },
             viewport: ViewportData {
-                pan_offset: [viewport.pan_offset.x, viewport.pan_offset.y],
-                zoom: viewport.zoom,
+                pan_offset: [canvas.pan_offset.x, canvas.pan_offset.y],
+                zoom: canvas.zoom,
             },
             root_graph: graph.clone(),
         };
@@ -130,39 +130,39 @@ impl FileManager {
     }
 
     /// Load a graph from a file
-    pub fn load_from_file(&mut self, file_path: &Path) -> Result<(NodeGraph, Viewport), String> {
+    pub fn load_from_file(&mut self, file_path: &Path) -> Result<(NodeGraph, Canvas), String> {
         let file_content = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
         let save_data: SaveData = serde_json::from_str(&file_content)
             .map_err(|e| format!("Failed to parse save file: {}", e))?;
 
-        // Create viewport from saved data
-        let mut viewport = Viewport::new();
-        viewport.pan_offset = egui::Vec2::new(
+        // Create canvas from saved data
+        let mut canvas = Canvas::new();
+        canvas.pan_offset = egui::Vec2::new(
             save_data.viewport.pan_offset[0], 
             save_data.viewport.pan_offset[1]
         );
-        viewport.zoom = save_data.viewport.zoom;
+        canvas.zoom = save_data.viewport.zoom;
 
         // Update file manager state
         self.current_file_path = Some(file_path.to_path_buf());
         self.is_modified = false;
 
-        Ok((save_data.root_graph, viewport))
+        Ok((save_data.root_graph, canvas))
     }
 
     /// Save the current file (use existing path or prompt for new path)
-    pub fn save_file(&mut self, graph: &NodeGraph, viewport: &Viewport) -> Result<(), String> {
+    pub fn save_file(&mut self, graph: &NodeGraph, canvas: &Canvas) -> Result<(), String> {
         if let Some(path) = &self.current_file_path.clone() {
-            self.save_to_file(path, graph, viewport)
+            self.save_to_file(path, graph, canvas)
         } else {
             Err("No file path set. Use save_as instead.".to_string())
         }
     }
 
     /// Open file dialog and load selected file
-    pub fn open_file_dialog(&mut self) -> Result<Option<(NodeGraph, Viewport)>, String> {
+    pub fn open_file_dialog(&mut self) -> Result<Option<(NodeGraph, Canvas)>, String> {
         use rfd::FileDialog;
         
         if let Some(path) = FileDialog::new()
@@ -170,7 +170,7 @@ impl FileManager {
             .pick_file()
         {
             match self.load_from_file(&path) {
-                Ok((graph, viewport)) => Ok(Some((graph, viewport))),
+                Ok((graph, canvas)) => Ok(Some((graph, canvas))),
                 Err(error) => Err(error),
             }
         } else {
@@ -179,14 +179,14 @@ impl FileManager {
     }
 
     /// Save as file dialog
-    pub fn save_as_file_dialog(&mut self, graph: &NodeGraph, viewport: &Viewport) -> Result<bool, String> {
+    pub fn save_as_file_dialog(&mut self, graph: &NodeGraph, canvas: &Canvas) -> Result<bool, String> {
         use rfd::FileDialog;
         
         if let Some(path) = FileDialog::new()
             .add_filter("JSON files", &["json"])
             .save_file()
         {
-            match self.save_to_file(&path, graph, viewport) {
+            match self.save_to_file(&path, graph, canvas) {
                 Ok(()) => Ok(true),
                 Err(error) => Err(error),
             }

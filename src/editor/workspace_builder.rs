@@ -6,7 +6,7 @@
 use egui::{Pos2, Color32};
 use crate::nodes::{NodeGraph, Node};
 use crate::workspace::WorkspaceManager;
-use crate::editor::view_manager::ViewManager;
+use crate::editor::navigation::NavigationManager;
 
 /// Orchestrates node and workspace creation with proper placement logic
 pub struct WorkspaceBuilder;
@@ -16,15 +16,15 @@ impl WorkspaceBuilder {
     pub fn create_node(
         node_type: &str,
         position: Pos2,
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         workspace_manager: &WorkspaceManager,
         graph: &mut NodeGraph,
     ) -> bool {
         // Check if this is a workspace node creation
         if Self::is_workspace_type(node_type) {
-            Self::create_workspace_node(node_type, position, view_manager, graph)
+            Self::create_workspace_node(node_type, position, navigation, graph)
         } else {
-            Self::create_regular_node(node_type, position, view_manager, workspace_manager, graph)
+            Self::create_regular_node(node_type, position, navigation, workspace_manager, graph)
         }
     }
 
@@ -37,7 +37,7 @@ impl WorkspaceBuilder {
     fn create_workspace_node(
         node_type: &str,
         position: Pos2,
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         graph: &mut NodeGraph,
     ) -> bool {
         let workspace_type = match node_type {
@@ -56,7 +56,7 @@ impl WorkspaceBuilder {
         Self::populate_workspace(&mut workspace_node, workspace_type);
         
         // Workspace nodes can only be created in the root graph
-        if view_manager.is_root_view() {
+        if navigation.is_root_view() {
             graph.add_node(workspace_node);
             true
         } else {
@@ -69,7 +69,7 @@ impl WorkspaceBuilder {
     fn create_regular_node(
         node_type: &str,
         position: Pos2,
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         workspace_manager: &WorkspaceManager,
         graph: &mut NodeGraph,
     ) -> bool {
@@ -104,7 +104,7 @@ impl WorkspaceBuilder {
         // Add the node to the appropriate graph based on current view
         if let Some(node) = new_node {
             println!("DEBUG: Successfully created node, adding to graph");
-            Self::place_node_in_graph(node, view_manager, graph);
+            Self::place_node_in_graph(node, navigation, graph);
             println!("DEBUG: Node creation completed successfully");
             true
         } else {
@@ -116,12 +116,12 @@ impl WorkspaceBuilder {
     /// Place a node in the appropriate graph based on the current view
     fn place_node_in_graph(
         node: Node,
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         graph: &mut NodeGraph,
     ) {
-        if view_manager.is_root_view() {
+        if navigation.is_root_view() {
             graph.add_node(node);
-        } else if let Some(workspace_node_id) = view_manager.get_workspace_node_id() {
+        } else if let Some(workspace_node_id) = navigation.get_workspace_node_id() {
             // Try to add to workspace internal graph
             if let Some(workspace_node) = graph.nodes.get_mut(&workspace_node_id) {
                 if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
@@ -194,12 +194,12 @@ impl WorkspaceBuilder {
     /// Check if a node can be placed in the current view context
     pub fn can_place_node_in_context(
         node_type: &str,
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         graph: &NodeGraph,
     ) -> bool {
         // Workspace nodes can only be created in root view
         if Self::is_workspace_type(node_type) {
-            return view_manager.is_root_view();
+            return navigation.is_root_view();
         }
         
         // Regular nodes can be placed in any context
@@ -209,7 +209,7 @@ impl WorkspaceBuilder {
 
     /// Get appropriate position for a new node in the current context
     pub fn get_suggested_position(
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         graph: &NodeGraph,
         base_position: Pos2,
     ) -> Pos2 {
@@ -221,17 +221,17 @@ impl WorkspaceBuilder {
     /// Validate node type compatibility with current workspace context
     pub fn validate_node_compatibility(
         node_type: &str,
-        view_manager: &ViewManager,
+        navigation: &NavigationManager,
         workspace_manager: &WorkspaceManager,
         graph: &NodeGraph,
     ) -> NodeCompatibility {
         // Check workspace restrictions
-        if Self::is_workspace_type(node_type) && !view_manager.is_root_view() {
+        if Self::is_workspace_type(node_type) && !navigation.is_root_view() {
             return NodeCompatibility::Invalid("Workspace nodes can only be created in root view".to_string());
         }
 
         // Check if we're in a workspace context
-        if let Some(workspace_type) = view_manager.get_workspace_type(graph) {
+        if let Some(workspace_type) = navigation.get_workspace_type(graph) {
             // Could add workspace-specific validation here
             // For now, allow all node types in all workspaces
             NodeCompatibility::Valid

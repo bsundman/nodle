@@ -1,16 +1,16 @@
-//! Viewport management for pan/zoom operations
+//! Canvas management for pan/zoom operations in the node editor
 
 use egui::{Pos2, Vec2};
 
-/// Manages viewport state including pan and zoom
+/// Manages canvas state including pan and zoom for the node editor
 #[derive(Debug, Clone)]
-pub struct Viewport {
+pub struct Canvas {
     pub pan_offset: Vec2,
     pub zoom: f32,
 }
 
-impl Viewport {
-    /// Creates a new viewport with default settings
+impl Canvas {
+    /// Creates a new canvas with default settings
     pub fn new() -> Self {
         Self {
             pan_offset: Vec2::ZERO,
@@ -59,7 +59,7 @@ impl Viewport {
     }
 }
 
-impl Default for Viewport {
+impl Default for Canvas {
     fn default() -> Self {
         Self::new()
     }

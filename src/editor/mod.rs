@@ -1,7 +1,7 @@
 //! Node editor implementation
 
 // Module declarations
-pub mod viewport;
+pub mod canvas;
 pub mod input;
 pub mod interaction;
 pub mod menus;
@@ -10,20 +10,18 @@ pub mod navigation;
 pub mod file_manager;
 pub mod panels;
 pub mod debug_tools;
-pub mod view_manager;
 pub mod workspace_builder;
 
 // Re-exports
-pub use viewport::Viewport;
+pub use canvas::Canvas;
 pub use input::InputState;
 pub use interaction::InteractionManager;
 pub use menus::MenuManager;
 pub use rendering::MeshRenderer;
-pub use navigation::{NavigationManager, NavigationAction};
+pub use navigation::{NavigationManager, NavigationAction, GraphView};
 pub use file_manager::FileManager;
 pub use panels::{PanelManager, PanelAction};
 pub use debug_tools::DebugToolsManager;
-pub use view_manager::{ViewManager, GraphView};
 pub use workspace_builder::{WorkspaceBuilder, NodeCompatibility};
 
 use eframe::egui;
@@ -42,7 +40,7 @@ use crate::gpu::GpuInstanceManager;
 /// Main application state for the node editor
 pub struct NodeEditor {
     graph: NodeGraph,
-    viewport: Viewport,
+    canvas: Canvas,
     input_state: InputState,      // Centralized input handling
     interaction: InteractionManager, // Node selection and dragging
     menus: MenuManager,           // Context menu management
@@ -56,8 +54,6 @@ pub struct NodeEditor {
     use_gpu_rendering: bool,
     // Persistent GPU instance manager
     gpu_instance_manager: GpuInstanceManager,
-    // View management
-    view_manager: ViewManager,
     // File management
     file_manager: FileManager,
     // Menu state
@@ -84,7 +80,7 @@ impl NodeEditor {
         
         let mut editor = Self {
             graph: NodeGraph::new(),
-            viewport: Viewport::new(),
+            canvas: Canvas::new(),
             input_state: InputState::new(),
             interaction: InteractionManager::new(),
             menus: MenuManager::new(),
@@ -98,8 +94,6 @@ impl NodeEditor {
             use_gpu_rendering: true, // Start with GPU rendering enabled
             // Persistent GPU instance manager
             gpu_instance_manager: GpuInstanceManager::new(),
-            // View management
-            view_manager: ViewManager::new(),
             // File management
             file_manager: FileManager::new(),
             // Menu state
@@ -120,17 +114,17 @@ impl NodeEditor {
     
     /// Get the nodes to render based on current view
     fn get_viewed_nodes(&self) -> HashMap<NodeId, Node> {
-        self.view_manager.get_viewed_nodes(&self.graph)
+        self.navigation.get_viewed_nodes(&self.graph)
     }
     
     /// Get the connections to render based on current view
     fn get_viewed_connections(&self) -> Vec<Connection> {
-        self.view_manager.get_viewed_connections(&self.graph)
+        self.navigation.get_viewed_connections(&self.graph)
     }
     
     /// Build a temporary graph for GPU processing
     fn build_temp_graph(&self, nodes: &HashMap<NodeId, Node>) -> NodeGraph {
-        self.view_manager.build_temp_graph(nodes, &self.graph)
+        self.navigation.build_temp_graph(nodes, &self.graph)
     }
     
     /// Get mutable reference to a workspace node's internal graph
@@ -144,12 +138,12 @@ impl NodeEditor {
     
     /// Get the currently active graph for reading (root or workspace internal graph)
     fn get_active_graph(&self) -> &NodeGraph {
-        self.view_manager.get_active_graph(&self.graph)
+        self.navigation.get_active_graph(&self.graph)
     }
     
     /// Add a connection to the appropriate graph based on current view
     fn add_connection_to_active_graph(&mut self, connection: Connection) -> Result<(), &'static str> {
-        match self.view_manager.current_view() {
+        match self.navigation.current_view() {
             GraphView::Root => {
                 self.graph.add_connection(connection)
             }
@@ -169,7 +163,7 @@ impl NodeEditor {
     
     /// Remove a connection from the appropriate graph based on current view
     fn remove_connection_from_active_graph(&mut self, idx: usize) {
-        match self.view_manager.current_view() {
+        match self.navigation.current_view() {
             GraphView::Root => {
                 self.graph.remove_connection(idx);
             }
@@ -187,14 +181,14 @@ impl NodeEditor {
     fn zoom_at_point(&mut self, screen_point: Pos2, zoom_delta: f32) {
         // Convert zoom delta to multiplication factor for viewport compatibility
         let zoom_factor = 1.0 + zoom_delta;
-        self.viewport.zoom_at_point(screen_point, zoom_factor);
+        self.canvas.zoom_at_point(screen_point, zoom_factor);
     }
 
     /// Handle context menu rendering and interactions
     fn handle_context_menu(&mut self, ui: &mut egui::Ui, _response: &egui::Response) {
         // Apply transforms for coordinate conversions
-        let zoom = self.viewport.zoom;
-        let pan_offset = self.viewport.pan_offset;
+        let zoom = self.canvas.zoom;
+        let pan_offset = self.canvas.pan_offset;
 
         let inverse_transform_pos = |pos: Pos2| -> Pos2 {
             Pos2::new(
@@ -266,7 +260,7 @@ impl NodeEditor {
         if WorkspaceBuilder::create_node(
             node_type,
             position,
-            &self.view_manager,
+            &self.navigation,
             &self.workspace_manager,
             &mut self.graph,
         ) {
@@ -368,7 +362,7 @@ impl NodeEditor {
     /// Create a new file (reset graph state)
     pub fn new_file(&mut self) {
         self.graph = NodeGraph::new();
-        self.view_manager.set_root_view();
+        self.navigation.set_root_view();
         self.navigation = NavigationManager::new();
         self.interaction.clear_selection();
         self.file_manager.new_file();
@@ -379,18 +373,18 @@ impl NodeEditor {
     
     /// Save the current graph to a specific file path
     pub fn save_to_file(&mut self, file_path: &Path) -> Result<(), String> {
-        self.file_manager.save_to_file(file_path, &self.graph, &self.viewport)
+        self.file_manager.save_to_file(file_path, &self.graph, &self.canvas)
     }
     
     /// Load a graph from a specific file path
     pub fn load_from_file(&mut self, file_path: &Path) -> Result<(), String> {
         match self.file_manager.load_from_file(file_path) {
-            Ok((graph, viewport)) => {
+            Ok((graph, canvas)) => {
                 self.graph = graph;
-                self.viewport = viewport;
+                self.canvas = canvas;
                 
                 // Reset view state
-                self.view_manager.set_root_view();
+                self.navigation.set_root_view();
                 self.navigation = NavigationManager::new();
                 self.interaction.clear_selection();
                 // Reset context manager to root (no active context)
@@ -424,12 +418,12 @@ impl NodeEditor {
     /// Open file dialog and load selected file
     pub fn open_file_dialog(&mut self) {
         match self.file_manager.open_file_dialog() {
-            Ok(Some((graph, viewport))) => {
+            Ok(Some((graph, canvas))) => {
                 self.graph = graph;
-                self.viewport = viewport;
+                self.canvas = canvas;
                 
                 // Reset view state
-                self.view_manager.set_root_view();
+                self.navigation.set_root_view();
                 self.navigation = NavigationManager::new();
                 self.interaction.clear_selection();
                 // Reset context manager to root (no active context)
@@ -451,7 +445,7 @@ impl NodeEditor {
     
     /// Save to current file path, or prompt for new path if none exists
     pub fn save_file(&mut self) {
-        match self.file_manager.save_file(&self.graph, &self.viewport) {
+        match self.file_manager.save_file(&self.graph, &self.canvas) {
             Ok(()) => {
                 // File saved successfully
             }
@@ -464,7 +458,7 @@ impl NodeEditor {
     
     /// Save as dialog
     pub fn save_as_file_dialog(&mut self) {
-        match self.file_manager.save_as_file_dialog(&self.graph, &self.viewport) {
+        match self.file_manager.save_as_file_dialog(&self.graph, &self.canvas) {
             Ok(true) => {
                 // File saved successfully
             }
@@ -490,7 +484,7 @@ impl NodeEditor {
             ui, 
             viewed_nodes, 
             menu_bar_height, 
-            self.view_manager.current_view(), 
+            self.navigation.current_view(), 
             &mut self.graph
         );
     }
@@ -615,7 +609,7 @@ impl eframe::App for NodeEditor {
                         
                         // Update current view based on path
                         if is_root {
-                            self.view_manager.set_root_view();
+                            self.navigation.set_root_view();
                             // Clear workspace stack when going to root
                             self.navigation.workspace_stack.clear();
                         } else {
@@ -636,7 +630,7 @@ impl eframe::App for NodeEditor {
                     }
                     NavigationAction::GoUp => {
                         // Exit from context node view
-                        self.view_manager.set_root_view();
+                        self.navigation.set_root_view();
                         self.interaction.clear_selection();
                         // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         // When going up, clear the active context (back to root)
@@ -662,10 +656,10 @@ impl eframe::App for NodeEditor {
                 ui.label(egui::RichText::new(file_display).color(Color32::LIGHT_BLUE));
                 
                 ui.separator();
-                ui.label(format!("Zoom: {:.1}x", self.viewport.zoom));
+                ui.label(format!("Zoom: {:.1}x", self.canvas.zoom));
                 ui.label(format!(
                     "Pan: ({:.0}, {:.0})",
-                    self.viewport.pan_offset.x, self.viewport.pan_offset.y
+                    self.canvas.pan_offset.x, self.canvas.pan_offset.y
                 ));
                 
                     ui.add_space(4.0); // Right padding
@@ -699,9 +693,9 @@ impl eframe::App for NodeEditor {
                 Color32::from_rgb(28, 28, 28), // Standard background color
             );
 
-            // Apply zoom and pan transforms using viewport
-            let zoom = self.viewport.zoom;
-            let pan_offset = self.viewport.pan_offset;
+            // Apply zoom and pan transforms using canvas
+            let zoom = self.canvas.zoom;
+            let pan_offset = self.canvas.pan_offset;
 
             let transform_pos = |pos: Pos2| -> Pos2 {
                 Pos2::new(
@@ -722,7 +716,7 @@ impl eframe::App for NodeEditor {
 
             // Handle pan and zoom using input state
             if let Some(pan_delta) = self.input_state.get_pan_delta(&response) {
-                self.viewport.pan(pan_delta);
+                self.canvas.pan(pan_delta);
             }
 
             // Handle zoom with mouse wheel using input state
@@ -748,7 +742,7 @@ impl eframe::App for NodeEditor {
                     // Handle clicks (not just drags)
                     if self.input_state.clicked_this_frame {
                         // Check if we clicked on a port first - use active graph for consistency
-                        let active_graph = self.view_manager.get_active_graph(&self.graph);
+                        let active_graph = self.navigation.get_active_graph(&self.graph);
                         // Use smaller radius for precise clicks when not in connecting mode
                         let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
                         if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
@@ -794,7 +788,7 @@ impl eframe::App for NodeEditor {
                             let mut handled_button_click = false;
                             
                             // Get the correct graph for button interaction
-                            match self.view_manager.current_view() {
+                            match self.navigation.current_view() {
                                 GraphView::Root => {
                                     if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                         if node.is_point_in_left_button(mouse_pos) {
@@ -885,7 +879,7 @@ impl eframe::App for NodeEditor {
                                 // Check for double-click on workspace nodes
                                 if self.interaction.check_double_click(node_id) {
                                     // Check if the node exists in the active graph and is a workspace node
-                                    let is_workspace_node = match self.view_manager.current_view() {
+                                    let is_workspace_node = match self.navigation.current_view() {
                                         GraphView::Root => {
                                             self.graph.nodes.get(&node_id).map(|n| n.is_workspace()).unwrap_or(false)
                                         }
@@ -904,7 +898,7 @@ impl eframe::App for NodeEditor {
                                     
                                     if is_workspace_node {
                                         // Get workspace type from the node
-                                        let workspace_type = match self.view_manager.current_view() {
+                                        let workspace_type = match self.navigation.current_view() {
                                             GraphView::Root => {
                                                 self.graph.nodes.get(&node_id).and_then(|n| n.get_workspace_type())
                                             }
@@ -923,7 +917,7 @@ impl eframe::App for NodeEditor {
                                         
                                         if let Some(workspace_type) = workspace_type {
                                                 self.navigation.enter_workspace_node(node_id, workspace_type);
-                                                self.view_manager.set_workspace_view(node_id);
+                                                self.navigation.set_workspace_view(node_id);
                                                 // Clear selections when entering a new graph
                                                 self.interaction.clear_selection();
                                                 // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -941,7 +935,7 @@ impl eframe::App for NodeEditor {
                                 
                                 // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
-                        } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.build_temp_graph(&viewed_nodes), 8.0, self.viewport.zoom) {
+                        } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.build_temp_graph(&viewed_nodes), 8.0, self.canvas.zoom) {
                             // Handle connection selection with multi-select support
                             self.interaction.select_connection_multi(connection_idx, self.input_state.is_multi_select());
                             // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
@@ -956,7 +950,7 @@ impl eframe::App for NodeEditor {
                     // Handle drag start for connections, node movement and box selection
                     if self.input_state.drag_started_this_frame {
                         // Check if we're starting to drag from a port for connections - use active graph for consistency
-                        let active_graph = self.view_manager.get_active_graph(&self.graph);
+                        let active_graph = self.navigation.get_active_graph(&self.graph);
                         // Use smaller radius for precise clicks when not in connecting mode
                         let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
                         if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
@@ -981,7 +975,7 @@ impl eframe::App for NodeEditor {
                         } else {
                             // Check if we're starting to drag a selected node
                             let mut dragging_selected = false;
-                            let current_graph = match self.view_manager.current_view() {
+                            let current_graph = match self.navigation.current_view() {
                                 GraphView::Root => &self.graph,
                                 GraphView::WorkspaceNode(node_id) => {
                                     if let Some(node) = self.graph.nodes.get(&node_id) {
@@ -1029,7 +1023,7 @@ impl eframe::App for NodeEditor {
                     if response.dragged() {
                         if !self.interaction.drag_offsets.is_empty() {
                             // Drag all selected nodes - use correct graph based on current view
-                            match self.view_manager.current_view() {
+                            match self.navigation.current_view() {
                                 GraphView::Root => {
                                     self.interaction.update_drag(pos, &mut self.graph);
                                 }
@@ -1055,7 +1049,7 @@ impl eframe::App for NodeEditor {
                     if self.input_state.drag_stopped_this_frame {
                         if self.input_state.is_connecting_active() {
                             // Check if we released on a port to complete connection - use active graph for consistency
-                            let active_graph = self.view_manager.get_active_graph(&self.graph);
+                            let active_graph = self.navigation.get_active_graph(&self.graph);
                             // Use smaller radius for precise clicks when not in connecting mode
                             let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
                             if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(active_graph, click_radius) {
@@ -1080,7 +1074,7 @@ impl eframe::App for NodeEditor {
 
                     // Complete box selection
                     if self.interaction.box_selection_start.is_some() {
-                        match self.view_manager.current_view() {
+                        match self.navigation.current_view() {
                             GraphView::Root => {
                                 self.interaction.complete_box_selection(&self.graph, self.input_state.is_multi_select());
                             }
@@ -1104,7 +1098,7 @@ impl eframe::App for NodeEditor {
             if self.input_state.delete_pressed(ui) {
                 if !self.interaction.selected_nodes.is_empty() {
                     // Delete all selected nodes from the correct graph
-                    match self.view_manager.current_view() {
+                    match self.navigation.current_view() {
                         GraphView::Root => {
                             self.interaction.delete_selected(&mut self.graph);
                         }
@@ -1123,7 +1117,7 @@ impl eframe::App for NodeEditor {
                     let mut connection_indices: Vec<usize> = self.interaction.selected_connections.iter().copied().collect();
                     connection_indices.sort_by(|a, b| b.cmp(a)); // Sort in reverse order
                     
-                    match self.view_manager.current_view() {
+                    match self.navigation.current_view() {
                         GraphView::Root => {
                             for conn_idx in connection_indices {
                                 self.graph.remove_connection(conn_idx);
@@ -1160,8 +1154,8 @@ impl eframe::App for NodeEditor {
             if !self.input_state.is_cutting_mode() && (!self.input_state.get_cut_paths().is_empty() || !self.input_state.get_current_cut_path().is_empty()) {
                 // X key was just released - apply cuts
                 let cut_connections = {
-                    let active_graph = self.view_manager.get_active_graph(&self.graph);
-                    self.input_state.find_cut_connections(active_graph, self.viewport.zoom)
+                    let active_graph = self.navigation.get_active_graph(&self.graph);
+                    self.input_state.find_cut_connections(active_graph, self.canvas.zoom)
                 };
                 
                 if !cut_connections.is_empty() {
@@ -1185,7 +1179,7 @@ impl eframe::App for NodeEditor {
             if !self.input_state.is_connecting_mode() && (!self.input_state.get_connect_paths().is_empty() || !self.input_state.get_current_connect_path().is_empty()) {
                 // C key was just released - create connections from drawn paths
                 let (new_connections, connections_to_remove) = {
-                    let active_graph = self.view_manager.get_active_graph(&self.graph);
+                    let active_graph = self.navigation.get_active_graph(&self.graph);
                     let new_connections = self.input_state.create_connections_from_paths(active_graph);
                     
                     // Process connections to find existing ones to remove
@@ -1275,7 +1269,7 @@ impl eframe::App for NodeEditor {
                     );
                     
                     // Get current graph for box selection preview
-                    let current_graph = self.view_manager.get_active_graph(&self.graph);
+                    let current_graph = self.navigation.get_active_graph(&self.graph);
                     
                     // Combine selected nodes with box selection preview for immediate highlighting
                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -1298,8 +1292,8 @@ impl eframe::App for NodeEditor {
                         port_instances,
                         button_instances,
                         flag_instances,
-                        self.viewport.get_gpu_pan_offset(self.current_menu_bar_height),
-                        self.viewport.zoom,
+                        self.canvas.get_gpu_pan_offset(self.current_menu_bar_height),
+                        self.canvas.zoom,
                         screen_size,
                     );
                     
@@ -1316,7 +1310,7 @@ impl eframe::App for NodeEditor {
                         transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
                         egui::Align2::CENTER_CENTER,
                         &node.title,
-                        egui::FontId::proportional(12.0 * self.viewport.zoom),
+                        egui::FontId::proportional(12.0 * self.canvas.zoom),
                         Color32::WHITE,
                     );
                     
@@ -1329,7 +1323,7 @@ impl eframe::App for NodeEditor {
                                     transform_pos(input.position - Vec2::new(0.0, 15.0)),
                                     egui::Align2::CENTER_BOTTOM,
                                     &input.name,
-                                    egui::FontId::proportional(10.0 * self.viewport.zoom),
+                                    egui::FontId::proportional(10.0 * self.canvas.zoom),
                                     Color32::WHITE,
                                 );
                             }
@@ -1342,7 +1336,7 @@ impl eframe::App for NodeEditor {
                                     transform_pos(output.position + Vec2::new(0.0, 15.0)),
                                     egui::Align2::CENTER_TOP,
                                     &output.name,
-                                    egui::FontId::proportional(10.0 * self.viewport.zoom),
+                                    egui::FontId::proportional(10.0 * self.canvas.zoom),
                                     Color32::WHITE,
                                 );
                             }
@@ -1356,7 +1350,7 @@ impl eframe::App for NodeEditor {
                 // CPU rendering path - fallback mode using MeshRenderer
                 
                 // Get current graph for box selection preview
-                let current_graph = self.view_manager.get_active_graph(&self.graph);
+                let current_graph = self.navigation.get_active_graph(&self.graph);
                 
                 // Get box selection preview nodes for immediate highlighting
                 let box_preview_nodes = self.interaction.get_box_selection_preview(current_graph);
