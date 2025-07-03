@@ -116,10 +116,6 @@ impl NavigationManager {
         self.current_path = self.current_path.navigate_to(workspace_name);
     }
     
-    /// Navigate to a specific workspace (alias for enter_workspace)
-    pub fn navigate_to_workspace(&mut self, workspace_name: &str) {
-        self.enter_workspace(workspace_name);
-    }
     
     /// Navigate to parent workspace
     pub fn go_up(&mut self) {
@@ -162,16 +158,6 @@ impl NavigationManager {
         } else {
             None
         }
-    }
-    
-    /// Check if we're currently inside a workspace node
-    pub fn is_inside_workspace_node(&self) -> bool {
-        !self.workspace_stack.is_empty()
-    }
-    
-    /// Get the current workspace node ID if we're inside one
-    pub fn current_workspace_node(&self) -> Option<crate::nodes::NodeId> {
-        self.workspace_stack.last().copied()
     }
     
     /// Render the navigation breadcrumb bar
@@ -309,25 +295,6 @@ impl NavigationManager {
         temp_graph
     }
 
-    /// Check if a workspace node can be entered (has internal graph)
-    pub fn can_enter_workspace(&self, graph: &NodeGraph, node_id: NodeId) -> bool {
-        if let Some(node) = graph.nodes.get(&node_id) {
-            node.get_internal_graph().is_some()
-        } else {
-            false
-        }
-    }
-
-    /// Enter a workspace node if possible
-    pub fn try_enter_workspace(&mut self, graph: &NodeGraph, node_id: NodeId) -> bool {
-        if self.can_enter_workspace(graph, node_id) {
-            self.current_view = GraphView::WorkspaceNode(node_id);
-            true
-        } else {
-            false
-        }
-    }
-
     /// Exit current workspace and return to root
     pub fn exit_to_root(&mut self) {
         self.current_view = GraphView::Root;
@@ -363,9 +330,6 @@ impl NavigationManager {
 pub enum NavigationAction {
     None,
     NavigateTo(WorkspacePath),
-    EnterWorkspace(String),
-    GoUp,
-    GoToRoot,
 }
 
 impl Default for NavigationManager {

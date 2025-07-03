@@ -5,7 +5,7 @@ pub mod canvas;
 pub mod input;
 pub mod interaction;
 pub mod menus;
-pub mod rendering;
+pub mod canvas_rendering;
 pub mod navigation;
 pub mod file_manager;
 pub mod panels;
@@ -17,7 +17,7 @@ pub use canvas::Canvas;
 pub use input::InputState;
 pub use interaction::InteractionManager;
 pub use menus::MenuManager;
-pub use rendering::MeshRenderer;
+pub use canvas_rendering::MeshRenderer;
 pub use navigation::{NavigationManager, NavigationAction, GraphView};
 pub use file_manager::FileManager;
 pub use panels::{PanelManager, PanelAction};
@@ -210,7 +210,7 @@ impl NodeEditor {
                 if node_type.starts_with("SUBWORKSPACE:") {
                     // Handle subworkspace navigation
                     let workspace_name = node_type.strip_prefix("SUBWORKSPACE:").unwrap();
-                    self.navigation.navigate_to_workspace(workspace_name);
+                    self.navigation.enter_workspace(workspace_name);
                     // Synchronize workspace manager with navigation state
                     self.workspace_manager.set_active_workspace_by_id(Some(workspace_name));
                 } else {
@@ -622,25 +622,7 @@ impl eframe::App for NodeEditor {
                         self.workspace_manager.set_active_workspace_by_id(workspace_id);
                         self.interaction.clear_selection();
                     }
-                    NavigationAction::EnterWorkspace(workspace_name) => {
-                        self.navigation.enter_workspace(&workspace_name);
-                        // Synchronize context manager with navigation state
-                        let workspace_id = self.navigation.current_path.current_workspace();
-                        self.workspace_manager.set_active_workspace_by_id(workspace_id);
-                    }
-                    NavigationAction::GoUp => {
-                        // Exit from context node view
-                        self.navigation.set_root_view();
-                        self.interaction.clear_selection();
-                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-                        // When going up, clear the active context (back to root)
-                        self.workspace_manager.set_active_workspace_by_id(None);
-                    }
-                    NavigationAction::GoToRoot => {
-                        self.navigation.go_to_root();
-                        // Synchronize context manager with navigation state (root = no active context)
-                        self.workspace_manager.set_active_workspace_by_id(None);
-                    }
+                    // All removed NavigationAction variants have been cleaned up
                     NavigationAction::None => {}
                 }
                 

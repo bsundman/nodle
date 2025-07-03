@@ -7,7 +7,7 @@ use wgpu::{Device, Queue, Buffer, BufferUsages, CommandEncoder, RenderPass};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::HashMap;
-use crate::gpu::renderer3d::{Renderer3D, Camera3D, Vertex3D, Uniforms3D};
+use crate::gpu::viewport_3d_rendering::{Renderer3D, Camera3D, Vertex3D, Uniforms3D};
 use crate::nodes::three_d::usd::usd_engine::{USDStage, USDPrim, with_usd_engine};
 
 #[cfg(feature = "usd")]
@@ -658,4 +658,4 @@ impl USDRenderPass for USDRenderer {
 
 // Need to add wgpu::util for buffer creation
 use wgpu::util::DeviceExt;
-use crate::gpu::viewport_callback::USDRenderPass;
+use crate::gpu::viewport_3d_callback::USDRenderPass;

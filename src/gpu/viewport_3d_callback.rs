@@ -41,7 +41,7 @@ impl egui_wgpu::CallbackTrait for ViewportRenderCallback {
         if renderer.base_renderer.mesh_pipeline.is_none() {
             // We need to create a new renderer with the device and queue
             // Since we can't clone Device/Queue, we'll create a new base renderer
-            renderer.base_renderer = crate::gpu::renderer3d::Renderer3D::new();
+            renderer.base_renderer = crate::gpu::viewport_3d_rendering::Renderer3D::new();
             renderer.base_renderer.initialize_from_refs(device, queue);
             
             // Scene will be empty by default

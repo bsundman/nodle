@@ -4,7 +4,7 @@
 //! rendering pipelines, buffers, and draw calls for efficient instanced rendering
 //! of nodes and ports.
 
-use super::instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms};
+use super::canvas_instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms};
 use super::config::GraphicsConfig;
 use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
