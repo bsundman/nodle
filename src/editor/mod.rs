@@ -257,27 +257,35 @@ impl NodeEditor {
 
     fn create_node(&mut self, node_type: &str, position: Pos2) {
         // Delegate to WorkspaceBuilder for all node creation logic
-        if WorkspaceBuilder::create_node(
+        if let Some(node_id) = WorkspaceBuilder::create_node(
             node_type,
             position,
             &self.navigation,
             &self.workspace_manager,
             &mut self.graph,
         ) {
-            // Find the newly created node ID (it will be the last one added)
+            // Use the actual NodeId returned from create_node instead of unreliable HashMap iteration
             let viewed_nodes = self.get_viewed_nodes();
-            if let Some((&node_id, node)) = viewed_nodes.iter().last() {
+            if let Some(node) = viewed_nodes.get(&node_id) {
                 // The node should already have its panel type set by the factory
                 if let Some(panel_type) = node.get_panel_type() {
                     // Set appropriate stacking defaults based on panel type
+                    // IMPORTANT: Keep viewport and parameter panels completely separate
                     match panel_type {
                         crate::nodes::interface::PanelType::Viewport => {
+                            // Viewport panels float by default - never stack with parameter panels
                             self.panel_manager.interface_panel_manager_mut()
-                                .set_panel_stacked(node_id, false); // Float by default
+                                .set_panel_stacked(node_id, false);
+                        },
+                        crate::nodes::interface::PanelType::Parameter => {
+                            // Parameter panels stack by default - separate from viewport panels
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_stacked(node_id, true);
                         },
                         _ => {
+                            // Other panel types stack by default
                             self.panel_manager.interface_panel_manager_mut()
-                                .set_panel_stacked(node_id, true); // Stack by default
+                                .set_panel_stacked(node_id, true);
                         }
                     }
                     

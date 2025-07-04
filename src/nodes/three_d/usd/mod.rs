@@ -21,7 +21,7 @@ mod usd_cube;
 mod usd_camera;
 mod usd_light;
 mod usd_material;
-mod usd_viewport;
+pub mod usd_viewport;
 mod usd_composition;
 mod set_attribute;
 mod get_attribute;

@@ -496,7 +496,7 @@ impl InterfacePanelManager {
     
     /// Get all visible stacked panels of a specific type
     pub fn get_stacked_panels_by_type(&self, panel_type: PanelType, viewed_nodes: &HashMap<NodeId, crate::nodes::Node>) -> Vec<NodeId> {
-        viewed_nodes.keys()
+        let mut panels: Vec<NodeId> = viewed_nodes.keys()
             .filter(|&&node_id| {
                 let node = &viewed_nodes[&node_id];
                 node.visible 
@@ -505,7 +505,12 @@ impl InterfacePanelManager {
                 && node.get_panel_type() == Some(panel_type)
             })
             .copied()
-            .collect()
+            .collect();
+        
+        // Sort by node ID to ensure consistent ordering
+        // This prevents the "first" node from changing randomly
+        panels.sort();
+        panels
     }
     
     /// Render interface panel for a node

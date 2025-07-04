@@ -4,7 +4,7 @@
 //! node placement, workspace population, and view management integration.
 
 use egui::{Pos2, Color32};
-use crate::nodes::{NodeGraph, Node};
+use crate::nodes::{NodeGraph, Node, NodeId};
 use crate::workspace::WorkspaceManager;
 use crate::editor::navigation::NavigationManager;
 
@@ -19,7 +19,7 @@ impl WorkspaceBuilder {
         navigation: &NavigationManager,
         workspace_manager: &WorkspaceManager,
         graph: &mut NodeGraph,
-    ) -> bool {
+    ) -> Option<NodeId> {
         // Check if this is a workspace node creation
         if Self::is_workspace_type(node_type) {
             Self::create_workspace_node(node_type, position, navigation, graph)
@@ -39,15 +39,16 @@ impl WorkspaceBuilder {
         position: Pos2,
         navigation: &NavigationManager,
         graph: &mut NodeGraph,
-    ) -> bool {
+    ) -> Option<NodeId> {
         let workspace_type = match node_type {
             "WORKSPACE:2D" => "2D",
             "WORKSPACE:3D" => "3D", 
             "WORKSPACE:MaterialX" => "MaterialX",
-            _ => return false,
+            _ => return None,
         };
 
         let mut workspace_node = Node::new_workspace(0, workspace_type, position);
+        let node_id = workspace_node.id;
         
         // Workspace nodes have parameter panels for configuration
         workspace_node.set_panel_type(crate::nodes::interface::PanelType::Parameter);
@@ -58,10 +59,10 @@ impl WorkspaceBuilder {
         // Workspace nodes can only be created in the root graph
         if navigation.is_root_view() {
             graph.add_node(workspace_node);
-            true
+            Some(node_id)
         } else {
             // Could potentially add to workspace internal graph, but for now restrict to root
-            false
+            None
         }
     }
 
@@ -72,7 +73,7 @@ impl WorkspaceBuilder {
         navigation: &NavigationManager,
         workspace_manager: &WorkspaceManager,
         graph: &mut NodeGraph,
-    ) -> bool {
+    ) -> Option<NodeId> {
         // Map display names to internal names if needed
         let internal_node_type = match node_type {
             "Nōdle 2D Workspace" => "WORKSPACE:2D",
@@ -104,12 +105,12 @@ impl WorkspaceBuilder {
         // Add the node to the appropriate graph based on current view
         if let Some(node) = new_node {
             println!("DEBUG: Successfully created node, adding to graph");
-            Self::place_node_in_graph(node, navigation, graph);
+            let node_id = Self::place_node_in_graph(node, navigation, graph);
             println!("DEBUG: Node creation completed successfully");
-            true
+            node_id
         } else {
             println!("DEBUG: Failed to create node");
-            false
+            None
         }
     }
 
@@ -118,16 +119,26 @@ impl WorkspaceBuilder {
         node: Node,
         navigation: &NavigationManager,
         graph: &mut NodeGraph,
-    ) {
+    ) -> Option<NodeId> {
         if navigation.is_root_view() {
-            graph.add_node(node);
+            // add_node returns the actual assigned ID
+            let node_id = graph.add_node(node);
+            Some(node_id)
         } else if let Some(workspace_node_id) = navigation.get_workspace_node_id() {
             // Try to add to workspace internal graph
             if let Some(workspace_node) = graph.nodes.get_mut(&workspace_node_id) {
                 if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
-                    internal_graph.add_node(node);
+                    // add_node returns the actual assigned ID
+                    let node_id = internal_graph.add_node(node);
+                    Some(node_id)
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        } else {
+            None
         }
     }
 

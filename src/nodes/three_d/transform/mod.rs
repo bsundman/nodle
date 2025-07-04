@@ -5,6 +5,6 @@ pub mod rotate;      // Modular directory structure
 pub mod scale;       // Modular directory structure
 
 // Export all modular nodes
-pub use translate::{TranslateNode3D, TranslateNode};
-pub use rotate::{RotateNode3D, RotateNode};
-pub use scale::{ScaleNode3D, ScaleNode};
+pub use translate::TranslateNode;
+pub use rotate::RotateNode;
+pub use scale::ScaleNode;

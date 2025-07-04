@@ -1,10 +1,8 @@
-//! Cube node module - modular structure with separated concerns
+//! Cube node module - enhanced NodeFactory system
 
-pub mod cube;
 pub mod logic;
 pub mod parameters;
 
-pub use cube::CubeNode3D;
 pub use logic::{CubeGeometry, PivotType};
 pub use parameters::CubeNode;
 

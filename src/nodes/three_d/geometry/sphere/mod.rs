@@ -1,10 +1,8 @@
-//! Sphere node module - modular structure with separated concerns
+//! Sphere node module - enhanced NodeFactory system
 
-pub mod sphere;
 pub mod logic;
 pub mod parameters;
 
-pub use sphere::SphereNode3D;
 pub use logic::{SphereGeometry, SphereType};
 pub use parameters::SphereNode;
 

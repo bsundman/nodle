@@ -1,10 +1,8 @@
-//! Directional light node module - modular structure with separated concerns
+//! Directional light node module - enhanced NodeFactory system
 
-pub mod directional_light;
 pub mod logic;
 pub mod parameters;
 
-pub use directional_light::DirectionalLightNode3D;
 pub use logic::DirectionalLightLogic;
 pub use parameters::DirectionalLightNode;
 

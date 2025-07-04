@@ -1,10 +1,8 @@
-//! Translate node module - modular structure with separated concerns
+//! Translate node module - enhanced NodeFactory system
 
-pub mod translate;
 pub mod logic;
 pub mod parameters;
 
-pub use translate::TranslateNode3D;
 pub use logic::TranslateLogic;
 pub use parameters::TranslateNode;
 

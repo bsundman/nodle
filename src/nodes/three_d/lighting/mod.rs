@@ -4,6 +4,6 @@ pub mod point_light;        // Modular directory structure
 pub mod directional_light;  // Modular directory structure
 pub mod spot_light;         // Modular directory structure
 
-pub use point_light::{PointLightNode3D, PointLightNode};
-pub use directional_light::{DirectionalLightNode3D, DirectionalLightNode};
-pub use spot_light::{SpotLightNode3D, SpotLightNode};
+pub use point_light::PointLightNode;
+pub use directional_light::DirectionalLightNode;
+pub use spot_light::SpotLightNode;

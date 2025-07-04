@@ -177,98 +177,73 @@ Nōdle uses wgpu for high-performance rendering:
 - `flag.wgsl`: Renders visibility toggle flags
 - `button.wgsl`: Renders interactive buttons
 
-## Interface Panel System - Pattern A
+## Interface Panel System
 
-**IMPORTANT**: Nōdle uses a unified Pattern A for ALL node parameter interfaces.
+Nōdle features a comprehensive interface panel system with automatic visibility management and type-specific stacking behavior.
 
-### Pattern A: build_interface Method
+### Panel Types and Behavior
 
-Every node that needs parameter controls implements a `build_interface` method:
-
-```rust
-pub fn build_interface(node: &mut Node, ui: &mut egui::Ui) -> Vec<ParameterChange> {
-    let mut changes = Vec::new();
-    
-    // Add UI controls and collect parameter changes
-    ui.horizontal(|ui| {
-        ui.label("Parameter:");
-        let mut value = get_parameter_value(node, "param_name");
-        if ui.text_edit_singleline(&mut value).changed() {
-            changes.push(ParameterChange {
-                parameter: "param_name".to_string(),
-                value: NodeData::String(value),
-            });
-        }
-    });
-    
-    changes
-}
-```
-
-### Parameter Interface Architecture
-
-- **Pre-defined Helpers**: Parameters are pre-defined helpers that parameter panels grab
-- **Node-Centric**: Panels are part of the node code in the nodes folder and subfolders
-- **Unified Pattern**: ALL nodes use Pattern A - no exceptions
-- **Modular Structure**: Each node has its parameters.rs file with build_interface method
-
-### Panel Types
-
-- **Parameter**: Node configuration (top-right) - uses Pattern A build_interface
-- **Viewport**: 3D/2D visualization (main area) - uses Pattern A build_interface
+- **Parameter**: Node configuration panels that stack together by default (top-right area)
+- **Viewport**: 3D/2D visualization panels that remain separate and floating
 - **Editor**: Complex editing interfaces
 - **Inspector**: Debug/analysis tools
 
-### Implementation Example
+### Automatic Panel Management
+
+The panel system provides automatic visibility and stacking management:
+
+**Panel Visibility**:
+- Panels automatically appear when nodes are created
+- Panel visibility is managed through the `node.visible` flag and panel manager state
+- Reliable node ID detection ensures proper panel assignment
+
+**Panel Stacking**:
+- Parameter panels stack together by default for efficient screen space usage
+- Viewport panels remain separate and floating to prevent interference
+- Panel types are completely isolated - viewport and parameter panels never stack together
+
+### Panel Creation Flow
+
+When a node is created, the system:
+
+1. **Node Factory**: Creates node with proper `panel_type` set via NodeMetadata
+2. **ID Assignment**: NodeGraph assigns reliable, unique node IDs via `add_node()`
+3. **Panel Setup**: Panel manager configures visibility and stacking based on panel type
+4. **Auto-Display**: Panels automatically become visible without manual intervention
+
+### Node Panel Assignment
+
+Nodes specify their panel type through the NodeFactory metadata:
 
 ```rust
-// In nodes/math/add/parameters.rs
-pub struct AddNode;
+impl NodeFactory for ViewportNode {
+    fn metadata() -> NodeMetadata {
+        NodeMetadata::new("USD_Viewport", "USD Viewport")
+            .with_panel_type(PanelType::Viewport)
+            // ...
+    }
+}
 
-impl AddNode {
-    pub fn build_interface(node: &mut Node, ui: &mut egui::Ui) -> Vec<ParameterChange> {
-        let mut changes = Vec::new();
-        
-        ui.label("Addition Parameters");
-        ui.separator();
-        
-        // Get current values from node parameters
-        let a_value = get_float_parameter(node, "input_a", 0.0);
-        let b_value = get_float_parameter(node, "input_b", 0.0);
-        
-        ui.horizontal(|ui| {
-            ui.label("Input A:");
-            let mut a_buffer = a_value.to_string();
-            if ui.text_edit_singleline(&mut a_buffer).changed() {
-                if let Ok(parsed) = a_buffer.parse::<f32>() {
-                    changes.push(ParameterChange {
-                        parameter: "input_a".to_string(),
-                        value: NodeData::Float(parsed),
-                    });
-                }
-            }
-        });
-        
-        changes
+impl NodeFactory for TransformNode {
+    fn metadata() -> NodeMetadata {
+        NodeMetadata::new("3D_Translate", "3D Translate")
+            .with_panel_type(PanelType::Parameter)
+            // ...
     }
 }
 ```
 
-### Parameter Panel Integration
+### Panel System Architecture
 
-The parameter panel system automatically calls build_interface for all nodes:
+**Separation of Concerns**:
+- Viewport panels: Individual floating windows for 3D/2D visualization
+- Parameter panels: Stacked interface for node configuration
+- No cross-contamination between panel types
 
-```rust
-// In parameter.rs panel
-fn render_build_interface_pattern(&mut self, node: &mut Node, ui: &mut egui::Ui, node_id: NodeId) -> bool {
-    if title.contains("Add") {
-        let changes = crate::nodes::math::add::parameters::AddNode::build_interface(node, ui);
-        self.apply_parameter_changes(node, changes, &title, node_id);
-        return true;
-    }
-    // ... other nodes
-}
-```
+**Reliable Node Tracking**:
+- Uses `NodeGraph::add_node()` return value for accurate node IDs
+- Eliminates race conditions in node creation and panel assignment
+- Ensures panel state is set on the correct node instance
 
 ## Workspace System
 

@@ -1,10 +1,8 @@
-//! Plane node module - modular structure with separated concerns
+//! Plane node module - enhanced NodeFactory system
 
-pub mod plane;
 pub mod logic;
 pub mod parameters;
 
-pub use plane::PlaneNode3D;
 pub use logic::PlaneGeometry;
 pub use parameters::PlaneNode;
 

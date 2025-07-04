@@ -1,10 +1,8 @@
-//! Spot light node module - modular structure with separated concerns
+//! Spot light node module - enhanced NodeFactory system
 
-pub mod spot_light;
 pub mod logic;
 pub mod parameters;
 
-pub use spot_light::SpotLightNode3D;
 pub use logic::SpotLightLogic;
 pub use parameters::SpotLightNode;
 

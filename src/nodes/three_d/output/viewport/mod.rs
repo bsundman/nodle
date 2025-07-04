@@ -1,10 +1,8 @@
-//! Viewport node module - modular structure with separated concerns
+//! Viewport node module - enhanced NodeFactory system
 
-pub mod viewport;
 pub mod logic;
 pub mod viewport_interface;
 
-pub use viewport::ViewportNode3D;
 pub use logic::ViewportLogic;
 pub use viewport_interface::ViewportNode;
 

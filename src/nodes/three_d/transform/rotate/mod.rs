@@ -1,10 +1,8 @@
-//! Rotate node module - modular structure with separated concerns
+//! Rotate node module - enhanced NodeFactory system
 
-pub mod rotate;
 pub mod logic;
 pub mod parameters;
 
-pub use rotate::RotateNode3D;
 pub use logic::RotateLogic;
 pub use parameters::RotateNode;
 

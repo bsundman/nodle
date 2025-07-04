@@ -40,13 +40,27 @@ impl ParameterPanel {
                 viewed_nodes
             );
             
-            if let Some(&first_node_id) = stacked_parameter_nodes.first() {
+            if !stacked_parameter_nodes.is_empty() {
+                // Find the designated renderer for the stacked window
+                let first_node_id = stacked_parameter_nodes[0];
+                
                 if node_id == first_node_id {
-                    // This is the first stacked parameter node, render the shared window
+                    // This is the designated renderer, render the shared window
                     self.render_stacked_panels(ctx, &stacked_parameter_nodes, panel_manager, menu_bar_height, viewed_nodes, graph)
                 } else {
-                    // This is not the first node, don't render a window (already handled by first node)
-                    PanelAction::None
+                    // This is not the designated renderer, but if the designated renderer
+                    // is not visible or the first node's panel is closed, allow this node to render
+                    let first_node_visible = viewed_nodes.get(&first_node_id)
+                        .map(|node| node.visible && panel_manager.is_panel_visible(first_node_id))
+                        .unwrap_or(false);
+                    
+                    if !first_node_visible || !panel_manager.is_panel_open(first_node_id) {
+                        // First node can't render the window, so this node should do it
+                        self.render_stacked_panels(ctx, &stacked_parameter_nodes, panel_manager, menu_bar_height, viewed_nodes, graph)
+                    } else {
+                        // First node is handling the window
+                        PanelAction::None
+                    }
                 }
             } else {
                 PanelAction::None

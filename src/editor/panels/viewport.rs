@@ -59,7 +59,7 @@ impl ViewportPanel {
             }
         } else {
             // Render as individual floating window (default)
-            self.render_individual_viewport(ctx, node_id, node, panel_manager, menu_bar_height)
+            self.render_individual_viewport(ctx, node_id, node, panel_manager, menu_bar_height, viewed_nodes)
         }
     }
 
@@ -71,6 +71,7 @@ impl ViewportPanel {
         node: &Node,
         panel_manager: &mut InterfacePanelManager,
         menu_bar_height: f32,
+        viewed_nodes: &std::collections::HashMap<NodeId, Node>,
     ) -> PanelAction {
         let panel_id = egui::Id::new(format!("viewport_panel_{}", node_id));
         let mut panel_action = PanelAction::None;
@@ -98,7 +99,7 @@ impl ViewportPanel {
             ))
             .show(ctx, |ui| {
                 // Panel controls at the top
-                let (control_action, close_requested) = self.render_panel_controls(ui, node_id, panel_manager);
+                let (control_action, close_requested) = self.render_panel_controls(ui, node_id, panel_manager, viewed_nodes);
                 if control_action != PanelAction::None {
                     panel_action = control_action;
                 }
@@ -194,7 +195,10 @@ impl ViewportPanel {
                 ui.horizontal(|ui| {
                     for (i, &node_id) in stacked_node_ids.iter().enumerate() {
                         if let Some(node) = viewed_nodes.get(&node_id) {
-                            let tab_text = &node.title;
+                            // Use custom name if available, otherwise use node title
+                            let tab_text = panel_manager.get_node_name(node_id)
+                                .cloned()
+                                .unwrap_or_else(|| node.title.clone());
                             let is_selected = i == selected_tab_index;
                             
                             if ui.selectable_label(is_selected, tab_text).clicked() {
@@ -215,7 +219,7 @@ impl ViewportPanel {
                 if let Some(&selected_node_id) = stacked_node_ids.get(new_selected_tab) {
                     if let Some(node) = viewed_nodes.get(&selected_node_id) {
                         // Panel controls for the selected viewport
-                        let (control_action, close_requested) = self.render_panel_controls(ui, selected_node_id, panel_manager);
+                        let (control_action, close_requested) = self.render_panel_controls(ui, selected_node_id, panel_manager, viewed_nodes);
                         if control_action != PanelAction::None {
                             panel_action = control_action;
                         }
@@ -257,9 +261,40 @@ impl ViewportPanel {
         ui: &mut egui::Ui,
         node_id: NodeId,
         panel_manager: &mut InterfacePanelManager,
+        viewed_nodes: &std::collections::HashMap<NodeId, crate::nodes::Node>,
     ) -> (PanelAction, bool) {
         let mut panel_action = PanelAction::None;
         let mut close_requested = false;
+        
+        // Add name field like parameter panels have
+        if let Some(node) = viewed_nodes.get(&node_id) {
+            // Get current custom name or use node's default title
+            let current_name = panel_manager.get_node_name(node_id)
+                .cloned()
+                .unwrap_or_else(|| node.title.clone());
+            let mut name_buffer = current_name;
+            
+            // Get current fit name flag
+            let mut fit_name = panel_manager.get_fit_name(node_id);
+            
+            ui.horizontal(|ui| {
+                ui.label("Name:");
+                
+                // Name text field
+                let name_response = ui.text_edit_singleline(&mut name_buffer);
+                if name_response.changed() {
+                    panel_manager.set_node_name(node_id, name_buffer.clone());
+                }
+                
+                // Fit name checkbox
+                let fit_response = ui.checkbox(&mut fit_name, "Fit name");
+                if fit_response.changed() {
+                    panel_manager.set_fit_name(node_id, fit_name);
+                }
+            });
+            
+            ui.separator();
+        }
         
         ui.horizontal(|ui| {
             ui.label("Viewport controls:");

@@ -1,10 +1,8 @@
-//! Point light node module - modular structure with separated concerns
+//! Point light node module - enhanced NodeFactory system
 
-pub mod point_light;
 pub mod logic;
 pub mod parameters;
 
-pub use point_light::PointLightNode3D;
 pub use logic::PointLightLogic;
 pub use parameters::PointLightNode;
 

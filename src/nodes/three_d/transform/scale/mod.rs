@@ -1,10 +1,8 @@
-//! Scale node module - modular structure with separated concerns
+//! Scale node module - enhanced NodeFactory system
 
-pub mod scale;
 pub mod logic;
 pub mod parameters;
 
-pub use scale::ScaleNode3D;
 pub use logic::ScaleLogic;
 pub use parameters::ScaleNode;
 
