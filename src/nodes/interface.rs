@@ -464,7 +464,7 @@ impl InterfacePanelManager {
     pub fn toggle_panel_stacked(&mut self, node_id: NodeId) {
         let state = self.get_or_create_state(node_id);
         state.stacked = !state.stacked;
-        println!("🔧 InterfacePanelManager: Node {} stacked state changed to {}", node_id, state.stacked);
+        log::debug!("Node {} stacked state changed to {}", node_id, state.stacked);
     }
     
     /// Set panel stacked state
@@ -502,16 +502,16 @@ impl InterfacePanelManager {
         // If there's still 1 panel stacked, keep the stack state to maintain position
         if stacked_count == 0 {
             if self.stacking_initiators.remove(&panel_type).is_some() {
-                println!("🔧 InterfacePanelManager: Cleaned up stacking initiator for {:?} (no stacked panels remaining)", panel_type);
+                log::debug!("Cleaned up stacking initiator for {:?} (no stacked panels remaining)", panel_type);
             }
             if self.stacking_order.remove(&panel_type).is_some() {
-                println!("🔧 InterfacePanelManager: Cleaned up stacking order for {:?} (no stacked panels remaining)", panel_type);
+                log::debug!("Cleaned up stacking order for {:?} (no stacked panels remaining)", panel_type);
             }
             if self.stack_positions.remove(&panel_type).is_some() {
-                println!("🔧 InterfacePanelManager: Cleaned up stack position for {:?} (no stacked panels remaining)", panel_type);
+                log::debug!("Cleaned up stack position for {:?} (no stacked panels remaining)", panel_type);
             }
         } else {
-            println!("🔧 InterfacePanelManager: Keeping stack state for {:?} ({} stacked panels remaining)", panel_type, stacked_count);
+            log::debug!("Keeping stack state for {:?} ({} stacked panels remaining)", panel_type, stacked_count);
         }
     }
     
@@ -535,14 +535,14 @@ impl InterfacePanelManager {
     pub fn set_panel_type(&mut self, node_id: NodeId, panel_type: PanelType) {
         let state = self.get_or_create_state(node_id);
         
-        // Debug: Log panel type changes to help track contamination
+        // Log panel type changes to help track contamination
         if let Some(old_type) = state.panel_type {
             if old_type != panel_type {
-                eprintln!("WARNING: Panel type changed for node {}: {:?} -> {:?}", 
+                log::warn!("Panel type changed for node {}: {:?} -> {:?}", 
                          node_id, old_type, panel_type);
             }
         } else {
-            eprintln!("DEBUG: Setting panel type for node {} to {:?}", node_id, panel_type);
+            log::debug!("Setting panel type for node {} to {:?}", node_id, panel_type);
         }
         
         state.panel_type = Some(panel_type);
@@ -573,7 +573,7 @@ impl InterfacePanelManager {
         // Only store if not already stored (preserve the very first position)
         if state.original_position.is_none() {
             state.original_position = Some(position);
-            println!("🔧 InterfacePanelManager: Stored original position for node {} at ({:.1}, {:.1})", 
+            log::debug!("Stored original position for node {} at ({:.1}, {:.1})", 
                 node_id, position.x, position.y);
         }
     }
@@ -587,7 +587,7 @@ impl InterfacePanelManager {
     pub fn clear_original_position(&mut self, node_id: NodeId) {
         if let Some(state) = self.node_states.get_mut(&node_id) {
             if state.original_position.take().is_some() {
-                println!("🔧 InterfacePanelManager: Cleared original position for node {}", node_id);
+                log::debug!("Cleared original position for node {}", node_id);
             }
         }
     }
@@ -596,10 +596,10 @@ impl InterfacePanelManager {
     pub fn clear_all_positions(&mut self, node_id: NodeId) {
         if let Some(state) = self.node_states.get_mut(&node_id) {
             if state.original_position.take().is_some() {
-                println!("🔧 InterfacePanelManager: Cleared original position for node {}", node_id);
+                log::debug!("Cleared original position for node {}", node_id);
             }
             if state.unstacked_panel_id.take().is_some() {
-                println!("🔧 InterfacePanelManager: Cleared unstacked panel ID for node {}", node_id);
+                log::debug!("Cleared unstacked panel ID for node {}", node_id);
             }
         }
     }
@@ -609,7 +609,7 @@ impl InterfacePanelManager {
         // Only store if not already stored (preserve the original stack position)
         if !self.stack_positions.contains_key(&panel_type) {
             self.stack_positions.insert(panel_type, position);
-            println!("🔧 InterfacePanelManager: Stored stack position for {:?} at ({:.1}, {:.1})", 
+            log::debug!("Stored stack position for {:?} at ({:.1}, {:.1})", 
                 panel_type, position.x, position.y);
         }
     }
@@ -622,7 +622,7 @@ impl InterfacePanelManager {
     /// Clear stack position when all panels are unstacked
     pub fn clear_stack_position(&mut self, panel_type: PanelType) {
         if self.stack_positions.remove(&panel_type).is_some() {
-            println!("🔧 InterfacePanelManager: Cleared stack position for {:?}", panel_type);
+            log::debug!("Cleared stack position for {:?}", panel_type);
         }
     }
     

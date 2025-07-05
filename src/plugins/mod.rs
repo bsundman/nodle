@@ -18,7 +18,7 @@ pub struct PluginManager {
     loaded_plugins: HashMap<String, LoadedPlugin>,
     plugin_directories: Vec<PathBuf>,
     /// Store active plugin node instances for viewport rendering
-    plugin_node_instances: HashMap<crate::nodes::NodeId, Box<dyn nodle_plugin_sdk::PluginNode>>,
+    pub plugin_node_instances: HashMap<crate::nodes::NodeId, Box<dyn nodle_plugin_sdk::PluginNode>>,
 }
 
 impl PluginManager {

@@ -273,10 +273,10 @@ impl NodeEditor {
                     // IMPORTANT: Keep viewport and parameter panels completely separate
                     match panel_type {
                         crate::nodes::interface::PanelType::Viewport => {
-                            // Viewport panels float by default - never stack with parameter panels
+                            // Viewport panels stack by default (simplified behavior)
                             self.panel_manager.interface_panel_manager_mut()
-                                .set_panel_stacked(node_id, false);
-                            println!("🔧 Editor: Set stacking to false for viewport node {}", node_id);
+                                .set_panel_stacked(node_id, true);
+                            println!("🔧 Editor: Set stacking to true for viewport node {}", node_id);
                         },
                         crate::nodes::interface::PanelType::Parameter => {
                             // Parameter panels stack by default - separate from viewport panels

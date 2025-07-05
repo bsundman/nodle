@@ -3,6 +3,7 @@
 use eframe::egui;
 use egui::{Color32, Pos2};
 use crate::nodes::{NodeGraph, Node};
+use log::{info, warn, error, debug};
 
 mod constants;
 mod editor;
@@ -87,6 +88,13 @@ pub fn create_test_nodes(graph: &mut NodeGraph) {
 
 /// Application entry point
 fn main() -> Result<(), eframe::Error> {
+    // Initialize logging
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+    
+    info!("Starting Nōdle Application");
+    
     // Run startup checks
     if let Err(e) = startup_checks::check_dependencies() {
         eprintln!("\nStartup check failed: {}\n", e);

@@ -8,6 +8,12 @@ use wgpu;
 use std::sync::{Arc, Mutex};
 use super::viewport_3d_rendering::{Renderer3D, Camera3D};
 use nodle_plugin_sdk::viewport::ViewportData;
+use once_cell::sync::Lazy;
+
+// Global shared renderer instance for all viewports
+static SHARED_RENDERER: Lazy<Arc<Mutex<Renderer3D>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(Renderer3D::new()))
+});
 
 /// 3D viewport rendering callback that integrates with egui's wgpu renderer
 #[derive(Clone)]
@@ -21,7 +27,7 @@ pub struct ViewportRenderCallback {
 impl ViewportRenderCallback {
     pub fn new() -> Self {
         Self {
-            renderer: Arc::new(Mutex::new(Renderer3D::new())),
+            renderer: SHARED_RENDERER.clone(),
             camera: Camera3D::default(),
             viewport_data: None,
             viewport_size: (800, 600),
