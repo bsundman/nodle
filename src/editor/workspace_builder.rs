@@ -135,7 +135,12 @@ impl WorkspaceBuilder {
         graph: &mut NodeGraph,
     ) -> Option<NodeId> {
         println!("🔧 WorkspaceBuilder: Placing node '{}' panel_type={:?}", node.title, node.get_panel_type());
-        if navigation.is_root_view() {
+        
+        // Check if this is a viewport node that might need plugin instance updating
+        let is_viewport_node = node.get_panel_type() == Some(crate::nodes::interface::PanelType::Viewport);
+        let temp_node_id = node.id; // This should be 0 for plugin nodes
+        
+        let final_node_id = if navigation.is_root_view() {
             // add_node returns the actual assigned ID
             let node_id = graph.add_node(node);
             println!("🔧 WorkspaceBuilder: Added node {} to root graph", node_id);
@@ -159,6 +164,36 @@ impl WorkspaceBuilder {
         } else {
             println!("❌ WorkspaceBuilder: Not in root view and no workspace node ID");
             None
+        };
+        
+        // Update plugin instance storage if this was a viewport plugin node
+        if is_viewport_node && temp_node_id >= crate::constants::node::TEMP_ID_START {
+            if let Some(new_node_id) = final_node_id {
+                Self::update_plugin_instance_id(temp_node_id, new_node_id);
+            }
+        }
+        
+        final_node_id
+    }
+    
+    /// Update plugin instance storage with the real node ID
+    fn update_plugin_instance_id(temp_id: NodeId, real_id: NodeId) {
+        println!("🔧 WorkspaceBuilder: Updating plugin instance ID from {} to {}", temp_id, real_id);
+        
+        if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
+            if let Ok(mut manager) = plugin_manager.lock() {
+                // Move the plugin instance from temp ID to real ID
+                if let Some(plugin_instance) = manager.plugin_node_instances.remove(&temp_id) {
+                    manager.plugin_node_instances.insert(real_id, plugin_instance);
+                    println!("✅ WorkspaceBuilder: Successfully moved plugin instance from {} to {}", temp_id, real_id);
+                } else {
+                    println!("❌ WorkspaceBuilder: No plugin instance found for temp ID {}", temp_id);
+                }
+            } else {
+                println!("❌ WorkspaceBuilder: Failed to lock plugin manager for ID update");
+            }
+        } else {
+            println!("❌ WorkspaceBuilder: No global plugin manager available for ID update");
         }
     }
 

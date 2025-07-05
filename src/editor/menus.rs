@@ -353,7 +353,7 @@ impl MenuManager {
             
             // Only close nested submenus after a delay to allow mouse movement
             if let Some(timer) = self.submenu_close_timer {
-                if timer.elapsed().as_millis() > 800 { // Increased to 800ms grace period for better UX
+                if timer.elapsed().as_millis() > crate::constants::menu::SUBMENU_CLOSE_DELAY_MS {
                     self.nested_submenus.clear();
                 }
             }

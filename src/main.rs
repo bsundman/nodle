@@ -4,6 +4,7 @@ use eframe::egui;
 use egui::{Color32, Pos2};
 use crate::nodes::{NodeGraph, Node};
 
+mod constants;
 mod editor;
 mod menu_hierarchy;
 // USD menu hierarchy now handled by USD plugin

@@ -315,29 +315,73 @@ pub trait NodeInterfacePanel: Send + Sync {
     fn render_custom_ui(&mut self, _ui: &mut Ui) -> bool { false }
 }
 
-/// Manager for all node interface panels
+/// State for a single node's panel
+#[derive(Default, Clone)]
+pub struct NodePanelState {
+    /// Whether the panel is visible
+    pub visible: bool,
+    /// Whether the panel is minimized (only title bar visible)
+    pub minimized: bool,
+    /// Whether the panel is open (for egui window state tracking)
+    pub open: bool,
+    /// Whether the panel is stacked (grouped together)
+    pub stacked: bool,
+    /// Whether the panel is pinned (stay on top and locked position)
+    pub pinned: bool,
+    /// Panel type for type-specific stacking
+    pub panel_type: Option<PanelType>,
+    /// Custom node name (overrides default node title)
+    pub custom_name: Option<String>,
+    /// Whether node should fit its name horizontally
+    pub fit_name: bool,
+    /// Panel position and size
+    pub rect: Option<egui::Rect>,
+    /// Original position before stacking
+    pub original_position: Option<egui::Pos2>,
+    /// Unstacked panel ID for avoiding conflicts
+    pub unstacked_panel_id: Option<u64>,
+    /// Cached parameter values
+    pub parameter_cache: Vec<(&'static str, InterfaceParameter)>,
+}
+
+impl NodePanelState {
+    /// Create a new panel state with sensible defaults
+    pub fn new() -> Self {
+        Self {
+            visible: false,
+            minimized: false,
+            open: true,
+            stacked: true, // Default to stacked as per current behavior
+            pinned: false,
+            panel_type: None,
+            custom_name: None,
+            fit_name: false,
+            rect: None,
+            original_position: None,
+            unstacked_panel_id: None,
+            parameter_cache: Vec::new(),
+        }
+    }
+
+    /// Create a new panel state with specific panel type
+    pub fn with_panel_type(panel_type: PanelType) -> Self {
+        Self {
+            panel_type: Some(panel_type),
+            stacked: true, // All panels default to stacked
+            ..Self::new()
+        }
+    }
+}
+
+/// Manager for all node interface panels - now simplified with consolidated state
 #[derive(Default)]
 pub struct InterfacePanelManager {
-    /// Which nodes have visible interface panels
-    visible_panels: HashMap<NodeId, bool>,
-    /// Which panels are minimized (only title bar visible)
-    minimized_panels: HashMap<NodeId, bool>,
-    /// Which panels are open (for egui window state tracking)
-    open_panels: HashMap<NodeId, bool>,
-    /// Custom node names (overrides default node title)
-    node_names: HashMap<NodeId, String>,
-    /// Whether nodes should fit their name horizontally
-    fit_name_flags: HashMap<NodeId, bool>,
-    /// Cached parameter values for each node
-    parameter_cache: HashMap<NodeId, Vec<(&'static str, InterfaceParameter)>>,
-    /// Panel positions and sizes
-    panel_rects: HashMap<NodeId, egui::Rect>,
-    /// Which panels are stacked (grouped together)
-    stacked_panels: HashMap<NodeId, bool>,
-    /// Which panels are pinned (stay on top and locked position)
-    pinned_panels: HashMap<NodeId, bool>,
-    /// Panel types for each node (for type-specific stacking)
-    panel_types: HashMap<NodeId, PanelType>,
+    /// All node panel states in a single consolidated structure
+    node_states: HashMap<NodeId, NodePanelState>,
+    /// Global stacking state per panel type
+    stacking_initiators: HashMap<PanelType, NodeId>,
+    stacking_order: HashMap<PanelType, Vec<NodeId>>,
+    stack_positions: HashMap<PanelType, egui::Pos2>,
 }
 
 impl InterfacePanelManager {
@@ -345,112 +389,155 @@ impl InterfacePanelManager {
         Self::default()
     }
     
+    /// Get or create panel state for a node
+    fn get_or_create_state(&mut self, node_id: NodeId) -> &mut NodePanelState {
+        self.node_states.entry(node_id).or_insert_with(NodePanelState::new)
+    }
+    
+    /// Get panel state for a node (read-only)
+    fn get_state(&self, node_id: NodeId) -> Option<&NodePanelState> {
+        self.node_states.get(&node_id)
+    }
+    
     /// Toggle visibility of a node's interface panel
     pub fn toggle_panel_visibility(&mut self, node_id: NodeId) {
-        let current = self.visible_panels.get(&node_id).copied().unwrap_or(false);
-        self.visible_panels.insert(node_id, !current);
+        let state = self.get_or_create_state(node_id);
+        state.visible = !state.visible;
     }
     
     /// Set panel visibility
     pub fn set_panel_visibility(&mut self, node_id: NodeId, visible: bool) {
-        self.visible_panels.insert(node_id, visible);
+        self.get_or_create_state(node_id).visible = visible;
     }
     
     /// Check if a panel is visible
     pub fn is_panel_visible(&self, node_id: NodeId) -> bool {
-        self.visible_panels.get(&node_id).copied().unwrap_or(false)
+        self.get_state(node_id).map(|s| s.visible).unwrap_or(false)
     }
     
     /// Set panel minimized state
     pub fn set_panel_minimized(&mut self, node_id: NodeId, minimized: bool) {
-        self.minimized_panels.insert(node_id, minimized);
+        self.get_or_create_state(node_id).minimized = minimized;
     }
     
     /// Check if a panel is minimized
     pub fn is_panel_minimized(&self, node_id: NodeId) -> bool {
-        self.minimized_panels.get(&node_id).copied().unwrap_or(false)
+        self.get_state(node_id).map(|s| s.minimized).unwrap_or(false)
     }
     
     /// Set panel open state
     pub fn set_panel_open(&mut self, node_id: NodeId, open: bool) {
-        self.open_panels.insert(node_id, open);
+        self.get_or_create_state(node_id).open = open;
     }
     
     /// Check if a panel is open (for egui window state)
     pub fn is_panel_open(&self, node_id: NodeId) -> bool {
-        self.open_panels.get(&node_id).copied().unwrap_or(true)
+        self.get_state(node_id).map(|s| s.open).unwrap_or(true)
     }
     
     /// Get mutable reference to panel open state
     pub fn get_panel_open_mut(&mut self, node_id: NodeId) -> &mut bool {
-        self.open_panels.entry(node_id).or_insert(true)
+        &mut self.get_or_create_state(node_id).open
     }
     
     /// Set custom node name
     pub fn set_node_name(&mut self, node_id: NodeId, name: String) {
-        self.node_names.insert(node_id, name);
+        self.get_or_create_state(node_id).custom_name = Some(name);
     }
     
     /// Get custom node name (returns None if using default)
     pub fn get_node_name(&self, node_id: NodeId) -> Option<&String> {
-        self.node_names.get(&node_id)
+        self.get_state(node_id).and_then(|s| s.custom_name.as_ref())
     }
     
     /// Set fit name flag
     pub fn set_fit_name(&mut self, node_id: NodeId, fit: bool) {
-        self.fit_name_flags.insert(node_id, fit);
+        self.get_or_create_state(node_id).fit_name = fit;
     }
     
     /// Get fit name flag
     pub fn get_fit_name(&self, node_id: NodeId) -> bool {
-        self.fit_name_flags.get(&node_id).copied().unwrap_or(false)
+        self.get_state(node_id).map(|s| s.fit_name).unwrap_or(false)
     }
     
     /// Toggle panel stacked state
     pub fn toggle_panel_stacked(&mut self, node_id: NodeId) {
-        let panel_type = self.get_panel_type(node_id);
-        let default_stacked = if panel_type == PanelType::Viewport { false } else { true };
-        let current = self.stacked_panels.get(&node_id).copied().unwrap_or(default_stacked);
-        self.stacked_panels.insert(node_id, !current);
+        let state = self.get_or_create_state(node_id);
+        state.stacked = !state.stacked;
+        println!("🔧 InterfacePanelManager: Node {} stacked state changed to {}", node_id, state.stacked);
     }
     
     /// Set panel stacked state
     pub fn set_panel_stacked(&mut self, node_id: NodeId, stacked: bool) {
-        self.stacked_panels.insert(node_id, stacked);
+        self.get_or_create_state(node_id).stacked = stacked;
     }
     
     /// Check if a panel is stacked
     pub fn is_panel_stacked(&self, node_id: NodeId) -> bool {
-        // Viewport panels should never be stacked by default
-        let panel_type = self.get_panel_type(node_id);
-        if panel_type == PanelType::Viewport {
-            self.stacked_panels.get(&node_id).copied().unwrap_or(false) // Viewport panels default to unstacked
+        // All panels (including viewport) default to stacked
+        self.get_state(node_id).map(|s| s.stacked).unwrap_or(true)
+    }
+    
+    /// Get the node that initiated stacking for a given panel type
+    pub fn get_stacking_initiator(&self, panel_type: PanelType) -> Option<NodeId> {
+        self.stacking_initiators.get(&panel_type).copied()
+    }
+    
+    /// Check if there are any stacked panels of the given type
+    pub fn has_stacked_panels_of_type(&self, panel_type: PanelType) -> bool {
+        self.node_states.iter()
+            .filter(|(_, state)| state.panel_type == Some(panel_type))
+            .any(|(_, state)| state.stacked)
+    }
+    
+    /// Clean up stacking initiator if no panels of that type are stacked anymore
+    pub fn cleanup_stacking_initiator(&mut self, panel_type: PanelType) {
+        // Count how many panels are currently stacked for this type
+        let stacked_count = self.node_states.iter()
+            .filter(|(_, state)| state.panel_type == Some(panel_type))
+            .filter(|(_, state)| state.stacked)
+            .count();
+        
+        // Only clean up if there are NO stacked panels left
+        // If there's still 1 panel stacked, keep the stack state to maintain position
+        if stacked_count == 0 {
+            if self.stacking_initiators.remove(&panel_type).is_some() {
+                println!("🔧 InterfacePanelManager: Cleaned up stacking initiator for {:?} (no stacked panels remaining)", panel_type);
+            }
+            if self.stacking_order.remove(&panel_type).is_some() {
+                println!("🔧 InterfacePanelManager: Cleaned up stacking order for {:?} (no stacked panels remaining)", panel_type);
+            }
+            if self.stack_positions.remove(&panel_type).is_some() {
+                println!("🔧 InterfacePanelManager: Cleaned up stack position for {:?} (no stacked panels remaining)", panel_type);
+            }
         } else {
-            self.stacked_panels.get(&node_id).copied().unwrap_or(true) // Other panels default to stacked
+            println!("🔧 InterfacePanelManager: Keeping stack state for {:?} ({} stacked panels remaining)", panel_type, stacked_count);
         }
     }
     
     /// Toggle panel pinned state
     pub fn toggle_panel_pinned(&mut self, node_id: NodeId) {
-        let current = self.pinned_panels.get(&node_id).copied().unwrap_or(false);
-        self.pinned_panels.insert(node_id, !current);
+        let state = self.get_or_create_state(node_id);
+        state.pinned = !state.pinned;
     }
     
     /// Set panel pinned state
     pub fn set_panel_pinned(&mut self, node_id: NodeId, pinned: bool) {
-        self.pinned_panels.insert(node_id, pinned);
+        self.get_or_create_state(node_id).pinned = pinned;
     }
     
     /// Check if a panel is pinned
     pub fn is_panel_pinned(&self, node_id: NodeId) -> bool {
-        self.pinned_panels.get(&node_id).copied().unwrap_or(false)
+        self.get_state(node_id).map(|s| s.pinned).unwrap_or(false)
     }
     
     /// Set panel type
     pub fn set_panel_type(&mut self, node_id: NodeId, panel_type: PanelType) {
+        let state = self.get_or_create_state(node_id);
+        
         // Debug: Log panel type changes to help track contamination
-        if let Some(old_type) = self.panel_types.get(&node_id) {
-            if *old_type != panel_type {
+        if let Some(old_type) = state.panel_type {
+            if old_type != panel_type {
                 eprintln!("WARNING: Panel type changed for node {}: {:?} -> {:?}", 
                          node_id, old_type, panel_type);
             }
@@ -458,22 +545,90 @@ impl InterfacePanelManager {
             eprintln!("DEBUG: Setting panel type for node {} to {:?}", node_id, panel_type);
         }
         
-        self.panel_types.insert(node_id, panel_type);
+        state.panel_type = Some(panel_type);
     }
     
     /// Get panel type (defaults to Parameter)
     pub fn get_panel_type(&self, node_id: NodeId) -> PanelType {
-        self.panel_types.get(&node_id).copied().unwrap_or(PanelType::Parameter)
+        self.get_state(node_id)
+            .and_then(|s| s.panel_type)
+            .unwrap_or(PanelType::Parameter)
     }
     
     /// Check if panel type has been explicitly set for a node
     pub fn has_panel_type_set(&self, node_id: NodeId) -> bool {
-        self.panel_types.contains_key(&node_id)
+        self.get_state(node_id)
+            .map(|s| s.panel_type.is_some())
+            .unwrap_or(false)
     }
     
     /// Check if stacking preference has been explicitly set for a node
     pub fn has_stacking_preference_set(&self, node_id: NodeId) -> bool {
-        self.stacked_panels.contains_key(&node_id)
+        self.node_states.contains_key(&node_id)
+    }
+    
+    /// Store original position before stacking
+    pub fn store_original_position(&mut self, node_id: NodeId, position: egui::Pos2) {
+        let state = self.get_or_create_state(node_id);
+        // Only store if not already stored (preserve the very first position)
+        if state.original_position.is_none() {
+            state.original_position = Some(position);
+            println!("🔧 InterfacePanelManager: Stored original position for node {} at ({:.1}, {:.1})", 
+                node_id, position.x, position.y);
+        }
+    }
+    
+    /// Get original position for a node
+    pub fn get_original_position(&self, node_id: NodeId) -> Option<egui::Pos2> {
+        self.get_state(node_id).and_then(|s| s.original_position)
+    }
+    
+    /// Clear original position when no longer needed
+    pub fn clear_original_position(&mut self, node_id: NodeId) {
+        if let Some(state) = self.node_states.get_mut(&node_id) {
+            if state.original_position.take().is_some() {
+                println!("🔧 InterfacePanelManager: Cleared original position for node {}", node_id);
+            }
+        }
+    }
+    
+    /// Clear all stored positions for a node (both original and unstacked IDs)
+    pub fn clear_all_positions(&mut self, node_id: NodeId) {
+        if let Some(state) = self.node_states.get_mut(&node_id) {
+            if state.original_position.take().is_some() {
+                println!("🔧 InterfacePanelManager: Cleared original position for node {}", node_id);
+            }
+            if state.unstacked_panel_id.take().is_some() {
+                println!("🔧 InterfacePanelManager: Cleared unstacked panel ID for node {}", node_id);
+            }
+        }
+    }
+    
+    /// Store stack position when first stack is created
+    pub fn store_stack_position(&mut self, panel_type: PanelType, position: egui::Pos2) {
+        // Only store if not already stored (preserve the original stack position)
+        if !self.stack_positions.contains_key(&panel_type) {
+            self.stack_positions.insert(panel_type, position);
+            println!("🔧 InterfacePanelManager: Stored stack position for {:?} at ({:.1}, {:.1})", 
+                panel_type, position.x, position.y);
+        }
+    }
+    
+    /// Get stack position for a panel type
+    pub fn get_stack_position(&self, panel_type: PanelType) -> Option<egui::Pos2> {
+        self.stack_positions.get(&panel_type).copied()
+    }
+    
+    /// Clear stack position when all panels are unstacked
+    pub fn clear_stack_position(&mut self, panel_type: PanelType) {
+        if self.stack_positions.remove(&panel_type).is_some() {
+            println!("🔧 InterfacePanelManager: Cleared stack position for {:?}", panel_type);
+        }
+    }
+    
+    /// Get unique window ID for unstacked panel (returns None if panel was never unstacked)
+    pub fn get_unstacked_panel_id(&self, node_id: NodeId) -> Option<u64> {
+        self.get_state(node_id).and_then(|s| s.unstacked_panel_id)
     }
     
     // DEPRECATED: Panel type detection removed in favor of node self-assignment
@@ -494,8 +649,9 @@ impl InterfacePanelManager {
         }
     }
     
-    /// Get all visible stacked panels of a specific type
+    /// Get all visible stacked panels of a specific type in simple node ID order
     pub fn get_stacked_panels_by_type(&self, panel_type: PanelType, viewed_nodes: &HashMap<NodeId, crate::nodes::Node>) -> Vec<NodeId> {
+        // Get all currently visible and stacked nodes of the specified type
         let mut panels: Vec<NodeId> = viewed_nodes.keys()
             .filter(|&&node_id| {
                 let node = &viewed_nodes[&node_id];
@@ -507,8 +663,7 @@ impl InterfacePanelManager {
             .copied()
             .collect();
         
-        // Sort by node ID to ensure consistent ordering
-        // This prevents the "first" node from changing randomly
+        // Simple sorting by node ID
         panels.sort();
         panels
     }
@@ -535,8 +690,8 @@ impl InterfacePanelManager {
             .resizable(true)
             .collapsible(false)
             .constrain_to(egui::Rect::from_min_size(
-                egui::Pos2::new(0.0, 34.0), // Hardcoded menu bar height for now
-                egui::Vec2::new(ctx.screen_rect().width(), ctx.screen_rect().height() - 34.0)
+                egui::Pos2::new(0.0, crate::constants::DEFAULT_MENU_BAR_HEIGHT),
+                egui::Vec2::new(ctx.screen_rect().width(), ctx.screen_rect().height() - crate::constants::DEFAULT_MENU_BAR_HEIGHT)
             ))
             .show(ctx, |ui| {
                 // Get current parameters
@@ -560,7 +715,7 @@ impl InterfacePanelManager {
                 // Update node if parameters changed
                 if changed {
                     node.set_parameters(parameters.clone());
-                    self.parameter_cache.insert(node_id, parameters);
+                    self.get_or_create_state(node_id).parameter_cache = parameters;
                 }
                 
                 // Close button
@@ -574,12 +729,14 @@ impl InterfacePanelManager {
     
     /// Get cached parameters for a node
     pub fn get_cached_parameters(&self, node_id: NodeId) -> Option<&Vec<(&'static str, InterfaceParameter)>> {
-        self.parameter_cache.get(&node_id)
+        self.get_state(node_id).map(|s| &s.parameter_cache)
     }
     
     /// Clear cache for a node
     pub fn clear_cache(&mut self, node_id: NodeId) {
-        self.parameter_cache.remove(&node_id);
+        if let Some(state) = self.node_states.get_mut(&node_id) {
+            state.parameter_cache.clear();
+        }
     }
 }
 

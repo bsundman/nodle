@@ -26,7 +26,7 @@ pub struct ViewportPanel {
 impl ViewportPanel {
     pub fn new() -> Self {
         Self {
-            default_size: [800.0, 600.0],
+            default_size: crate::constants::panel::DEFAULT_VIEWPORT_SIZE,
             selected_tabs: HashMap::new(),
             viewport_instances: HashMap::new(),
             viewport_callbacks: HashMap::new(),
@@ -46,7 +46,6 @@ impl ViewportPanel {
         // Check if this panel should be stacked
         if panel_manager.is_panel_stacked(node_id) {
             // For stacked panels, only render the shared window from the first stacked node
-            // to avoid creating multiple windows
             let stacked_viewport_nodes = panel_manager.get_stacked_panels_by_type(
                 PanelType::Viewport, 
                 viewed_nodes
@@ -54,8 +53,8 @@ impl ViewportPanel {
             
             if let Some(&first_node_id) = stacked_viewport_nodes.first() {
                 if node_id == first_node_id {
-                    // This is the first stacked viewport node, render the window with tabbed content
-                    self.render_viewport_window(ctx, node_id, node, panel_manager, menu_bar_height, viewed_nodes, true, &stacked_viewport_nodes)
+                    // Render as tabbed stack (even if only one panel)
+                    self.render_viewport_window(ctx, first_node_id, node, panel_manager, menu_bar_height, viewed_nodes, true, &stacked_viewport_nodes)
                 } else {
                     // This is not the first node, don't render a window (already handled by first node)
                     PanelAction::None
@@ -86,16 +85,18 @@ impl ViewportPanel {
             return PanelAction::None;
         }
         
-        // Always use the primary node ID for the window to preserve position when stacking/unstacking
-        let panel_id = egui::Id::new(format!("viewport_panel_{}", primary_node_id));
-        let mut panel_action = PanelAction::None;
+        // Simple window ID logic
+        let panel_id = if is_stacked {
+            egui::Id::new("stacked_viewport_panels")
+        } else {
+            egui::Id::new(format!("viewport_panel_{}", primary_node_id))
+        };
         
-        // Get current window open state
+        let mut panel_action = PanelAction::None;
         let mut window_open = panel_manager.is_panel_open(primary_node_id);
         
-        // Only set default position for new nodes - preserve existing position otherwise
-        let screen_rect = ctx.screen_rect();
-        let default_position = Pos2::new(screen_rect.min.x, screen_rect.min.y + menu_bar_height);
+        // Simple positioning for stacked windows - as far left and top as possible
+        let default_position = Pos2::new(0.0, menu_bar_height); // Far left, just below menu bar
         
         // Create window title based on mode
         let window_title = if is_stacked {
@@ -104,43 +105,42 @@ impl ViewportPanel {
             format!("{} Viewport", primary_node.title)
         };
         
-        let window_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            egui::Window::new(&window_title)
-                .id(panel_id)
-                .default_pos(default_position)
-                .default_size(self.default_size)
-                .min_size([200.0, 200.0])
-                .max_size([1600.0, 1200.0])
-        }));
+        let mut window = egui::Window::new(&window_title)
+            .id(panel_id)
+            .default_size(self.default_size)
+            .min_size(crate::constants::panel::MIN_VIEWPORT_SIZE)
+            .max_size(crate::constants::panel::MAX_VIEWPORT_SIZE)
+            .resizable(true);
         
-        let window = match window_result {
-            Ok(w) => w,
-            Err(_) => return PanelAction::None,
+        // Only set position for stacked windows - let individual windows place naturally
+        if is_stacked {
+            window = window.default_pos(default_position);
         }
-            .resizable(true)
+        
+        let window = window
             .collapsible(true)
             .open(&mut window_open)
             .constrain_to(egui::Rect::from_min_size(
                 egui::Pos2::new(0.0, menu_bar_height), 
-                egui::Vec2::new(screen_rect.width(), screen_rect.height() - menu_bar_height)
+                egui::Vec2::new(ctx.screen_rect().width(), ctx.screen_rect().height() - menu_bar_height)
             ));
         
-        let show_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            window.show(ctx, |ui| {
-                if is_stacked {
-                    // Render stacked content with tabs
-                    panel_action = self.render_stacked_content(ui, node_ids, panel_manager, viewed_nodes);
-                } else {
-                    // Render individual content
-                    panel_action = self.render_individual_content(ui, primary_node_id, primary_node, panel_manager, viewed_nodes);
-                }
-            })
-        }));
+        let window_response = window.show(ctx, |ui| {
+            if is_stacked {
+                // Render stacked content with tabs
+                panel_action = self.render_stacked_content(ui, node_ids, panel_manager, viewed_nodes);
+            } else {
+                // Render individual content
+                panel_action = self.render_individual_content(ui, primary_node_id, primary_node, panel_manager, viewed_nodes);
+            }
+        });
         
-        match show_result {
-            Ok(_) => {},
-            Err(_) => return PanelAction::None,
-        }
+        let window_response = match window_response {
+            Some(response) => response,
+            None => return PanelAction::None,
+        };
+        
+        // No position tracking needed - keep it simple
         
         // Update the panel manager with the new state
         if is_stacked {
@@ -238,7 +238,16 @@ impl ViewportPanel {
         }
         
         // Track which viewport tab is selected (default to first)
-        let window_id = format!("viewport_panel_{}", node_ids[0]); // Use first node's ID for consistency
+        // Use the same logic as the main window ID to maintain consistency
+        let tab_group_id = panel_manager.get_stacking_initiator(PanelType::Viewport)
+            .filter(|&initiator_id| node_ids.contains(&initiator_id))
+            .or_else(|| {
+                node_ids.iter()
+                    .find(|&&node_id| panel_manager.is_panel_open(node_id))
+                    .copied()
+            })
+            .unwrap_or_else(|| *node_ids.iter().min().unwrap_or(&node_ids[0]));
+        let window_id = format!("viewport_panel_{}", tab_group_id); // Use consistent ID for tab tracking
         let current_selected_tab = *self.selected_tabs.entry(window_id.clone()).or_insert(0);
         
         // Ensure selected tab is valid
@@ -446,20 +455,20 @@ impl ViewportPanel {
             let manipulation = if modifiers.alt {
                 // Alt + drag = orbit
                 nodle_plugin_sdk::viewport::CameraManipulation::Orbit {
-                    delta_x: delta.x * 0.01,
-                    delta_y: delta.y * 0.01,
+                    delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                    delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
                 }
             } else if modifiers.shift {
                 // Shift + drag = pan
                 nodle_plugin_sdk::viewport::CameraManipulation::Pan {
-                    delta_x: delta.x * 0.01,
-                    delta_y: delta.y * 0.01,
+                    delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                    delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
                 }
             } else {
                 // Default drag = orbit
                 nodle_plugin_sdk::viewport::CameraManipulation::Orbit {
-                    delta_x: delta.x * 0.01,
-                    delta_y: delta.y * 0.01,
+                    delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                    delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
                 }
             };
             
@@ -493,7 +502,7 @@ impl ViewportPanel {
                 if i.raw_scroll_delta.y != 0.0 {
                     // Create zoom manipulation for plugin
                     let zoom_manipulation = nodle_plugin_sdk::viewport::CameraManipulation::Zoom {
-                        delta: i.raw_scroll_delta.y * 0.01,
+                        delta: i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY,
                     };
                     
                     // Send to plugin node
@@ -501,7 +510,7 @@ impl ViewportPanel {
                     
                     // Also update callback for immediate rendering
                     callback.handle_camera_manipulation(
-                        i.raw_scroll_delta.y * 0.01, 
+                        i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY, 
                         0.0, 
                         crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
                     );

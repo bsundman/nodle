@@ -536,8 +536,10 @@ impl NodeRegistry {
             
             // Convert PluginNode to core Node (this is the adapter layer)
             // Plugin nodes use UUID strings, but core nodes need numeric IDs
-            // Use a temporary ID (0) - the actual ID will be assigned when added to the graph
-            let node_id = 0; // Temporary ID, will be replaced by NodeGraph::add_node
+            // Use a unique temporary ID - the actual ID will be assigned when added to the graph
+            // Use very large numbers to ensure they don't conflict with real IDs
+            static TEMP_ID_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(crate::constants::node::TEMP_ID_START);
+            let node_id = TEMP_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst); // 1_000_000_000, 1_000_000_001, etc.
             println!("🔧 Plugin node ID: {}", plugin_node.id());
             println!("🔧 Using temporary core node ID: {}", node_id);
             

@@ -99,9 +99,9 @@ impl ParameterPanel {
         egui::Window::new(&window_title)
             .id(panel_id)
             .default_pos(position)
-            .default_size([380.0, 500.0])
-            .min_size([300.0, 200.0])
-            .max_size([500.0, 800.0])
+            .default_size(crate::constants::panel::DEFAULT_PARAMETER_SIZE)
+            .min_size(crate::constants::panel::MIN_PARAMETER_SIZE)
+            .max_size(crate::constants::panel::MAX_PARAMETER_SIZE)
             .resizable(true)
             .collapsible(true)
             .open(&mut window_open)
@@ -164,7 +164,7 @@ impl ParameterPanel {
         
         // Parameter panel stacked positioning - full height, right edge
         let screen_rect = ctx.screen_rect();
-        let panel_width = 400.0;
+        let panel_width = crate::constants::panel::STACKED_PARAMETER_WIDTH;
         let panel_height = screen_rect.height() - menu_bar_height;
         let window_pos = [screen_rect.max.x - panel_width, menu_bar_height];
         
