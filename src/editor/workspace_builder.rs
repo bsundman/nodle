@@ -105,7 +105,21 @@ impl WorkspaceBuilder {
         // Add the node to the appropriate graph based on current view
         if let Some(node) = new_node {
             println!("DEBUG: Successfully created node, adding to graph");
-            let node_id = Self::place_node_in_graph(node, navigation, graph);
+            
+            // Add error handling for adding node to graph
+            let node_id = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Self::place_node_in_graph(node, navigation, graph)
+            })) {
+                Ok(id) => {
+                    println!("DEBUG: Node placement completed successfully");
+                    id
+                }
+                Err(_) => {
+                    println!("❌ Panic occurred while placing node in graph");
+                    None
+                }
+            };
+            
             println!("DEBUG: Node creation completed successfully");
             node_id
         } else {
@@ -120,9 +134,11 @@ impl WorkspaceBuilder {
         navigation: &NavigationManager,
         graph: &mut NodeGraph,
     ) -> Option<NodeId> {
+        println!("🔧 WorkspaceBuilder: Placing node '{}' panel_type={:?}", node.title, node.get_panel_type());
         if navigation.is_root_view() {
             // add_node returns the actual assigned ID
             let node_id = graph.add_node(node);
+            println!("🔧 WorkspaceBuilder: Added node {} to root graph", node_id);
             Some(node_id)
         } else if let Some(workspace_node_id) = navigation.get_workspace_node_id() {
             // Try to add to workspace internal graph
@@ -130,14 +146,18 @@ impl WorkspaceBuilder {
                 if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
                     // add_node returns the actual assigned ID
                     let node_id = internal_graph.add_node(node);
+                    println!("🔧 WorkspaceBuilder: Added node {} to workspace {} internal graph", node_id, workspace_node_id);
                     Some(node_id)
                 } else {
+                    println!("❌ WorkspaceBuilder: Workspace {} has no internal graph", workspace_node_id);
                     None
                 }
             } else {
+                println!("❌ WorkspaceBuilder: Workspace node {} not found", workspace_node_id);
                 None
             }
         } else {
+            println!("❌ WorkspaceBuilder: Not in root view and no workspace node ID");
             None
         }
     }

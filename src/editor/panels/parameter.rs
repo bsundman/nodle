@@ -80,6 +80,10 @@ impl ParameterPanel {
         menu_bar_height: f32,
         graph: &mut crate::nodes::NodeGraph,
     ) -> PanelAction {
+        // Check if panel is marked as visible
+        if !panel_manager.is_panel_visible(node_id) {
+            return PanelAction::None;
+        }
         let panel_id = egui::Id::new(format!("parameter_panel_{}", node_id));
         let mut panel_action = PanelAction::None;
         
@@ -409,45 +413,7 @@ impl ParameterPanel {
     fn render_build_interface_pattern(&mut self, node: &mut crate::nodes::Node, ui: &mut egui::Ui, node_id: NodeId) -> bool {
         let title = node.title.clone();
         
-        // USD Stage nodes
-        if title.contains("Load Stage") {
-            let changes = crate::nodes::three_d::usd::stage::load_stage::parameters::LoadStageNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
-            return true;
-        }
-        
-        if title.contains("Create Stage") {
-            let changes = crate::nodes::three_d::usd::stage::create_stage::parameters::CreateStageNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
-            return true;
-        }
-        
-        // USD Geometry nodes
-        if title.contains("USD Sphere") {
-            let changes = crate::nodes::three_d::usd::geometry::sphere::parameters::USDSphereNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
-            return true;
-        }
-        
-        if title.contains("USD Cylinder") {
-            let changes = crate::nodes::three_d::usd::geometry::cylinder::parameters::USDCylinderNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
-            return true;
-        }
-        
-        // USD Lighting nodes
-        if title.contains("USD Rect Light") {
-            let changes = crate::nodes::three_d::usd::lighting::rect_light::parameters::USDRectLightNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
-            return true;
-        }
-        
-        // USD Shading nodes
-        if title.contains("USD Material") {
-            let changes = crate::nodes::three_d::usd::shading::material::parameters::USDMaterialNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
-            return true;
-        }
+        // USD nodes are now handled by plugins - no core implementation needed
         
         // Math nodes using Pattern A
         if title.contains("Add") || title.contains("Addition") {
@@ -574,6 +540,13 @@ impl ParameterPanel {
         // Geometry nodes using Pattern A
         if title.contains("Plane") && !title.contains("USD") {
             let changes = crate::nodes::three_d::geometry::plane::parameters::PlaneNode::build_interface(node, ui);
+            self.apply_parameter_changes(node, changes, &title, node_id);
+            return true;
+        }
+        
+        // Utility nodes using Pattern A
+        if title.contains("Null") {
+            let changes = crate::nodes::utility::null::parameters::NullNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id);
             return true;
         }

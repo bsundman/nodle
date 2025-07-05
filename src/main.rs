@@ -6,13 +6,14 @@ use crate::nodes::{NodeGraph, Node};
 
 mod editor;
 mod menu_hierarchy;
-mod menu_hierarchy_usd;
+// USD menu hierarchy now handled by USD plugin
 mod nodes;
 mod workspaces;
 mod workspace;
 mod gpu;
 mod startup_checks;
 mod theme;
+mod plugins;
 
 use editor::NodeEditor;
 
@@ -96,6 +97,32 @@ fn main() -> Result<(), eframe::Error> {
         
         startup_checks::show_setup_help();
         std::process::exit(1);
+    }
+    
+    // Initialize global plugin system
+    println!("🔌 Initializing global plugin system...");
+    match workspace::initialize_global_plugin_manager() {
+        Ok(()) => {
+            if let Some(plugin_manager) = workspace::get_global_plugin_manager() {
+                let manager = plugin_manager.lock().unwrap();
+                let loaded_plugins = manager.get_loaded_plugins();
+                
+                if loaded_plugins.is_empty() {
+                    println!("📦 No plugins found in standard directories");
+                    println!("   Looking in: ~/.nodle/plugins/ and ./plugins/");
+                } else {
+                    println!("✅ Loaded {} plugin(s):", loaded_plugins.len());
+                    for plugin in loaded_plugins {
+                        println!("   • {} v{} by {}", plugin.name, plugin.version, plugin.author);
+                    }
+                    println!("🔗 Plugin system initialized successfully");
+                }
+            }
+        }
+        Err(e) => {
+            println!("⚠️  Plugin initialization failed: {}", e);
+            println!("   Continuing without plugins...");
+        }
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

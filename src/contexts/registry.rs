@@ -17,7 +17,7 @@ impl ContextRegistry {
         
         // Register all available contexts
         manager.register_context(Box::new(BaseContext::new()));
-        manager.register_context(Box::new(Context3D::new()));
+        // Context3D removed - using Workspace3D instead to avoid duplication
         manager.register_context(Box::new(MaterialXContext::new()));
         
         manager
@@ -27,7 +27,7 @@ impl ContextRegistry {
     pub fn list_contexts() -> Vec<(&'static str, &'static str)> {
         vec![
             (BaseContext::new().id(), BaseContext::new().display_name()),
-            (Context3D::new().id(), Context3D::new().display_name()),
+            // Context3D removed - using Workspace3D instead to avoid duplication
             (MaterialXContext::new().id(), MaterialXContext::new().display_name()),
         ]
     }

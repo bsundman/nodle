@@ -65,8 +65,14 @@ where
 }
 
 /// Render a menu item with full-width hover highlighting - SHARED by ALL menus
+/// Returns true if clicked
 pub fn render_menu_item(ui: &mut egui::Ui, text: &str, menu_width: f32) -> bool {
     render_menu_item_with_arrow(ui, text, menu_width, false).0 // Return only clicked
+}
+
+/// Render a menu item and return both clicked and hovered states
+pub fn render_menu_item_full(ui: &mut egui::Ui, text: &str, menu_width: f32) -> (bool, bool) {
+    render_menu_item_with_arrow(ui, text, menu_width, false)
 }
 
 /// Render a menu item with optional arrow - SHARED base function for ALL menu styling
@@ -120,6 +126,10 @@ pub struct MenuManager {
     open_submenu: Option<String>,
     submenu_pos: Option<Pos2>,
     submenu_close_timer: Option<std::time::Instant>,
+    // Support for hierarchical menu navigation
+    submenu_path: Vec<String>, // Track the current path in the menu hierarchy
+    // Support for multiple nested submenus
+    nested_submenus: Vec<(String, Pos2)>, // Track multiple open submenus with their positions
 }
 
 impl MenuManager {
@@ -129,6 +139,8 @@ impl MenuManager {
             open_submenu: None,
             submenu_pos: None,
             submenu_close_timer: None,
+            submenu_path: Vec::new(),
+            nested_submenus: Vec::new(),
         }
     }
 
@@ -137,6 +149,8 @@ impl MenuManager {
         self.open_submenu = None;
         self.submenu_pos = None;
         self.submenu_close_timer = None;
+        self.submenu_path.clear();
+        self.nested_submenus.clear();
     }
 
     /// Render the workspace menu and return selected node type
@@ -224,18 +238,20 @@ impl MenuManager {
                                 self.open_submenu = None;
                                 self.submenu_pos = None;
                                 self.submenu_close_timer = None;
+                                // Also close all nested submenus when main submenu closes
+                                self.nested_submenus.clear();
                             }
                         }
                     })
                     .inner
             });
 
-        // Render submenu if one is open
+        // Render primary submenu if one is open
         let submenu_response = if let (Some(submenu_name), Some(submenu_screen_pos)) = 
             (self.open_submenu.clone(), self.submenu_pos) {
             
             let submenu_id = egui::Id::new(format!("submenu_{}", submenu_name));
-            Some(egui::Area::new(submenu_id)
+            let response = egui::Area::new(submenu_id)
                 .fixed_pos(submenu_screen_pos)
                 .show(ui.ctx(), |ui| {
                     egui::Frame::popup(ui.style())
@@ -247,10 +263,101 @@ impl MenuManager {
                             selected_node_type = self.render_submenu_content(ui, &submenu_name, workspace_manager, navigation);
                         })
                         .inner
-                }).response)
+                }).response;
+            Some(response)
         } else {
             None
         };
+
+        // Render all nested submenus and track if any are being hovered
+        let mut nested_submenu_hovered = false;
+        for (i, (nested_name, nested_pos)) in self.nested_submenus.iter().enumerate() {
+            let nested_id = egui::Id::new(format!("nested_submenu_{}_{}", i, nested_name));
+            let area_response = egui::Area::new(nested_id)
+                .fixed_pos(*nested_pos)
+                .interactable(true)  // Ensure the area is interactable
+                .show(ui.ctx(), |ui| {
+                    let frame_response = egui::Frame::popup(ui.style())
+                        .fill(Color32::from_rgb(28, 28, 28))
+                        .show(ui, |ui| {
+                            // Apply consistent menu styling
+                            apply_menu_style(ui);
+                            
+                            // Render nested submenu content
+                            if let Some(node_type) = self.render_nested_submenu_content(ui, nested_name, workspace_manager, navigation) {
+                                selected_node_type = Some(node_type);
+                            }
+                        });
+                    
+                    // Return the frame response for better hover detection
+                    frame_response.response
+                });
+            
+            // Check if this nested submenu is being hovered - check both area and inner response
+            if area_response.response.hovered() || area_response.inner.hovered() {
+                nested_submenu_hovered = true;
+                self.submenu_close_timer = None; // Cancel any pending close
+            }
+        }
+        
+        // Handle nested submenu closing with proper usability - use a delay to allow mouse movement
+        let main_submenu_hovered = submenu_response.as_ref().map(|r| r.hovered()).unwrap_or(false);
+        
+        // Check if mouse is in a safe path between main submenu and nested submenu
+        let mouse_in_safe_path = if let Some(submenu_resp) = &submenu_response {
+            if !self.nested_submenus.is_empty() {
+                // Create a triangular "safe zone" between the main submenu and nested submenu
+                let main_rect = submenu_resp.rect;
+                let mouse_pos = ui.ctx().input(|i| i.pointer.hover_pos()).unwrap_or_default();
+                
+                // If mouse is moving towards the nested submenu, give extra grace time
+                mouse_pos.x > main_rect.right() && 
+                mouse_pos.y >= main_rect.top() && 
+                mouse_pos.y <= main_rect.bottom()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        
+        // Additional hover check - see if the mouse is inside any of the menu areas
+        let mouse_in_any_menu = ui.ctx().input(|i| {
+            if let Some(mouse_pos) = i.pointer.hover_pos() {
+                // Check main menu
+                if menu_response.response.rect.contains(mouse_pos) {
+                    return true;
+                }
+                // Check submenu
+                if let Some(sub_resp) = &submenu_response {
+                    if sub_resp.rect.contains(mouse_pos) {
+                        return true;
+                    }
+                }
+                // Check all nested submenus
+                // Note: We don't have direct access to their rects here, but nested_submenu_hovered should cover this
+                false
+            } else {
+                false
+            }
+        });
+
+        if main_submenu_hovered || nested_submenu_hovered || mouse_in_safe_path || mouse_in_any_menu {
+            // Reset close timer if hovering over any menu or in safe path
+            self.submenu_close_timer = None;
+        } else {
+            // Start close timer if not already started
+            if self.submenu_close_timer.is_none() {
+                self.submenu_close_timer = Some(std::time::Instant::now());
+            }
+            
+            // Only close nested submenus after a delay to allow mouse movement
+            if let Some(timer) = self.submenu_close_timer {
+                if timer.elapsed().as_millis() > 800 { // Increased to 800ms grace period for better UX
+                    self.nested_submenus.clear();
+                }
+            }
+        }
 
         (selected_node_type, menu_response.response, submenu_response)
     }
@@ -277,35 +384,125 @@ impl MenuManager {
     }
 
     /// Render submenu content and return selected node type
-    fn render_submenu_content(&self, ui: &mut egui::Ui, submenu_name: &str, workspace_manager: &WorkspaceManager, navigation: &NavigationManager) -> Option<String> {
+    fn render_submenu_content(&mut self, ui: &mut egui::Ui, submenu_name: &str, workspace_manager: &WorkspaceManager, navigation: &NavigationManager) -> Option<String> {
         // Get workspace-aware menu structure and find the matching category
         let menu_structure = workspace_manager.get_menu_for_path(&navigation.current_path);
-        let mut node_items = Vec::new();
+        let mut menu_items = Vec::new();
         
-        // Find the category that matches the submenu name
-        for menu_item in menu_structure {
-            match menu_item {
-                WorkspaceMenuItem::Category { name, items } if name == submenu_name => {
-                    // Extract node types from the category items
-                    for item in items {
-                        match item {
-                            WorkspaceMenuItem::Node { name, node_type } => {
-                                node_items.push((name, node_type));
-                            }
-                            WorkspaceMenuItem::Workspace { name, .. } => {
-                                node_items.push((name.clone(), format!("SUBWORKSPACE:{}", name)));
-                            }
-                            _ => {}
-                        }
+        // Find the category that matches the submenu name by searching recursively
+        // If we're in a nested path, use the path to find the right category
+        let search_name = if self.submenu_path.len() > 1 {
+            &self.submenu_path[self.submenu_path.len() - 1]
+        } else {
+            submenu_name
+        };
+        
+        if let Some(category_items) = self.find_category_items(&menu_structure, search_name) {
+            // Extract both node types and nested categories from the category items
+            for item in category_items {
+                match item {
+                    WorkspaceMenuItem::Node { name, node_type } => {
+                        menu_items.push((name, node_type, false)); // false = no arrow
                     }
-                    break;
+                    WorkspaceMenuItem::Workspace { name, .. } => {
+                        menu_items.push((name.clone(), format!("SUBWORKSPACE:{}", name), false));
+                    }
+                    WorkspaceMenuItem::Category { name: sub_name, .. } => {
+                        // Nested category - render with arrow to indicate submenu
+                        menu_items.push((sub_name.clone(), format!("CATEGORY:{}", sub_name), true)); // true = show arrow
+                    }
                 }
-                _ => {}
             }
         }
 
         // Calculate submenu width using actual text measurement
-        let text_width = node_items.iter()
+        let text_width = menu_items.iter()
+            .map(|(display_name, _, _)| {
+                let galley = ui.fonts(|f| f.layout_no_wrap(display_name.to_string(), egui::FontId::default(), Color32::WHITE));
+                galley.rect.width()
+            })
+            .fold(0.0, f32::max);
+        let submenu_width = (text_width + ui.spacing().button_padding.x * 4.0).max(140.0);
+        ui.set_min_width(submenu_width);
+        ui.set_max_width(submenu_width);
+
+        // Track which nested submenus should remain open
+        let mut currently_hovered_nested = None;
+        
+        // Draw submenu items
+        for (display_name, node_type, show_arrow) in menu_items {
+            if show_arrow {
+                // This is a nested category - handle as submenu navigation
+                let (clicked, hovered) = render_menu_item_with_arrow(ui, &display_name, submenu_width, true);
+                
+                if hovered {
+                    // Open nested submenu - calculate position for the next level
+                    let current_pos = ui.next_widget_position();
+                    let item_height = ui.spacing().button_padding.y * 2.0 + ui.text_style_height(&egui::TextStyle::Body);
+                    let item_top = current_pos.y - item_height;
+                    
+                    // Only clear and replace if this is a different submenu than what's currently open
+                    let needs_update = self.nested_submenus.is_empty() || 
+                        !self.nested_submenus.iter().any(|(name, _)| name == &display_name);
+                    
+                    if needs_update {
+                        // Clear all existing nested submenus and add only the new one
+                        self.nested_submenus.clear();
+                        
+                        // Add the new nested submenu
+                        let nested_pos = Pos2::new(current_pos.x + submenu_width, item_top);
+                        self.nested_submenus.push((display_name.clone(), nested_pos));
+                    }
+                    
+                    self.submenu_close_timer = None;
+                    currently_hovered_nested = Some(display_name.clone());
+                }
+                
+                // Don't return the category identifier for clicks - let hover handle navigation
+            } else {
+                // This is a regular node - render normally
+                if self.render_submenu_node_item(ui, &display_name, submenu_width) {
+                    return Some(node_type);
+                }
+            }
+        }
+        
+        // If no nested submenu is being hovered over in this frame, clear all nested submenus
+        if currently_hovered_nested.is_none() {
+            // Don't clear immediately - check if any nested submenu itself is being hovered
+            // This will be handled in the main render method
+        }
+        
+        None
+    }
+
+    /// Render nested submenu content and return selected node type
+    fn render_nested_submenu_content(&self, ui: &mut egui::Ui, submenu_name: &str, workspace_manager: &WorkspaceManager, navigation: &NavigationManager) -> Option<String> {
+        // Get workspace-aware menu structure and find the matching category
+        let menu_structure = workspace_manager.get_menu_for_path(&navigation.current_path);
+        let mut menu_items = Vec::new();
+        
+        // Find the category that matches the submenu name by searching recursively
+        if let Some(category_items) = self.find_category_items(&menu_structure, submenu_name) {
+            // Extract only node types from the category items (no further nesting for now)
+            for item in category_items {
+                match item {
+                    WorkspaceMenuItem::Node { name, node_type } => {
+                        menu_items.push((name, node_type));
+                    }
+                    WorkspaceMenuItem::Workspace { name, .. } => {
+                        menu_items.push((name.clone(), format!("SUBWORKSPACE:{}", name)));
+                    }
+                    // For nested categories, we could add further nesting here if needed
+                    WorkspaceMenuItem::Category { .. } => {
+                        // Skip nested categories in nested submenus for now to avoid infinite nesting
+                    }
+                }
+            }
+        }
+
+        // Calculate submenu width using actual text measurement
+        let text_width = menu_items.iter()
             .map(|(display_name, _)| {
                 let galley = ui.fonts(|f| f.layout_no_wrap(display_name.to_string(), egui::FontId::default(), Color32::WHITE));
                 galley.rect.width()
@@ -315,19 +512,57 @@ impl MenuManager {
         ui.set_min_width(submenu_width);
         ui.set_max_width(submenu_width);
 
+        // Track if any item is hovered to maintain menu visibility
+        let mut any_item_hovered = false;
+
         // Draw submenu items
-        for (display_name, node_type) in node_items {
-            if self.render_submenu_node_item(ui, &display_name, submenu_width) {
+        for (display_name, node_type) in menu_items {
+            let (clicked, hovered) = render_menu_item_full(ui, &display_name, submenu_width);
+            if hovered {
+                any_item_hovered = true;
+            }
+            if clicked {
                 return Some(node_type);
             }
         }
         
+        // If any item in this submenu is hovered, ensure we don't close the menu
+        if any_item_hovered {
+            // This is handled by the parent, but we make sure hover is detected
+            ui.ctx().request_repaint(); // Ensure UI updates
+        }
+        
+        None
+    }
+
+    /// Helper method to find category items by name, searching recursively
+    fn find_category_items(&self, menu_structure: &[WorkspaceMenuItem], category_name: &str) -> Option<Vec<WorkspaceMenuItem>> {
+        for menu_item in menu_structure {
+            match menu_item {
+                WorkspaceMenuItem::Category { name, items } if name == category_name => {
+                    return Some(items.clone());
+                }
+                WorkspaceMenuItem::Category { items, .. } => {
+                    // Recursively search in nested categories
+                    if let Some(found_items) = self.find_category_items(items, category_name) {
+                        return Some(found_items);
+                    }
+                }
+                _ => {}
+            }
+        }
         None
     }
 
     /// Render a node item in submenu - USES SHARED STYLING
     fn render_submenu_node_item(&self, ui: &mut egui::Ui, text: &str, submenu_width: f32) -> bool {
         render_menu_item(ui, text, submenu_width)
+    }
+
+    /// Render a category item in submenu with arrow - USES SHARED STYLING
+    fn render_submenu_category_item(&self, ui: &mut egui::Ui, text: &str, submenu_width: f32) -> bool {
+        let (clicked, _) = render_menu_item_with_arrow(ui, text, submenu_width, true);
+        clicked
     }
 
     /// Check if mouse is in buffer area between menu and submenu

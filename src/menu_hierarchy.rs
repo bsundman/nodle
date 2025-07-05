@@ -239,6 +239,15 @@ impl GlobalMenuHierarchy {
                     },
                 ],
             },
+            WorkspaceMenuItem::Category {
+                name: "Utility".to_string(),
+                items: vec![
+                    WorkspaceMenuItem::Node { 
+                        name: "Null".to_string(), 
+                        node_type: "Null".to_string() 
+                    },
+                ],
+            },
         ]
     }
     

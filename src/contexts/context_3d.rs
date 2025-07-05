@@ -11,6 +11,7 @@ pub struct Context3D {
 
 impl Context3D {
     pub fn new() -> Self {
+        eprintln!("📦 ===== CONTEXT3D BEING CREATED =====");
         let mut node_registry = NodeRegistry::default();
         
         // Register 3D-specific nodes with interface panels
@@ -24,6 +25,33 @@ impl Context3D {
         node_registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
         node_registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
         node_registry.register::<crate::nodes::three_d::output::viewport::ViewportNode>();
+        
+        // Register utility nodes (like Null node)
+        node_registry.register::<crate::nodes::utility::null::parameters::NullNode>();
+        
+        // Try to register plugin nodes if any are available
+        let mut plugin_manager = crate::plugins::PluginManager::new();
+        if let Ok(loaded_plugins) = plugin_manager.discover_and_load_plugins() {
+            if let Err(e) = plugin_manager.register_plugin_nodes(&mut node_registry) {
+                println!("⚠️  Failed to register plugin nodes: {}", e);
+            } else {
+                println!("🔗 Plugin nodes registered with 3D context: {} plugins", loaded_plugins.len());
+                
+                // Debug: Show what's in the registry now
+                println!("🔍 Registry categories after plugin registration:");
+                let menu_items = node_registry.generate_menu_structure(&["3D"]);
+                for item in &menu_items {
+                    if let crate::workspace::WorkspaceMenuItem::Category { name, items } = item {
+                        println!("  📁 Category '{}' has {} items", name, items.len());
+                        for node_item in items {
+                            if let crate::workspace::WorkspaceMenuItem::Node { name, node_type } = node_item {
+                                println!("    📄 {} ({})", name, node_type);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
         Self {
             node_registry,
@@ -41,8 +69,42 @@ impl Context for Context3D {
     }
     
     fn get_menu_structure(&self) -> Vec<ContextMenuItem> {
-        // Use centralized menu hierarchy
-        crate::menu_hierarchy::GlobalMenuHierarchy::get_3d_context_menu()
+        // Use dynamic menu generation from NodeRegistry to include plugin nodes
+        let workspace_filter = vec!["3D"];
+        let menu_items = self.node_registry.generate_menu_structure(&workspace_filter);
+        
+        // Convert WorkspaceMenuItem to ContextMenuItem
+        menu_items.into_iter().map(|item| {
+            match item {
+                crate::workspace::WorkspaceMenuItem::Category { name, items } => {
+                    ContextMenuItem::Category {
+                        name,
+                        items: items.into_iter().map(|node_item| {
+                            match node_item {
+                                crate::workspace::WorkspaceMenuItem::Node { name, node_type } => {
+                                    ContextMenuItem::Node { name, node_type }
+                                }
+                                crate::workspace::WorkspaceMenuItem::Category { .. } => {
+                                    // Nested categories not supported in ContextMenuItem, flatten
+                                    ContextMenuItem::Node { name: "Unsupported".to_string(), node_type: "".to_string() }
+                                }
+                                crate::workspace::WorkspaceMenuItem::Workspace { name, .. } => {
+                                    // Workspaces not supported in ContextMenuItem, convert to node
+                                    ContextMenuItem::Node { name, node_type: "".to_string() }
+                                }
+                            }
+                        }).collect(),
+                    }
+                }
+                crate::workspace::WorkspaceMenuItem::Node { name, node_type } => {
+                    ContextMenuItem::Node { name, node_type }
+                }
+                crate::workspace::WorkspaceMenuItem::Workspace { name, .. } => {
+                    // Workspaces not supported at top level in ContextMenuItem
+                    ContextMenuItem::Node { name, node_type: "".to_string() }
+                }
+            }
+        }).collect()
     }
     
     fn is_generic_node_compatible(&self, node_type: &str) -> bool {

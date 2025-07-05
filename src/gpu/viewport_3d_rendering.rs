@@ -100,6 +100,10 @@ impl Default for Camera3D {
 }
 
 impl Camera3D {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
     pub fn build_view_projection_matrix(&self) -> Mat4 {
         let view = Mat4::look_at_rh(self.position, self.target, self.up);
         let proj = Mat4::perspective_rh(self.fov, self.aspect, self.near, self.far);
@@ -287,57 +291,17 @@ impl Camera3D {
     }
     
     /// Find the closest intersection point with scene geometry (only in front of camera)
-    pub fn find_closest_intersection(&self, ray_origin: Vec3, ray_direction: Vec3, geometries: &[crate::gpu::USDGeometry]) -> Option<Vec3> {
-        let mut closest_distance = f32::INFINITY;
-        let mut closest_point = None;
-        
-        if geometries.is_empty() {
-            println!("WARNING: No geometries loaded for ray intersection testing!");
-            return None;
-        }
-        
-        for geometry in geometries {
-            if !geometry.visibility {
-                continue;
-            }
-            
-            // Transform vertices by geometry transform
-            let transform = geometry.transform;
-            
-            // Test intersection with each triangle
-            for triangle in geometry.indices.chunks(3) {
-                if triangle.len() != 3 {
-                    continue;
-                }
-                
-                let v0_local = Vec3::from(geometry.vertices[triangle[0] as usize].position);
-                let v1_local = Vec3::from(geometry.vertices[triangle[1] as usize].position);
-                let v2_local = Vec3::from(geometry.vertices[triangle[2] as usize].position);
-                
-                // Transform vertices to world space
-                let v0 = transform.transform_point3(v0_local);
-                let v1 = transform.transform_point3(v1_local);
-                let v2 = transform.transform_point3(v2_local);
-                
-                if let Some(distance) = self.ray_triangle_intersect(ray_origin, ray_direction, v0, v1, v2) {
-                    // Only accept intersections in front of camera (positive distance)
-                    if distance > 0.1 && distance < closest_distance {
-                        closest_distance = distance;
-                        closest_point = Some(ray_origin + ray_direction * distance);
-                    }
-                }
-            }
-        }
-        
-        closest_point
+    pub fn find_closest_intersection(&self, ray_origin: Vec3, ray_direction: Vec3) -> Option<Vec3> {
+        // USD geometry intersection moved to plugin
+        None
     }
     
     /// Find the best orbit pivot point for mouse position using proper ray casting
-    pub fn find_orbit_pivot(&self, mouse_x: f32, mouse_y: f32, geometries: &[crate::gpu::USDGeometry]) -> Vec3 {
+    pub fn find_orbit_pivot(&self, mouse_x: f32, mouse_y: f32) -> Vec3 {
         let (ray_origin, ray_direction) = self.screen_to_ray(mouse_x, mouse_y);
         
         // First try to find exact intersection with scene geometry
-        if let Some(intersection_point) = self.find_closest_intersection(ray_origin, ray_direction, geometries) {
+        if let Some(intersection_point) = self.find_closest_intersection(ray_origin, ray_direction) {
             return intersection_point;
         }
         
@@ -529,7 +493,7 @@ impl Renderer3D {
         });
         
         // Load shaders and create pipelines
-        self.create_pipelines(&device, &bind_group_layout);
+        self.create_pipelines_with_device(&device, &bind_group_layout);
         
         // Store the created resources
         self.uniform_buffer = Some(uniform_buffer);
@@ -544,7 +508,7 @@ impl Renderer3D {
         self.create_axis_buffers();
     }
     
-    fn create_pipelines(&mut self, device: &Device, bind_group_layout: &BindGroupLayout) {
+    fn create_pipelines_with_device(&mut self, device: &Device, bind_group_layout: &BindGroupLayout) {
         // Load shaders
         let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("3D Mesh Shader"),
@@ -783,7 +747,7 @@ impl Renderer3D {
         });
         
         // Create pipelines
-        self.create_pipelines(device, &bind_group_layout);
+        self.create_pipelines_with_device(device, &bind_group_layout);
         
         // Store created resources (but not device/queue)
         self.uniform_buffer = Some(uniform_buffer);
@@ -1054,5 +1018,53 @@ impl Renderer3D {
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.axis_index_count, 0, 0..1);
         }
+    }
+    
+    /// Set camera for rendering
+    pub fn set_camera(&mut self, camera: &Camera3D) {
+        self.camera = camera.clone();
+    }
+    
+    /// Render a complete scene with plugin viewport data
+    pub fn render_scene(&mut self, render_pass: &mut wgpu::RenderPass, viewport_data: &nodle_plugin_sdk::viewport::ViewportData, _viewport_size: (u32, u32)) {
+        // Update camera from viewport data
+        let plugin_camera = &viewport_data.scene.camera;
+        self.camera.position = glam::Vec3::new(plugin_camera.position[0], plugin_camera.position[1], plugin_camera.position[2]);
+        self.camera.target = glam::Vec3::new(plugin_camera.target[0], plugin_camera.target[1], plugin_camera.target[2]);
+        self.camera.up = glam::Vec3::new(plugin_camera.up[0], plugin_camera.up[1], plugin_camera.up[2]);
+        self.camera.fov = plugin_camera.fov;
+        self.camera.near = plugin_camera.near;
+        self.camera.far = plugin_camera.far;
+        self.camera.aspect = plugin_camera.aspect;
+        
+        // Render basic scene (grid and axis) first
+        self.render_basic_scene(render_pass, _viewport_size);
+        
+        // TODO: Render plugin meshes
+        // For now, render basic scene representation
+        if !viewport_data.scene.meshes.is_empty() {
+            // Render a placeholder cube for each mesh
+            for mesh in &viewport_data.scene.meshes {
+                println!("🔧 Rendering mesh: {}", mesh.id);
+                // TODO: Convert plugin mesh data to wgpu buffers and render
+            }
+        }
+    }
+    
+    /// Render basic scene (grid, axes) when no plugin data is available
+    pub fn render_basic_scene(&self, render_pass: &mut wgpu::RenderPass, _viewport_size: (u32, u32)) {
+        // Render grid
+        if let (Some(vertex_buffer), Some(index_buffer)) = (&self.grid_vertex_buffer, &self.grid_index_buffer) {
+            if let (Some(pipeline), Some(bind_group)) = (&self.grid_pipeline, &self.uniform_bind_group) {
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_bind_group(0, bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..self.grid_index_count, 0, 0..1);
+            }
+        }
+        
+        // Render axis gizmo
+        self.render_axis_gizmo(render_pass);
     }
 }

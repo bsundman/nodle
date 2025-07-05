@@ -276,6 +276,7 @@ impl NodeEditor {
                             // Viewport panels float by default - never stack with parameter panels
                             self.panel_manager.interface_panel_manager_mut()
                                 .set_panel_stacked(node_id, false);
+                            println!("🔧 Editor: Set stacking to false for viewport node {}", node_id);
                         },
                         crate::nodes::interface::PanelType::Parameter => {
                             // Parameter panels stack by default - separate from viewport panels
@@ -296,6 +297,15 @@ impl NodeEditor {
                             let panel_manager = self.panel_manager.interface_panel_manager_mut();
                             panel_manager.set_panel_visibility(node_id, true);
                             panel_manager.set_panel_open(node_id, true);
+                            
+                            // Debug: Track panel visibility setting
+                            if panel_type == crate::nodes::interface::PanelType::Viewport {
+                                println!("🔧 Editor: Set viewport panel visibility for node {} to TRUE", node_id);
+                                println!("🔧 Editor: Set viewport panel open for node {} to TRUE", node_id);
+                                if let Some(node) = viewed_nodes.get(&node_id) {
+                                    println!("🔧 Editor: Node type: {:?}", node.node_type);
+                                }
+                            }
                         },
                         crate::nodes::interface::PanelType::Viewer |
                         crate::nodes::interface::PanelType::Editor |
@@ -486,6 +496,17 @@ impl NodeEditor {
     fn render_interface_panels(&mut self, ui: &mut egui::Ui, viewed_nodes: &HashMap<NodeId, Node>, menu_bar_height: f32) {
         // Store menu bar height in editor state for window constraints
         self.store_menu_bar_height(menu_bar_height);
+        
+        // Debug: Check viewed_nodes for viewport nodes
+        let viewport_nodes: Vec<_> = viewed_nodes.iter()
+            .filter(|(_, node)| node.get_panel_type() == Some(crate::nodes::interface::PanelType::Viewport))
+            .collect();
+        if !viewport_nodes.is_empty() {
+            println!("🔧 Editor: render_interface_panels found {} viewport nodes", viewport_nodes.len());
+            for (&id, node) in viewport_nodes {
+                println!("  - Viewport node {} '{}' visible={}", id, node.title, node.visible);
+            }
+        }
         
         // Delegate to the panel manager
         self.panel_manager.render_interface_panels(

@@ -14,6 +14,7 @@ pub mod math;
 pub mod logic;
 pub mod data;
 pub mod output;
+pub mod utility;
 
 // Context-specific node implementations
 pub mod materialx;
