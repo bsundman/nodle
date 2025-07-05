@@ -375,9 +375,18 @@ impl MenuManager {
             let item_height = ui.spacing().button_padding.y * 2.0 + ui.text_style_height(&egui::TextStyle::Body);
             let item_top = current_pos.y - item_height; // Go back to the top of the item we just rendered
             
+            // Check if we're switching to a different submenu category
+            let switching_category = self.open_submenu.as_ref() != Some(&text.to_string());
+            
             self.open_submenu = Some(text.to_string());
             self.submenu_pos = Some(Pos2::new(current_pos.x + menu_width, item_top));
             self.submenu_close_timer = None; // Cancel any close timer
+            
+            // Clear nested submenus when switching to a different category to prevent persistence
+            if switching_category {
+                self.nested_submenus.clear();
+                self.submenu_path.clear(); // Also clear the submenu path
+            }
         }
         
         hovered
