@@ -5,7 +5,7 @@ use crate::nodes::factory::NodeRegistry;
 use crate::nodes::three_d::*;
 use crate::nodes::three_d::geometry::{CubeNode, SphereNode};
 use crate::nodes::three_d::transform::TranslateNode;
-use crate::nodes::utility::NullNode;
+use crate::nodes::utility::{NullNode, TestNode};
 use log::{debug, info, warn};
 
 /// 3D workspace for 3D graphics, rendering, and modeling workflows
@@ -20,6 +20,7 @@ impl Workspace3D {
         
         // Register utility nodes - available across workspaces
         node_registry.register::<NullNode>();
+        node_registry.register::<TestNode>();
         
         // Register 3D transform nodes
         node_registry.register::<TranslateNode>();

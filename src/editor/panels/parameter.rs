@@ -316,11 +316,19 @@ impl ParameterPanel {
         panel_manager: &mut InterfacePanelManager,
         graph: &mut crate::nodes::NodeGraph,
     ) {
-        // Get current custom name or use node's default title
-        let current_name = panel_manager.get_node_name(node_id)
-            .cloned()
-            .unwrap_or_else(|| node.title.clone());
-        let mut name_buffer = current_name;
+        println!("📋 PANEL START: Node '{}' (ID: {}) - Title in passed node: '{}'", node.title, node_id, node.title);
+        
+        // Check what the title is in the graph vs the passed node
+        if let Some(graph_node) = graph.nodes.get(&node_id) {
+            println!("📋 PANEL START: Title in graph: '{}'", graph_node.title);
+            if graph_node.title != node.title {
+                println!("⚠️  MISMATCH: Graph title '{}' != passed node title '{}'", graph_node.title, node.title);
+            }
+        }
+        
+        // Get the actual node's title for editing
+        let mut name_buffer = node.title.clone();
+        println!("📋 PANEL START: name_buffer initialized to: '{}'", name_buffer);
         
         // Get current fit name flag
         let mut fit_name = panel_manager.get_fit_name(node_id);
@@ -328,16 +336,56 @@ impl ParameterPanel {
         ui.horizontal(|ui| {
             ui.label("Name:");
             
-            // Name text field
+            println!("📝 NAME EDIT: About to render text field with buffer: '{}'", name_buffer);
+            
+            // Name text field - directly edit the node's title
             let name_response = ui.text_edit_singleline(&mut name_buffer);
+            
+            println!("📝 NAME EDIT: After text field, buffer is now: '{}'", name_buffer);
+            println!("📝 NAME EDIT: Text field changed: {}", name_response.changed());
+            
             if name_response.changed() {
-                panel_manager.set_node_name(node_id, name_buffer.clone());
+                println!("🔄 NAME CHANGE: User changed name from '{}' to '{}'", node.title, name_buffer);
+                
+                // Update the actual node's title in the graph
+                if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
+                    println!("🔄 NAME CHANGE: Updating graph node title to '{}'", name_buffer);
+                    node_mut.title = name_buffer.clone();
+                    
+                    // If fit name is enabled, resize the node to fit the new title
+                    if fit_name {
+                        // Calculate new size based on title length (rough estimate)
+                        let char_width = 8.0; // Approximate character width
+                        let padding = 40.0; // Extra padding for ports and margins
+                        let min_width = 120.0; // Minimum node width
+                        let new_width = (name_buffer.len() as f32 * char_width + padding).max(min_width);
+                        node_mut.size.x = new_width;
+                        node_mut.update_port_positions(); // Update port positions after resize
+                        println!("🔄 NAME CHANGE: Resized node to width {}", new_width);
+                    }
+                    
+                    println!("✅ NAME CHANGE: Graph node title updated to '{}'", node_mut.title);
+                } else {
+                    println!("❌ NAME CHANGE: Could not find node {} in graph!", node_id);
+                }
             }
             
             // Fit name checkbox
             let fit_response = ui.checkbox(&mut fit_name, "Fit name");
             if fit_response.changed() {
                 panel_manager.set_fit_name(node_id, fit_name);
+                
+                // If fit name was just enabled, resize the node immediately
+                if fit_name {
+                    if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
+                        let char_width = 8.0;
+                        let padding = 40.0;
+                        let min_width = 120.0;
+                        let new_width = (node_mut.title.len() as f32 * char_width + padding).max(min_width);
+                        node_mut.size.x = new_width;
+                        node_mut.update_port_positions();
+                    }
+                }
             }
         });
         
@@ -413,6 +461,28 @@ impl ParameterPanel {
     /// Pattern A: build_interface(node, ui) method for ALL nodes
     fn render_build_interface_pattern(&mut self, node: &mut crate::nodes::Node, ui: &mut egui::Ui, node_id: NodeId) -> bool {
         let title = node.title.clone();
+        
+        // Debug output for every individual node (not workspace)
+        if matches!(node.node_type, crate::nodes::NodeType::Regular) {
+            println!("🔍 INDIVIDUAL NODE: '{}' (id: {})", title, node_id);
+        }
+        
+        // Handle plugin nodes first
+        if let Some(plugin_node) = &mut node.plugin_node {
+            println!("🎛️ RENDERING PLUGIN PARAMETERS for: {}", title);
+            
+            // Render plugin parameters
+            let parameter_changes = plugin_node.render_parameters(ui);
+            
+            // Apply parameter changes to the plugin node
+            for change in parameter_changes {
+                println!("🔄 Parameter change: {} = {:?}", change.parameter, change.value);
+                plugin_node.set_parameter(&change.parameter, change.value);
+            }
+            
+            info!("Rendered parameters for plugin node: {}", title);
+            return true;
+        }
         
         // USD nodes are now handled by plugins - no core implementation needed
         
@@ -549,6 +619,16 @@ impl ParameterPanel {
         if title.contains("Null") {
             let changes = crate::nodes::utility::null::parameters::NullNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id);
+            return true;
+        }
+        
+        if title.contains("Test") {
+            println!("🧪 FOUND TEST NODE! Rendering custom interface for: '{}'", title);
+            println!("🧪 TEST NODE: Node has {} parameters", node.parameters.len());
+            let changes = crate::nodes::utility::test::parameters::TestNode::build_interface(node, ui);
+            println!("🧪 TEST NODE: build_interface returned {} parameter changes", changes.len());
+            self.apply_parameter_changes(node, changes, &title, node_id);
+            println!("🧪 TEST NODE: Applied parameter changes successfully");
             return true;
         }
         

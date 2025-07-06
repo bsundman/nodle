@@ -2,6 +2,7 @@
 
 use egui::{Color32, Pos2, Vec2};
 use crate::nodes::{Node, NodeId, NodeGraph};
+use crate::nodes::interface::PanelType;
 use std::collections::{HashMap, BTreeMap};
 use log::{debug, info, warn, error};
 
@@ -448,6 +449,8 @@ pub struct NodeRegistry {
     categories: HashMap<NodeCategory, Vec<String>>,
     // Plugin support  
     plugin_factories: BTreeMap<String, Box<dyn nodle_plugin_sdk::NodeFactory>>,
+    // Cached plugin metadata to avoid repeated calls
+    plugin_metadata_cache: HashMap<String, nodle_plugin_sdk::NodeMetadata>,
 }
 
 impl NodeRegistry {
@@ -458,6 +461,7 @@ impl NodeRegistry {
             metadata_providers: BTreeMap::new(),
             categories: HashMap::new(),
             plugin_factories: BTreeMap::new(),
+            plugin_metadata_cache: HashMap::new(),
         }
     }
     
@@ -507,16 +511,14 @@ impl NodeRegistry {
             let factory_ptr = factory.as_ref() as *const dyn nodle_plugin_sdk::NodeFactory;
             debug!("Factory pointer: {:p}", factory_ptr);
             
-            // Additional safety: Test metadata call first
-            let metadata_test = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                factory.metadata()
-            })) {
-                Ok(meta) => {
-                    debug!("Factory metadata test passed: {}", meta.display_name);
-                    meta
+            // Use cached metadata instead of calling factory.metadata() again
+            let metadata_test = match self.plugin_metadata_cache.get(node_type) {
+                Some(cached_metadata) => {
+                    debug!("Using cached metadata: {}", cached_metadata.display_name);
+                    cached_metadata.clone()
                 }
-                Err(_) => {
-                    error!("Factory metadata test failed - vtable corrupted");
+                None => {
+                    error!("Missing cached metadata for plugin node type: {}", node_type);
                     return None;
                 }
             };
@@ -584,33 +586,35 @@ impl NodeRegistry {
             // Check if plugin node supports viewport
             debug!("Plugin node supports viewport: {}", plugin_node.supports_viewport());
             
-            // Store the plugin node instance in the global plugin manager for viewport rendering
+            // Add ports from plugin metadata to core node
+            debug!("Adding ports from plugin metadata to core node");
+            for input_def in &metadata_test.inputs {
+                core_node.add_input(&input_def.name);
+            }
+            for output_def in &metadata_test.outputs {
+                core_node.add_output(&output_def.name);
+            }
+            debug!("Added {} input ports and {} output ports", 
+                   metadata_test.inputs.len(), metadata_test.outputs.len());
+            
+            // Update port positions after adding ports
+            core_node.update_port_positions();
+            debug!("Updated port positions for plugin node");
+            
+            // Store the plugin node instance directly in the core node for parameter rendering
+            debug!("Storing plugin node instance in core node");
+            core_node.plugin_node = Some(plugin_node);
+            
+            // Plugin node successfully created with ports and parameters
+            
+            // Also store in global plugin manager for viewport rendering if needed
             if panel_type == crate::nodes::interface::PanelType::Viewport {
-                debug!("Node has viewport panel type - attempting to store plugin instance");
+                debug!("Node has viewport panel type - also storing in global plugin manager");
                 
-                // Add error handling for plugin instance storage
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
-                        if let Ok(mut manager) = plugin_manager.lock() {
-                            manager.store_plugin_node_instance(node_id, plugin_node);
-                            info!("Stored plugin viewport node instance for node {}", node_id);
-                        } else {
-                            error!("Failed to lock plugin manager");
-                        }
-                    } else {
-                        error!("No global plugin manager available to store viewport instance");
-                    }
-                })) {
-                    Ok(_) => {
-                        debug!("Plugin instance storage completed successfully");
-                    }
-                    Err(_) => {
-                        error!("Panic occurred while storing plugin instance");
-                        return None;
-                    }
-                }
+                // TODO: Implement viewport registration when needed
+                debug!("Viewport node created - registration will be implemented later");
             } else {
-                debug!("Node does not have viewport panel type - not storing instance");
+                debug!("Node does not have viewport panel type - not registering for viewport");
             }
             
             debug!("Plugin node creation process completed successfully");
@@ -629,22 +633,29 @@ impl NodeRegistry {
             return Some(metadata_provider());
         }
         
-        // Try plugin nodes - convert from SDK metadata to core metadata
-        if let Some(factory) = self.plugin_factories.get(node_type) {
-            let plugin_meta = factory.metadata();
+        // Try plugin nodes - convert from SDK metadata to core metadata  
+        if let Some(_factory) = self.plugin_factories.get(node_type) {
+            // Use cached metadata instead of calling factory.metadata()
+            let plugin_meta = match self.plugin_metadata_cache.get(node_type) {
+                Some(cached_metadata) => cached_metadata,
+                None => {
+                    error!("Missing cached metadata for plugin node type: {}", node_type);
+                    return None;
+                }
+            };
             // Convert from plugin SDK metadata to core metadata
             return Some(NodeMetadata {
-                node_type: plugin_meta.node_type.leak(),
-                display_name: plugin_meta.display_name.leak(),
-                description: plugin_meta.description.leak(),
-                version: plugin_meta.version.leak(),
+                node_type: plugin_meta.node_type.clone().leak(),
+                display_name: plugin_meta.display_name.clone().leak(),
+                description: plugin_meta.description.clone().leak(),
+                version: plugin_meta.version.clone().leak(),
                 color: egui::Color32::from_rgba_premultiplied(
                     plugin_meta.color.r(), 
                     plugin_meta.color.g(), 
                     plugin_meta.color.b(), 
                     plugin_meta.color.a()
                 ),
-                icon: plugin_meta.icon.leak(),
+                icon: plugin_meta.icon.clone().leak(),
                 size_hint: egui::Vec2::new(plugin_meta.size_hint.x, plugin_meta.size_hint.y),
                 category: NodeCategory::new(&plugin_meta.category.path().iter().map(|s| s.as_str()).collect::<Vec<_>>()),
                 workspace_compatibility: plugin_meta.workspace_compatibility.iter().map(|s| s.clone().leak() as &str).collect(),
@@ -728,15 +739,108 @@ impl NodeRegistry {
             }
         }
         
-        // Try plugin nodes (metadata only for now)
-        if let Some(metadata) = self.get_node_metadata(node_type) {
-            // For now, we only return metadata for plugin nodes since node creation isn't implemented
-            return None; // Node creation not yet supported
+        // Try plugin nodes
+        if let Some(plugin_factory) = self.plugin_factories.get(node_type) {
+            if let Some(metadata) = self.get_node_metadata(node_type) {
+                // Create the plugin node instance
+                if let Some(node) = self.create_node(node_type, position) {
+                    return Some((node, metadata));
+                }
+            }
         }
         
         None
     }
     
+    /// Convert plugin SDK metadata to core Nodle metadata
+    fn convert_plugin_metadata_to_core(&self, plugin_meta: &nodle_plugin_sdk::NodeMetadata) -> NodeMetadata {
+        NodeMetadata {
+            // Core identity
+            node_type: plugin_meta.node_type.clone().leak(),
+            display_name: plugin_meta.display_name.clone().leak(),
+            description: plugin_meta.description.clone().leak(),
+            version: plugin_meta.version.clone().leak(),
+            
+            // Visual appearance
+            color: plugin_meta.color,
+            icon: plugin_meta.icon.clone().leak(),
+            size_hint: plugin_meta.size_hint,
+            
+            // Organization & categorization
+            category: NodeCategory::new(&plugin_meta.category.path().iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+            workspace_compatibility: plugin_meta.workspace_compatibility.iter().map(|s| s.clone().leak() as &str).collect(),
+            tags: plugin_meta.tags.iter().map(|s| s.clone().leak() as &str).collect(),
+            
+            // Interface behavior
+            panel_type: match plugin_meta.panel_type {
+                nodle_plugin_sdk::PanelType::Parameter => PanelType::Parameter,
+                nodle_plugin_sdk::PanelType::Viewport => PanelType::Viewport,
+                nodle_plugin_sdk::PanelType::Combined => PanelType::Parameter, // Fallback to Parameter
+            },
+            default_panel_position: match plugin_meta.default_panel_position {
+                nodle_plugin_sdk::PanelPosition::TopLeft => PanelPosition::TopLeft,
+                nodle_plugin_sdk::PanelPosition::TopRight => PanelPosition::TopRight,
+                nodle_plugin_sdk::PanelPosition::BottomLeft => PanelPosition::BottomLeft,
+                nodle_plugin_sdk::PanelPosition::BottomRight => PanelPosition::BottomRight,
+                nodle_plugin_sdk::PanelPosition::Center => PanelPosition::Center,
+                nodle_plugin_sdk::PanelPosition::Custom(pos) => PanelPosition::Custom(pos),
+            },
+            default_stacking_mode: match plugin_meta.default_stacking_mode {
+                nodle_plugin_sdk::StackingMode::Floating => StackingMode::Floating,
+                nodle_plugin_sdk::StackingMode::VerticalStack => StackingMode::VerticalStack,
+                nodle_plugin_sdk::StackingMode::TabbedStack => StackingMode::TabbedStack,
+                nodle_plugin_sdk::StackingMode::Docked => StackingMode::Docked,
+            },
+            resizable: plugin_meta.resizable,
+            
+            // Connectivity
+            inputs: plugin_meta.inputs.iter().map(|input| PortDefinition {
+                name: input.name.clone(),
+                data_type: self.convert_plugin_data_type(&input.data_type),
+                optional: input.optional,
+                description: input.description.clone(),
+            }).collect(),
+            outputs: plugin_meta.outputs.iter().map(|output| PortDefinition {
+                name: output.name.clone(),
+                data_type: self.convert_plugin_data_type(&output.data_type),
+                optional: output.optional,
+                description: output.description.clone(),
+            }).collect(),
+            allow_multiple_connections: plugin_meta.allow_multiple_connections,
+            
+            // Execution behavior
+            execution_mode: match plugin_meta.execution_mode {
+                nodle_plugin_sdk::ExecutionMode::Realtime => ExecutionMode::Realtime,
+                nodle_plugin_sdk::ExecutionMode::OnDemand => ExecutionMode::OnDemand,
+                nodle_plugin_sdk::ExecutionMode::Manual => ExecutionMode::Manual,
+                nodle_plugin_sdk::ExecutionMode::Background => ExecutionMode::Background,
+            },
+            processing_cost: match plugin_meta.processing_cost {
+                nodle_plugin_sdk::ProcessingCost::Minimal => ProcessingCost::Minimal,
+                nodle_plugin_sdk::ProcessingCost::Low => ProcessingCost::Low,
+                nodle_plugin_sdk::ProcessingCost::Medium => ProcessingCost::Medium,
+                nodle_plugin_sdk::ProcessingCost::High => ProcessingCost::High,
+                nodle_plugin_sdk::ProcessingCost::VeryHigh => ProcessingCost::VeryHigh,
+            },
+            requires_gpu: plugin_meta.requires_gpu,
+            
+            // Advanced properties
+            is_workspace_node: plugin_meta.is_workspace_node,
+            supports_preview: plugin_meta.supports_preview,
+        }
+    }
+    
+    /// Convert plugin SDK DataType to core DataType
+    fn convert_plugin_data_type(&self, plugin_type: &nodle_plugin_sdk::DataType) -> DataType {
+        match plugin_type {
+            nodle_plugin_sdk::DataType::Float => DataType::Float,
+            nodle_plugin_sdk::DataType::Vector3 => DataType::Vector3,
+            nodle_plugin_sdk::DataType::Color => DataType::Color,
+            nodle_plugin_sdk::DataType::String => DataType::String,
+            nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+            nodle_plugin_sdk::DataType::Any => DataType::Any,
+        }
+    }
     
     /// Get all available node types
     pub fn node_types(&self) -> Vec<&str> {
@@ -820,8 +924,15 @@ impl NodeRegistry {
         }
         
         // Process plugin nodes
-        for (node_type, factory) in &self.plugin_factories {
-            let metadata = factory.metadata();
+        for (node_type, _factory) in &self.plugin_factories {
+            // Use cached metadata instead of calling factory.metadata() repeatedly
+            let metadata = match self.plugin_metadata_cache.get(node_type) {
+                Some(cached_metadata) => cached_metadata,
+                None => {
+                    error!("Missing cached metadata for plugin node type: {}", node_type);
+                    continue;
+                }
+            };
             
             // NODE-CENTRIC: Only include nodes that declare compatibility with this workspace
             let is_compatible = if workspace_filter.is_empty() {
@@ -941,6 +1052,9 @@ impl nodle_plugin_sdk::NodeRegistryTrait for NodeRegistry {
     fn register_node_factory(&mut self, factory: Box<dyn nodle_plugin_sdk::NodeFactory>) -> Result<(), nodle_plugin_sdk::PluginError> {
         let metadata = factory.metadata();
         let node_type = metadata.node_type.clone();
+        
+        // Cache the metadata to avoid repeated calls
+        self.plugin_metadata_cache.insert(node_type.clone(), metadata.clone());
         
         // Store the plugin factory
         self.plugin_factories.insert(node_type.clone(), factory);
