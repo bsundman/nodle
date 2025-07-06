@@ -119,7 +119,10 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
         // Update GPU resources
         
         // Get or create the global renderer
-        let mut renderer_lock = GLOBAL_GPU_RENDERER.lock().unwrap();
+        let mut renderer_lock = match GLOBAL_GPU_RENDERER.lock() {
+            Ok(lock) => lock,
+            Err(_) => return Vec::new(), // Skip rendering if mutex is poisoned
+        };
         if renderer_lock.is_none() {
             // Use the format that matches egui's surface format
             let format = wgpu::TextureFormat::Bgra8Unorm; // Match egui's surface format
@@ -145,7 +148,10 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
     ) {
         // Reduce debug output for performance
         
-        let renderer_lock = GLOBAL_GPU_RENDERER.lock().unwrap();
+        let renderer_lock = match GLOBAL_GPU_RENDERER.lock() {
+            Ok(lock) => lock,
+            Err(_) => return, // Skip rendering if mutex is poisoned
+        };
         if let Some(renderer) = renderer_lock.as_ref() {
             // Set viewport to match the full screen area scaled by DPI
             // Calculate DPI-aware viewport dimensions

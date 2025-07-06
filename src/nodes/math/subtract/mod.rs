@@ -8,8 +8,7 @@
 mod functions;
 pub mod parameters;
 
-pub use functions::*;
-pub use parameters::*;
+// Re-exports removed - these were unused
 
 use egui::Color32;
 use crate::nodes::{NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition};

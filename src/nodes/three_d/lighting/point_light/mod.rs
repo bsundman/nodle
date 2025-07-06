@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::PointLightLogic;
+// logic::PointLightLogic removed - only used internally
 pub use parameters::PointLightNode;
 
 use crate::nodes::NodeFactory;

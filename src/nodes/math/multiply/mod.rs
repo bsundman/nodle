@@ -8,8 +8,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::*;
-pub use parameters::*;
+// Re-exports removed - these were unused
 
 use crate::nodes::NodeFactory;
 

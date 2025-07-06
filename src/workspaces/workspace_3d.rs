@@ -6,6 +6,7 @@ use crate::nodes::three_d::*;
 use crate::nodes::three_d::geometry::{CubeNode, SphereNode};
 use crate::nodes::three_d::transform::TranslateNode;
 use crate::nodes::utility::NullNode;
+use log::{debug, info, warn};
 
 /// 3D workspace for 3D graphics, rendering, and modeling workflows
 pub struct Workspace3D {
@@ -14,7 +15,7 @@ pub struct Workspace3D {
 
 impl Workspace3D {
     pub fn new() -> Self {
-        eprintln!("📦 ===== WORKSPACE3D BEING CREATED =====");
+        info!("===== WORKSPACE3D BEING CREATED =====");
         let mut node_registry = NodeRegistry::new(); // Start with empty registry
         
         // Register utility nodes - available across workspaces
@@ -44,27 +45,27 @@ impl Workspace3D {
         if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
             if let Ok(manager) = plugin_manager.lock() {
                 if let Err(e) = manager.register_plugin_nodes(&mut node_registry) {
-                    eprintln!("⚠️  Failed to register plugin nodes in Workspace3D: {}", e);
+                    warn!("Failed to register plugin nodes in Workspace3D: {}", e);
                 } else {
                     let loaded_plugins = manager.get_loaded_plugins();
-                    eprintln!("🔗 Plugin nodes registered with Workspace3D: {} plugins", loaded_plugins.len());
+                    info!("Plugin nodes registered with Workspace3D: {} plugins", loaded_plugins.len());
                     
                     // Debug: Show what's in the registry now
-                    eprintln!("🔍 Workspace3D registry categories after plugin registration:");
+                    debug!("Workspace3D registry categories after plugin registration:");
                     let menu_items = node_registry.generate_menu_structure(&["3D"]);
                     for item in &menu_items {
                         if let crate::workspace::WorkspaceMenuItem::Category { name, items } = item {
-                            eprintln!("  📁 Category '{}' has {} items", name, items.len());
+                            debug!("  Category '{}' has {} items", name, items.len());
                             for node_item in items {
                                 match node_item {
                                     crate::workspace::WorkspaceMenuItem::Node { name, node_type } => {
-                                        eprintln!("    📄 {} ({})", name, node_type);
+                                        debug!("    {} ({})", name, node_type);
                                     }
                                     crate::workspace::WorkspaceMenuItem::Category { name: sub_name, items: sub_items } => {
-                                        eprintln!("    📁 Subcategory '{}' has {} items", sub_name, sub_items.len());
+                                        debug!("    Subcategory '{}' has {} items", sub_name, sub_items.len());
                                         for sub_node in sub_items {
                                             if let crate::workspace::WorkspaceMenuItem::Node { name, node_type } = sub_node {
-                                                eprintln!("      📄 {} ({})", name, node_type);
+                                                debug!("      {} ({})", name, node_type);
                                             }
                                         }
                                     }

@@ -2,7 +2,7 @@
 
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
-use super::logic::{DebugLevel, DebugCategory};
+use super::logic::DebugLevel;
 
 /// Debug node with Pattern A interface
 #[derive(Debug, Clone)]

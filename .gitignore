@@ -44,3 +44,10 @@ temp/
 # Additional system files
 *.bak
 *.orig
+
+# Plugin binaries
+plugins/*.dylib
+plugins/*.so
+plugins/*.dll
+plugins/*.a
+plugins/*.lib

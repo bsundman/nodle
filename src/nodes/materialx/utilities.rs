@@ -42,7 +42,7 @@ pub fn create_constant_node(position: Pos2) -> Node {
 
 /// Create a demonstration MaterialX Shader workspace node with port mapping
 pub fn create_shader_workspace_node(position: Pos2) -> Node {
-    use crate::nodes::{Node, NodeType, NodeGraph, PortMapping, Connection};
+    use crate::nodes::{Node, NodeType, NodeGraph, Connection};
     
     let mut workspace_node = Node::new_workspace(0, "MaterialX Shader", position)
         .with_color(Color32::from_rgb(120, 80, 140)); // Purple for shader workspace

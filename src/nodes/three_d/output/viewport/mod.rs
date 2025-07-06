@@ -1,9 +1,7 @@
 //! Viewport node module - enhanced NodeFactory system
 
-pub mod logic;
 pub mod viewport_interface;
 
-pub use logic::ViewportLogic;
 pub use viewport_interface::ViewportNode;
 
 use crate::nodes::NodeFactory;

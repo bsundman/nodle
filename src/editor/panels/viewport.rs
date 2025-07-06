@@ -3,13 +3,14 @@
 //! Handles viewport-type interface panels that are floating windows with 3D content
 
 use egui::{Context, Color32, Pos2};
-use crate::nodes::{Node, NodeId, InterfacePanelManager, NodeType};
+use crate::nodes::{Node, NodeId, InterfacePanelManager};
 use crate::nodes::interface::PanelType;
 use crate::editor::panels::PanelAction;
 use std::collections::HashMap;
+use log::info;
 
 // Import viewport data types from SDK
-use nodle_plugin_sdk::viewport::{ViewportData, SceneData, CameraManipulation};
+use nodle_plugin_sdk::viewport::ViewportData;
 
 /// Viewport panel renderer
 pub struct ViewportPanel {
@@ -529,14 +530,14 @@ impl ViewportPanel {
     pub fn auto_load_usd_into_viewport(&mut self, viewport_node_id: NodeId, stage_id: &str) {
         // Get the viewport instance and load the USD stage
         if let Some(viewport_instance) = self.viewport_instances.get_mut(&viewport_node_id) {
-            println!("Viewport Panel: Auto-loading USD stage {} into viewport {}", stage_id, viewport_node_id);
+            info!("Auto-loading USD stage {} into viewport {}", stage_id, viewport_node_id);
             viewport_instance.load_usd_scene(stage_id);
         } else {
             // Create a new viewport instance if it doesn't exist
             let mut new_viewport = crate::nodes::three_d::output::viewport::ViewportNode::default();
             new_viewport.load_usd_scene(stage_id);
             self.viewport_instances.insert(viewport_node_id, new_viewport);
-            println!("Viewport Panel: Created new viewport instance and loaded USD stage {} into viewport {}", stage_id, viewport_node_id);
+            info!("Created new viewport instance and loaded USD stage {} into viewport {}", stage_id, viewport_node_id);
         }
     }
 

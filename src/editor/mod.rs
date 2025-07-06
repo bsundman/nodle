@@ -20,18 +20,19 @@ pub use menus::MenuManager;
 pub use canvas_rendering::MeshRenderer;
 pub use navigation::{NavigationManager, NavigationAction, GraphView};
 pub use file_manager::FileManager;
-pub use panels::{PanelManager, PanelAction};
+pub use panels::PanelManager;
 pub use debug_tools::DebugToolsManager;
-pub use workspace_builder::{WorkspaceBuilder, NodeCompatibility};
+pub use workspace_builder::WorkspaceBuilder;
 
 use eframe::egui;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use egui_wgpu;
 use crate::nodes::{
-    NodeGraph, Node, NodeId, Connection, PanelType,
+    NodeGraph, Node, NodeId, Connection,
 };
 use std::collections::HashMap;
 use std::path::Path;
+use log::{info, error};
 use crate::workspace::WorkspaceManager;
 use crate::workspaces::WorkspaceRegistry;
 use crate::gpu::NodeRenderCallback;
@@ -276,7 +277,7 @@ impl NodeEditor {
                             // Viewport panels stack by default (simplified behavior)
                             self.panel_manager.interface_panel_manager_mut()
                                 .set_panel_stacked(node_id, true);
-                            println!("🔧 Editor: Set stacking to true for viewport node {}", node_id);
+                            info!("Set stacking to true for viewport node {}", node_id);
                         },
                         crate::nodes::interface::PanelType::Parameter => {
                             // Parameter panels stack by default - separate from viewport panels
@@ -300,10 +301,10 @@ impl NodeEditor {
                             
                             // Debug: Track panel visibility setting
                             if panel_type == crate::nodes::interface::PanelType::Viewport {
-                                println!("🔧 Editor: Set viewport panel visibility for node {} to TRUE", node_id);
-                                println!("🔧 Editor: Set viewport panel open for node {} to TRUE", node_id);
+                                info!("Set viewport panel visibility for node {} to TRUE", node_id);
+                                info!("Set viewport panel open for node {} to TRUE", node_id);
                                 if let Some(node) = viewed_nodes.get(&node_id) {
-                                    println!("🔧 Editor: Node type: {:?}", node.node_type);
+                                    info!("Node type: {:?}", node.node_type);
                                 }
                             }
                         },
@@ -317,7 +318,6 @@ impl NodeEditor {
             }
             
             self.mark_modified();
-            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         }
     }
 
@@ -384,7 +384,6 @@ impl NodeEditor {
         self.navigation = NavigationManager::new();
         self.interaction.clear_selection();
         self.file_manager.new_file();
-        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
         // Reset context manager to root (no active context)
         self.workspace_manager.set_active_workspace_by_id(None);
     }
@@ -410,7 +409,6 @@ impl NodeEditor {
                 
                 // Update port positions and rebuild GPU instances
                 self.graph.update_all_port_positions();
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 
                 Ok(())
             }
@@ -449,13 +447,12 @@ impl NodeEditor {
                 
                 // Update port positions and rebuild GPU instances
                 self.graph.update_all_port_positions();
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
             Ok(None) => {
                 // User cancelled - do nothing
             }
             Err(error) => {
-                eprintln!("Failed to load file: {}", error);
+                error!("Failed to load file: {}", error);
                 // TODO: Show error dialog to user
             }
         }
@@ -484,7 +481,7 @@ impl NodeEditor {
                 // User cancelled - do nothing
             }
             Err(error) => {
-                eprintln!("Failed to save file: {}", error);
+                error!("Failed to save file: {}", error);
                 // TODO: Show error dialog to user
             }
         }
@@ -502,9 +499,9 @@ impl NodeEditor {
             .filter(|(_, node)| node.get_panel_type() == Some(crate::nodes::interface::PanelType::Viewport))
             .collect();
         if !viewport_nodes.is_empty() {
-            println!("🔧 Editor: render_interface_panels found {} viewport nodes", viewport_nodes.len());
+            info!("render_interface_panels found {} viewport nodes", viewport_nodes.len());
             for (&id, node) in viewport_nodes {
-                println!("  - Viewport node {} '{}' visible={}", id, node.title, node.visible);
+                info!("  - Viewport node {} '{}' visible={}", id, node.title, node.visible);
             }
         }
         
@@ -550,7 +547,7 @@ impl NodeEditor {
                             let stage_id = format!("file://{}", file_path);
                             
                             // Log the automatic execution
-                            println!("Auto-executing: USD LoadStage {} -> Viewport {} with file: {}", 
+                            info!("Auto-executing: USD LoadStage {} -> Viewport {} with file: {}", 
                                 connection.from_node, connection.to_node, file_path);
                             
                             // Use the panel manager to auto-load USD into the viewport
@@ -561,10 +558,9 @@ impl NodeEditor {
             }
         }
     }
-}
 
-impl eframe::App for NodeEditor {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    /// Initialize frame setup (repaint, timing, theme)
+    fn initialize_frame(&mut self, ctx: &egui::Context) {
         // Request repaint
         ctx.request_repaint();
 
@@ -573,6 +569,13 @@ impl eframe::App for NodeEditor {
         
         // Set dark theme for window decorations
         ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
+    }
+}
+
+impl eframe::App for NodeEditor {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Initialize frame
+        self.initialize_frame(ctx);
 
         // Render top menu bar as TopBottomPanel to ensure it's always on top with solid background
         let menu_bar_height = egui::TopBottomPanel::top("top_menu_bar")
@@ -771,11 +774,9 @@ impl eframe::App for NodeEditor {
                                     }
                                     let _ = self.add_connection_to_active_graph(connection);
                                     self.mark_modified();
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
                                     // Start new connection from this port
                                     self.input_state.start_connection(node_id, port_idx, is_input);
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 }
                             } else {
                                 // Not currently connecting - check if clicking on connected input port
@@ -785,13 +786,11 @@ impl eframe::App for NodeEditor {
                                         self.remove_connection_from_active_graph(conn_idx);
                                         self.mark_modified();
                                         self.input_state.start_connection(from_node, from_port, false);
-                                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                         return; // Skip starting connection from input port
                                     }
                                 }
                                 // Start new connection from this port
                                 self.input_state.start_connection(node_id, port_idx, is_input);
-                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else if let Some(node_id) = self.input_state.find_node_under_mouse(&self.build_temp_graph(&viewed_nodes)) {
                             // Check for button clicks first
@@ -805,7 +804,6 @@ impl eframe::App for NodeEditor {
                                         if node.is_point_in_left_button(mouse_pos) {
                                             node.toggle_left_button();
                                             self.mark_modified();
-                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = self.get_viewed_nodes();
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -814,7 +812,6 @@ impl eframe::App for NodeEditor {
                                         } else if node.is_point_in_right_button(mouse_pos) {
                                             node.toggle_right_button();
                                             self.mark_modified();
-                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = self.get_viewed_nodes();
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -829,7 +826,6 @@ impl eframe::App for NodeEditor {
                                                 panel_manager.set_panel_open(node_id, true);
                                             }
                                             self.mark_modified();
-                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
                                             let viewed_nodes = self.get_viewed_nodes();
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -845,7 +841,6 @@ impl eframe::App for NodeEditor {
                                                 if node.is_point_in_left_button(mouse_pos) {
                                                     node.toggle_left_button();
                                                     self.mark_modified();
-                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = self.get_viewed_nodes();
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -854,7 +849,6 @@ impl eframe::App for NodeEditor {
                                                 } else if node.is_point_in_right_button(mouse_pos) {
                                                     node.toggle_right_button();
                                                     self.mark_modified();
-                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = self.get_viewed_nodes();
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -869,7 +863,6 @@ impl eframe::App for NodeEditor {
                                                         panel_manager.set_panel_open(node_id, true);
                                                     }
                                                     self.mark_modified();
-                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
                                                     let viewed_nodes = self.get_viewed_nodes();
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -931,7 +924,6 @@ impl eframe::App for NodeEditor {
                                                 self.navigation.set_workspace_view(node_id);
                                                 // Clear selections when entering a new graph
                                                 self.interaction.clear_selection();
-                                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                 // Synchronize workspace manager with the node's workspace type
                                                 // Map workspace type to workspace ID (3D -> 3d, MaterialX -> materialx)
                                                 let workspace_id = match workspace_type {
@@ -944,17 +936,14 @@ impl eframe::App for NodeEditor {
                                     }
                                 }
                                 
-                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.build_temp_graph(&viewed_nodes), 8.0, self.canvas.zoom) {
                             // Handle connection selection with multi-select support
                             self.interaction.select_connection_multi(connection_idx, self.input_state.is_multi_select());
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         } else {
                             // Clicked on empty space - deselect all and cancel connections
                             self.interaction.clear_selection();
                             self.input_state.cancel_connection();
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
 
@@ -972,16 +961,13 @@ impl eframe::App for NodeEditor {
                                     self.remove_connection_from_active_graph(conn_idx);
                                     self.mark_modified();
                                     self.input_state.start_connection(from_node, from_port, false);
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
                                     // No existing connection, start from input port
                                     self.input_state.start_connection(node_id, port_idx, is_input);
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 }
                             } else {
                                 // Output port - start connection normally
                                 self.input_state.start_connection(node_id, port_idx, is_input);
-                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else {
                             // Check if we're starting to drag a selected node
@@ -1022,8 +1008,6 @@ impl eframe::App for NodeEditor {
                                     // Start box selection if not on any node and using left mouse button
                                     if self.input_state.is_primary_down(ui) {
                                         self.interaction.start_box_selection(pos);
-                                        // Force GPU rebuild for immediate visual feedback
-                                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                     }
                                 }
                             }
@@ -1046,13 +1030,9 @@ impl eframe::App for NodeEditor {
                                     }
                                 }
                             }
-                            // Force GPU instance manager to rebuild when nodes are moved
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         } else if self.interaction.box_selection_start.is_some() {
                             // Update box selection
                             self.interaction.update_box_selection(pos);
-                            // Force GPU rebuild for immediate visual feedback
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
 
@@ -1072,17 +1052,11 @@ impl eframe::App for NodeEditor {
                                 // Cancel connection if we didn't release on a port
                                 self.input_state.cancel_connection();
                             }
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
                 }
 
                 if self.input_state.drag_stopped_this_frame {
-                    // Ensure final positions are updated in GPU
-                    if self.use_gpu_rendering {
-                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-                    }
-
                     // Complete box selection
                     if self.interaction.box_selection_start.is_some() {
                         match self.navigation.current_view() {
@@ -1097,7 +1071,6 @@ impl eframe::App for NodeEditor {
                                 }
                             }
                         }
-                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                     }
                     
                     // End any dragging operations
@@ -1122,7 +1095,6 @@ impl eframe::App for NodeEditor {
                         }
                     }
                     self.mark_modified();
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 } else if !self.interaction.selected_connections.is_empty() {
                     // Delete all selected connections (in reverse order to maintain indices)
                     let mut connection_indices: Vec<usize> = self.interaction.selected_connections.iter().copied().collect();
@@ -1148,14 +1120,12 @@ impl eframe::App for NodeEditor {
                     }
                     
                     self.interaction.clear_connection_selection();
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
             }
 
             // Handle ESC key to cancel connections
             if self.input_state.escape_pressed(ui) {
                 self.input_state.cancel_connection();
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
             // Update port positions BEFORE connection handling
@@ -1179,7 +1149,6 @@ impl eframe::App for NodeEditor {
                         self.mark_modified();
                     }
                     
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
                 
                 // Clear cut paths after applying
@@ -1217,7 +1186,6 @@ impl eframe::App for NodeEditor {
                         self.mark_modified();
                     }
                     
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
                 
                 // Clear connect paths after applying
@@ -1246,7 +1214,6 @@ impl eframe::App for NodeEditor {
                 self.graph.connections.clear();
                 self.interaction.clear_selection();
                 self.input_state.cancel_connection();
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
             // Handle F6 to toggle GPU/CPU rendering

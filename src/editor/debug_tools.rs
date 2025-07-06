@@ -104,7 +104,7 @@ impl DebugToolsManager {
             let y = 100.0 + row as f32 * spacing;
             let node_type = node_types[i % node_types.len()];
             
-            if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
+            if let Some(node) = crate::nodes::factory::NodeRegistry::default().create_node(node_type, Pos2::new(x, y)) {
                 graph.add_node(node);
             }
         }
@@ -127,7 +127,7 @@ impl DebugToolsManager {
             let y = 100.0 + row as f32 * spacing;
             let node_type = node_types[i % node_types.len()];
             
-            if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
+            if let Some(node) = crate::nodes::factory::NodeRegistry::default().create_node(node_type, Pos2::new(x, y)) {
                 let node_id = graph.add_node(node);
                 node_ids.push(node_id);
             }

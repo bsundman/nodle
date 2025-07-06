@@ -3,6 +3,7 @@
 use egui::{Color32, Pos2, Vec2};
 use crate::nodes::{Node, NodeId, NodeGraph};
 use std::collections::{HashMap, BTreeMap};
+use log::{debug, info, warn, error};
 
 /// Data types that can flow through ports
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -492,30 +493,30 @@ impl NodeRegistry {
         }
         
         // Try plugin nodes - create adapter between PluginNode and core Node
-        println!("🔧 Looking for plugin factory for node type: {}", node_type);
-        println!("🔧 Available plugin factories: {:?}", self.plugin_factories.keys().collect::<Vec<_>>());
+        debug!("Looking for plugin factory for node type: {}", node_type);
+        debug!("Available plugin factories: {:?}", self.plugin_factories.keys().collect::<Vec<_>>());
         if let Some(factory) = self.plugin_factories.get(node_type) {
-            println!("✅ Found plugin factory for: {}", node_type);
-            println!("🔧 Creating plugin node: {}", node_type);
+            info!("Found plugin factory for: {}", node_type);
+            debug!("Creating plugin node: {}", node_type);
             
             // Convert egui::Pos2 to nodle_plugin_sdk::Pos2
             let plugin_pos = nodle_plugin_sdk::Pos2::new(position.x, position.y);
             
             // Safety check: Verify the factory vtable is valid
-            println!("🔧 Verifying plugin factory safety...");
+            debug!("Verifying plugin factory safety...");
             let factory_ptr = factory.as_ref() as *const dyn nodle_plugin_sdk::NodeFactory;
-            println!("🔧 Factory pointer: {:p}", factory_ptr);
+            debug!("Factory pointer: {:p}", factory_ptr);
             
             // Additional safety: Test metadata call first
             let metadata_test = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 factory.metadata()
             })) {
                 Ok(meta) => {
-                    println!("🔧 Factory metadata test passed: {}", meta.display_name);
+                    debug!("Factory metadata test passed: {}", meta.display_name);
                     meta
                 }
                 Err(_) => {
-                    println!("❌ Factory metadata test failed - vtable corrupted");
+                    error!("Factory metadata test failed - vtable corrupted");
                     return None;
                 }
             };
@@ -525,11 +526,11 @@ impl NodeRegistry {
                 factory.create_node(plugin_pos)
             })) {
                 Ok(node) => {
-                    println!("🔧 Created plugin node instance with ID: {}", node.id());
+                    debug!("Created plugin node instance with ID: {}", node.id());
                     node
                 }
                 Err(_) => {
-                    println!("❌ Panic occurred while creating plugin node for type: {}", node_type);
+                    error!("Panic occurred while creating plugin node for type: {}", node_type);
                     return None;
                 }
             };
@@ -539,83 +540,83 @@ impl NodeRegistry {
             // Use a unique temporary ID - the actual ID will be assigned when added to the graph
             // Use very large numbers to ensure they don't conflict with real IDs
             static TEMP_ID_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(crate::constants::node::TEMP_ID_START);
-            let node_id = TEMP_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst); // 1_000_000_000, 1_000_000_001, etc.
-            println!("🔧 Plugin node ID: {}", plugin_node.id());
-            println!("🔧 Using temporary core node ID: {}", node_id);
+            let node_id = TEMP_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            debug!("Plugin node ID: {}", plugin_node.id());
+            debug!("Using temporary core node ID: {}", node_id);
             
             // Add error handling for core node creation
             let mut core_node = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 Node::new(node_id, node_type.to_string(), position)
             })) {
                 Ok(node) => {
-                    println!("🔧 Created core node successfully");
+                    debug!("Created core node successfully");
                     node
                 }
                 Err(_) => {
-                    println!("❌ Panic occurred while creating core node");
+                    error!("Panic occurred while creating core node");
                     return None;
                 }
             };
             
             // Set the panel type from plugin metadata (use already tested metadata)
-            println!("🔧 Plugin metadata panel type: {:?}", metadata_test.panel_type);
+            debug!("Plugin metadata panel type: {:?}", metadata_test.panel_type);
             
             let panel_type = match metadata_test.panel_type {
                 nodle_plugin_sdk::PanelType::Parameter => crate::nodes::interface::PanelType::Parameter,
                 nodle_plugin_sdk::PanelType::Viewport => crate::nodes::interface::PanelType::Viewport,
                 nodle_plugin_sdk::PanelType::Combined => crate::nodes::interface::PanelType::Parameter, // Fallback
             };
-            println!("🔧 Converted to core panel type: {:?}", panel_type);
+            debug!("Converted to core panel type: {:?}", panel_type);
             
             // Add error handling for panel type setting
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 core_node.set_panel_type(panel_type);
             })) {
                 Ok(_) => {
-                    println!("🔧 Set panel type on core node: {:?}", core_node.get_panel_type());
+                    debug!("Set panel type on core node: {:?}", core_node.get_panel_type());
                 }
                 Err(_) => {
-                    println!("❌ Panic occurred while setting panel type");
+                    error!("Panic occurred while setting panel type");
                     return None;
                 }
             }
             
             // Check if plugin node supports viewport
-            println!("🔧 Plugin node supports viewport: {}", plugin_node.supports_viewport());
+            debug!("Plugin node supports viewport: {}", plugin_node.supports_viewport());
             
             // Store the plugin node instance in the global plugin manager for viewport rendering
             if panel_type == crate::nodes::interface::PanelType::Viewport {
-                println!("🔧 Node has viewport panel type - attempting to store plugin instance");
+                debug!("Node has viewport panel type - attempting to store plugin instance");
                 
                 // Add error handling for plugin instance storage
                 match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
                         if let Ok(mut manager) = plugin_manager.lock() {
                             manager.store_plugin_node_instance(node_id, plugin_node);
-                            println!("✅ Stored plugin viewport node instance for node {}", node_id);
+                            info!("Stored plugin viewport node instance for node {}", node_id);
                         } else {
-                            println!("❌ Failed to lock plugin manager");
+                            error!("Failed to lock plugin manager");
                         }
                     } else {
-                        println!("❌ No global plugin manager available to store viewport instance");
+                        error!("No global plugin manager available to store viewport instance");
                     }
                 })) {
                     Ok(_) => {
-                        println!("🔧 Plugin instance storage completed successfully");
+                        debug!("Plugin instance storage completed successfully");
                     }
                     Err(_) => {
-                        println!("❌ Panic occurred while storing plugin instance");
+                        error!("Panic occurred while storing plugin instance");
                         return None;
                     }
                 }
             } else {
-                println!("🔧 Node does not have viewport panel type - not storing instance");
+                debug!("Node does not have viewport panel type - not storing instance");
             }
             
-            println!("🔧 Plugin node creation process completed successfully");
+            debug!("Plugin node creation process completed successfully");
             return Some(core_node);
         } else {
-            println!("❌ No plugin factory found for node type: {}", node_type);
+            warn!("No plugin factory found for node type: {}", node_type);
         }
         
         None
@@ -975,12 +976,12 @@ impl Default for NodeRegistry {
         registry.register::<crate::nodes::math::add::AddNodeFactory>();
         registry.register::<crate::nodes::math::subtract::SubtractNodeFactory>();
         registry.register::<crate::nodes::math::multiply::MultiplyNodeFactory>();
-        registry.register::<crate::nodes::math::DivideNodeFactory>();
+        registry.register::<crate::nodes::math::divide::DivideNodeFactory>();
         
         // Register modular logic nodes
-        registry.register::<crate::nodes::logic::AndNodeFactory>();
-        registry.register::<crate::nodes::logic::OrNodeFactory>();
-        registry.register::<crate::nodes::logic::NotNodeFactory>();
+        registry.register::<crate::nodes::logic::and::AndNodeFactory>();
+        registry.register::<crate::nodes::logic::or::OrNodeFactory>();
+        registry.register::<crate::nodes::logic::not::NotNodeFactory>();
         
         // Register modular data nodes
         registry.register::<crate::nodes::data::constant::ConstantNodeFactory>();

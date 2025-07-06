@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::{CubeGeometry, PivotType};
+// logic types removed - only used internally
 pub use parameters::CubeNode;
 
 use crate::nodes::NodeFactory;

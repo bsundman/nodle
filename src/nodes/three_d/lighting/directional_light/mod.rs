@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::DirectionalLightLogic;
+// logic::DirectionalLightLogic removed - only used internally
 pub use parameters::DirectionalLightNode;
 
 use crate::nodes::NodeFactory;

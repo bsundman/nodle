@@ -30,11 +30,10 @@ pub use port::PortId;
 // Re-export factory types
 pub use factory::{
     NodeFactory, NodeMetadata, NodeCategory,
-    DataType, PortDefinition, ProcessingCost, ExecutionMode, PanelPosition, StackingMode,
+    DataType, PortDefinition,
 };
 
 // Re-export interface types
 pub use interface::{
-    NodeInterfacePanel, InterfacePanelManager, InterfaceParameter, PanelType,
-    NodeData, SceneData, GeometryData, MaterialData, StageData, LightData, ImageData,
+    InterfacePanelManager, PanelType,
 };

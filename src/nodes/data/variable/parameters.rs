@@ -2,8 +2,7 @@
 
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
-use super::logic::{VariableLogic, ChangeRecord};
-use super::super::constant::logic::ConstantValue;
+use super::logic::VariableLogic;
 
 /// Variable node with Pattern A interface
 #[derive(Debug, Clone)]

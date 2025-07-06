@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::RotateLogic;
+// logic::RotateLogic removed - only used internally
 pub use parameters::RotateNode;
 
 use crate::nodes::NodeFactory;

@@ -9,7 +9,4 @@ pub use and::AndNodeFactory;
 pub use or::OrNodeFactory;
 pub use not::NotNodeFactory;
 
-// Export parameter structs for direct use
-pub use and::AndNode;
-pub use or::OrNode;
-pub use not::NotNode;
+// Parameter struct exports removed - unused

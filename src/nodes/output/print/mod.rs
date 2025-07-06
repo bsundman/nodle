@@ -8,8 +8,7 @@
 mod logic;
 pub mod parameters;
 
-pub use logic::*;
-pub use parameters::*;
+// Wildcard imports removed - unused
 
 use egui::Color32;
 use crate::nodes::{NodeFactory, NodeMetadata, NodeCategory, DataType, PortDefinition};

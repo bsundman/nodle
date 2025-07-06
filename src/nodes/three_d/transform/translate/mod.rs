@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::TranslateLogic;
+// logic::TranslateLogic removed - only used internally
 pub use parameters::TranslateNode;
 
 use crate::nodes::NodeFactory;

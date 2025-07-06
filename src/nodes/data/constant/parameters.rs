@@ -2,7 +2,7 @@
 
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
-use super::logic::{ConstantLogic, ConstantValue};
+use super::logic::ConstantLogic;
 
 /// Constant node with Pattern A interface
 #[derive(Debug, Clone)]

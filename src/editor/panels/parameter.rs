@@ -6,6 +6,7 @@ use egui::{Context, Color32, Pos2};
 use crate::nodes::{Node, NodeId, InterfacePanelManager};
 use crate::editor::panels::PanelAction;
 use std::collections::HashMap;
+use log::info;
 
 /// Parameter panel renderer
 pub struct ParameterPanel {
@@ -565,7 +566,7 @@ impl ParameterPanel {
         node_id: NodeId
     ) {
         if !changes.is_empty() {
-            println!("Applied {} parameter changes for {} node {}", changes.len(), title, node_id);
+            info!("Applied {} parameter changes for {} node {}", changes.len(), title, node_id);
             for change in changes {
                 node.parameters.insert(change.parameter, change.value);
             }

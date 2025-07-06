@@ -401,26 +401,11 @@ impl GpuInstanceManager {
         let current_node_count = nodes.len();
         let _estimated_port_count = current_node_count * 3; // Rough estimate
         
-        // INSTANCING OPTIMIZATION DISABLED FOR NOW - rebuild every frame
+        // Rebuild instances every frame for immediate updates
         // This ensures immediate updates when flag visibility changes
-        // TODO: Re-enable optimization logic in the future
-        /*
-        // Only rebuild if node count changed significantly or forced rebuild
-        // Also rebuild during connection drawing mode for real-time port highlighting
-        let should_rebuild = self.needs_full_rebuild || 
-           current_node_count != self.last_frame_node_count ||
-           input_state.is_connecting_mode() || // Force rebuild during connection drawing
-           connecting_from.is_some(); // Force rebuild during click-to-connect
-        
-        if should_rebuild {
-        */
-            // Rebuild instances every frame for immediate updates
-            self.rebuild_all_instances(nodes, selected_nodes, connecting_from, input_state, graph);
-            self.last_frame_node_count = current_node_count;
-            self.needs_full_rebuild = false;
-        /*
-        }
-        */
+        self.rebuild_all_instances(nodes, selected_nodes, connecting_from, input_state, graph);
+        self.last_frame_node_count = current_node_count;
+        self.needs_full_rebuild = false;
         
         (&self.node_instances[..self.node_count], &self.port_instances[..self.port_count], &self.button_instances[..self.button_count], &self.flag_instances[..self.flag_count])
     }

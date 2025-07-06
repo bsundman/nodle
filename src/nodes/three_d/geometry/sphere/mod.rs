@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::{SphereGeometry, SphereType};
+// logic types removed - only used internally
 pub use parameters::SphereNode;
 
 use crate::nodes::NodeFactory;

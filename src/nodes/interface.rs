@@ -740,36 +740,7 @@ impl InterfacePanelManager {
     }
 }
 
-/// Helper macros for creating interface parameters
-#[macro_export]
-macro_rules! interface_float {
-    ($value:expr) => {
-        InterfaceParameter::Float { value: $value, min: 0.0, max: 100.0, step: 0.1 }
-    };
-    ($value:expr, $min:expr, $max:expr) => {
-        InterfaceParameter::Float { value: $value, min: $min, max: $max, step: 0.1 }
-    };
-    ($value:expr, $min:expr, $max:expr, $step:expr) => {
-        InterfaceParameter::Float { value: $value, min: $min, max: $max, step: $step }
-    };
-}
-
-#[macro_export]
-macro_rules! interface_vector3 {
-    ($x:expr, $y:expr, $z:expr) => {
-        InterfaceParameter::Vector3 { value: [$x, $y, $z] }
-    };
-}
-
-#[macro_export]
-macro_rules! interface_enum {
-    ($value:expr, $($option:expr),*) => {
-        InterfaceParameter::Enum { 
-            value: $value, 
-            options: vec![$(String::from($option)),*] 
-        }
-    };
-}
+// Helper macros removed - unused
 
 /// Change notifications for parameter updates
 #[derive(Debug, Clone)]
@@ -778,16 +749,4 @@ pub struct ParameterChange {
     pub value: NodeData,
 }
 
-/// Build parameter UI for a single parameter with custom renderer
-pub fn build_parameter_ui<F>(
-    ui: &mut Ui,
-    param_name: &str,
-    display_name: &str,
-    current_value: NodeData,
-    render_fn: F,
-) -> Option<NodeData>
-where
-    F: FnOnce(&mut Ui, NodeData) -> Option<NodeData>,
-{
-    render_fn(ui, current_value)
-}
+// build_parameter_ui function removed - unused

@@ -9,12 +9,12 @@ mod viewport;
 pub use parameter::ParameterPanel;
 pub use viewport::ViewportPanel;
 
-use egui::{Ui, Context};
+use egui::Ui;
 use crate::nodes::{
     NodeGraph, Node, NodeId, InterfacePanelManager, PanelType,
 };
-use crate::nodes::interface::NodeInterfacePanel;
 use std::collections::HashMap;
+use log::debug;
 
 // Import GraphView from the parent module
 use crate::editor::GraphView;
@@ -92,10 +92,10 @@ impl PanelManager {
             .filter(|(_, node)| node.get_panel_type() == Some(PanelType::Viewport))
             .count();
         if viewport_count > 0 {
-            println!("🔧 PanelManager: Found {} viewport nodes in viewed_nodes", viewport_count);
+            debug!("PanelManager: Found {} viewport nodes in viewed_nodes", viewport_count);
             for (&node_id, node) in viewed_nodes {
                 if node.get_panel_type() == Some(PanelType::Viewport) {
-                    println!("  - Viewport node {} '{}' visible={}", node_id, node.title, node.visible);
+                    debug!("  - Viewport node {} '{}' visible={}", node_id, node.title, node.visible);
                 }
             }
         }
@@ -121,16 +121,16 @@ impl PanelManager {
                 
                 // Debug logging for viewport nodes
                 if panel_type == PanelType::Viewport {
-                    println!("🔧 PanelManager: Processing viewport node {} with visible={}", node_id, node.visible);
-                    println!("🔧 PanelManager: Node title: {}", node.title);
-                    println!("🔧 PanelManager: Panel visibility: {}", self.interface_panel_manager.is_panel_visible(node_id));
-                    println!("🔧 PanelManager: Panel open: {}", self.interface_panel_manager.is_panel_open(node_id));
+                    debug!("PanelManager: Processing viewport node {} with visible={}", node_id, node.visible);
+                    debug!("PanelManager: Node title: {}", node.title);
+                    debug!("PanelManager: Panel visibility: {}", self.interface_panel_manager.is_panel_visible(node_id));
+                    debug!("PanelManager: Panel open: {}", self.interface_panel_manager.is_panel_open(node_id));
                 }
                 
                 // Delegate to the appropriate panel type renderer
                 let panel_action = match panel_type {
                     PanelType::Viewport => {
-                        println!("🔧 PanelManager: Rendering viewport panel for node {}", node_id);
+                        debug!("PanelManager: Rendering viewport panel for node {}", node_id);
                         let result = self.viewport_panel.render(
                             ctx,
                             node_id,
@@ -139,7 +139,7 @@ impl PanelManager {
                             menu_bar_height,
                             viewed_nodes,
                         );
-                        println!("🔧 PanelManager: Viewport panel render completed for node {}, result: {:?}", node_id, result);
+                        debug!("PanelManager: Viewport panel render completed for node {}, result: {:?}", node_id, result);
                         result
                     },
                     _ => {
@@ -156,40 +156,39 @@ impl PanelManager {
                     }
                 };
                 
-                println!("🔧 PanelManager: About to handle panel action: {:?}", panel_action);
+                debug!("PanelManager: About to handle panel action: {:?}", panel_action);
                 
             // Handle panel actions
             match panel_action {
                 PanelAction::Close => {
-                    println!("🔧 PanelManager: Closing node {}", node_id);
+                    debug!("PanelManager: Closing node {}", node_id);
                     nodes_to_close.push(node_id);
                 },
                 PanelAction::CloseAll => {
-                    println!("🔧 PanelManager: CloseAll for node {}", node_id);
+                    debug!("PanelManager: CloseAll for node {}", node_id);
                     nodes_to_close.push(node_id);
                 },
                 PanelAction::ToggleStack => {
-                    println!("🔧 PanelManager: ToggleStack for node {}", node_id);
+                    debug!("PanelManager: ToggleStack for node {}", node_id);
                     nodes_to_toggle_stack.push(node_id);
                 },
                 PanelAction::TogglePin => {
-                    println!("🔧 PanelManager: TogglePin for node {}", node_id);
+                    debug!("PanelManager: TogglePin for node {}", node_id);
                     nodes_to_toggle_pin.push(node_id);
                 },
                 PanelAction::None | PanelAction::Minimize | PanelAction::Restore => {
-                    println!("🔧 PanelManager: No action needed for node {}", node_id);
+                    debug!("PanelManager: No action needed for node {}", node_id);
                     // egui handles minimize/restore automatically with collapsible(true)
                 }
             }
-            println!("🔧 PanelManager: Completed processing node {}", node_id);
+            debug!("PanelManager: Completed processing node {}", node_id);
             }
         }
         
-        // println!("🔧 PanelManager: Finished processing all nodes, applying actions...");
         
         // Apply panel actions (after iteration to avoid borrowing conflicts)
         for node_id in nodes_to_close {
-            println!("🔧 PanelManager: Applying close action for node {}", node_id);
+            debug!("PanelManager: Applying close action for node {}", node_id);
             self.close_node_panel(node_id, current_view, graph);
         }
         

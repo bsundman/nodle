@@ -7,6 +7,7 @@ use egui::{Pos2, Color32};
 use crate::nodes::{NodeGraph, Node, NodeId};
 use crate::workspace::WorkspaceManager;
 use crate::editor::navigation::NavigationManager;
+use log::{debug, info, warn, error};
 
 /// Orchestrates node and workspace creation with proper placement logic
 pub struct WorkspaceBuilder;
@@ -83,47 +84,47 @@ impl WorkspaceBuilder {
         };
         
         // Create the node using the factory system
-        println!("DEBUG: Attempting to create node type: '{}'", internal_node_type);
+        debug!("Attempting to create node type: '{}'", internal_node_type);
         let new_node = if let Some(workspace) = workspace_manager.get_active_workspace() {
-            println!("DEBUG: Using workspace to create node");
+            debug!("Using workspace to create node");
             let result = workspace.create_workspace_node(internal_node_type, position);
             if result.is_none() {
-                println!("DEBUG: Workspace failed to create node '{}'", internal_node_type);
+                warn!("Workspace failed to create node '{}'", internal_node_type);
             }
             result
         } else {
             // Fall back to default registry for nodes outside workspaces
-            println!("DEBUG: Using default registry to create node");
+            debug!("Using default registry to create node");
             let registry = crate::nodes::factory::NodeRegistry::default();
             let result = registry.create_node(internal_node_type, position);
             if result.is_none() {
-                println!("DEBUG: Default registry failed to create node '{}'", internal_node_type);
+                warn!("Default registry failed to create node '{}'", internal_node_type);
             }
             result
         };
         
         // Add the node to the appropriate graph based on current view
         if let Some(node) = new_node {
-            println!("DEBUG: Successfully created node, adding to graph");
+            debug!("Successfully created node, adding to graph");
             
             // Add error handling for adding node to graph
             let node_id = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 Self::place_node_in_graph(node, navigation, graph)
             })) {
                 Ok(id) => {
-                    println!("DEBUG: Node placement completed successfully");
+                    debug!("Node placement completed successfully");
                     id
                 }
                 Err(_) => {
-                    println!("❌ Panic occurred while placing node in graph");
+                    error!("Panic occurred while placing node in graph");
                     None
                 }
             };
             
-            println!("DEBUG: Node creation completed successfully");
+            info!("Node creation completed successfully");
             node_id
         } else {
-            println!("DEBUG: Failed to create node");
+            warn!("Failed to create node");
             None
         }
     }
@@ -134,7 +135,7 @@ impl WorkspaceBuilder {
         navigation: &NavigationManager,
         graph: &mut NodeGraph,
     ) -> Option<NodeId> {
-        println!("🔧 WorkspaceBuilder: Placing node '{}' panel_type={:?}", node.title, node.get_panel_type());
+        debug!("WorkspaceBuilder: Placing node '{}' panel_type={:?}", node.title, node.get_panel_type());
         
         // Check if this is a viewport node that might need plugin instance updating
         let is_viewport_node = node.get_panel_type() == Some(crate::nodes::interface::PanelType::Viewport);
@@ -143,7 +144,7 @@ impl WorkspaceBuilder {
         let final_node_id = if navigation.is_root_view() {
             // add_node returns the actual assigned ID
             let node_id = graph.add_node(node);
-            println!("🔧 WorkspaceBuilder: Added node {} to root graph", node_id);
+            debug!("WorkspaceBuilder: Added node {} to root graph", node_id);
             Some(node_id)
         } else if let Some(workspace_node_id) = navigation.get_workspace_node_id() {
             // Try to add to workspace internal graph
@@ -151,18 +152,18 @@ impl WorkspaceBuilder {
                 if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
                     // add_node returns the actual assigned ID
                     let node_id = internal_graph.add_node(node);
-                    println!("🔧 WorkspaceBuilder: Added node {} to workspace {} internal graph", node_id, workspace_node_id);
+                    debug!("WorkspaceBuilder: Added node {} to workspace {} internal graph", node_id, workspace_node_id);
                     Some(node_id)
                 } else {
-                    println!("❌ WorkspaceBuilder: Workspace {} has no internal graph", workspace_node_id);
+                    error!("WorkspaceBuilder: Workspace {} has no internal graph", workspace_node_id);
                     None
                 }
             } else {
-                println!("❌ WorkspaceBuilder: Workspace node {} not found", workspace_node_id);
+                error!("WorkspaceBuilder: Workspace node {} not found", workspace_node_id);
                 None
             }
         } else {
-            println!("❌ WorkspaceBuilder: Not in root view and no workspace node ID");
+            error!("WorkspaceBuilder: Not in root view and no workspace node ID");
             None
         };
         
@@ -178,22 +179,22 @@ impl WorkspaceBuilder {
     
     /// Update plugin instance storage with the real node ID
     fn update_plugin_instance_id(temp_id: NodeId, real_id: NodeId) {
-        println!("🔧 WorkspaceBuilder: Updating plugin instance ID from {} to {}", temp_id, real_id);
+        debug!("WorkspaceBuilder: Updating plugin instance ID from {} to {}", temp_id, real_id);
         
         if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
             if let Ok(mut manager) = plugin_manager.lock() {
                 // Move the plugin instance from temp ID to real ID
                 if let Some(plugin_instance) = manager.plugin_node_instances.remove(&temp_id) {
                     manager.plugin_node_instances.insert(real_id, plugin_instance);
-                    println!("✅ WorkspaceBuilder: Successfully moved plugin instance from {} to {}", temp_id, real_id);
+                    info!("WorkspaceBuilder: Successfully moved plugin instance from {} to {}", temp_id, real_id);
                 } else {
-                    println!("❌ WorkspaceBuilder: No plugin instance found for temp ID {}", temp_id);
+                    warn!("WorkspaceBuilder: No plugin instance found for temp ID {}", temp_id);
                 }
             } else {
-                println!("❌ WorkspaceBuilder: Failed to lock plugin manager for ID update");
+                error!("WorkspaceBuilder: Failed to lock plugin manager for ID update");
             }
         } else {
-            println!("❌ WorkspaceBuilder: No global plugin manager available for ID update");
+            error!("WorkspaceBuilder: No global plugin manager available for ID update");
         }
     }
 

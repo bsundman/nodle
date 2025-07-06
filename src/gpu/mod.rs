@@ -23,10 +23,10 @@ pub mod viewport_3d_rendering;
 pub mod canvas_callback;
 pub mod viewport_3d_callback;
 
-pub use config::{GraphicsConfig, global_sample_count};
+// Config re-exports removed - only used internally
 pub use canvas_instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms, GpuInstanceManager};
 pub use canvas_rendering::{GpuNodeRenderer, GLOBAL_GPU_RENDERER};
-pub use viewport_3d_rendering::{Renderer3D, Camera3D};
+// 3D rendering re-exports removed - only used internally
 // USD rendering now handled by USD plugin
 pub use canvas_callback::NodeRenderCallback;
 pub use viewport_3d_callback::{ViewportRenderCallback};

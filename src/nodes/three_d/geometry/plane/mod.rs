@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::PlaneGeometry;
+// logic::PlaneGeometry removed - only used internally
 pub use parameters::PlaneNode;
 
 use crate::nodes::NodeFactory;

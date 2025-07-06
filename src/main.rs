@@ -1,9 +1,7 @@
 //! Nōdle Application - Node-based visual programming editor
 
 use eframe::egui;
-use egui::{Color32, Pos2};
-use crate::nodes::{NodeGraph, Node};
-use log::{info, warn, error, debug};
+use log::{info, error};
 
 mod constants;
 mod editor;
@@ -21,70 +19,7 @@ use editor::NodeEditor;
 
 
 
-/// Registry of all available node types
-pub struct NodeRegistry;
-
-impl NodeRegistry {
-    /// Create a node by type name and return both node and metadata
-    pub fn create_node_with_metadata(node_type: &str, position: Pos2) -> Option<(Node, nodes::NodeMetadata)> {
-        // Use the factory registry - pure node-centric approach!
-        let registry = nodes::factory::NodeRegistry::default();
-        registry.create_node_with_metadata(node_type, position)
-    }
-
-    /// Create a node by type name using the factory registry (pure node-centric approach)
-    pub fn create_node(node_type: &str, position: Pos2) -> Option<Node> {
-        // Use the factory registry - no more hardcoded matches!
-        let registry = nodes::factory::NodeRegistry::default();
-        registry.create_node(node_type, position)
-    }
-    
-    /// Create a workspace-specific node
-    pub fn create_workspace_node(workspace: &dyn workspace::Workspace, node_type: &str, position: Pos2) -> Option<Node> {
-        workspace.create_workspace_node(node_type, position)
-    }
-}
-
-/// Creates test nodes for demonstration using the modular system
-pub fn create_test_nodes(graph: &mut NodeGraph) {
-    // Create generic nodes for testing
-    if let Some(node) = NodeRegistry::create_node("Add", Pos2::new(100.0, 100.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("Subtract", Pos2::new(100.0, 200.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("Multiply", Pos2::new(300.0, 100.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("Divide", Pos2::new(300.0, 200.0)) {
-        graph.add_node(node);
-    }
-    
-    if let Some(node) = NodeRegistry::create_node("AND", Pos2::new(500.0, 100.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("OR", Pos2::new(500.0, 200.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("NOT", Pos2::new(700.0, 150.0)) {
-        graph.add_node(node);
-    }
-    
-    if let Some(node) = NodeRegistry::create_node("Constant", Pos2::new(100.0, 350.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("Variable", Pos2::new(300.0, 350.0)) {
-        graph.add_node(node);
-    }
-    
-    if let Some(node) = NodeRegistry::create_node("Print", Pos2::new(500.0, 350.0)) {
-        graph.add_node(node);
-    }
-    if let Some(node) = NodeRegistry::create_node("Debug", Pos2::new(700.0, 350.0)) {
-        graph.add_node(node);
-    }
-}
+// Orphaned NodeRegistry wrapper and test code removed - use nodes::factory::NodeRegistry directly
 
 /// Application entry point
 fn main() -> Result<(), eframe::Error> {
@@ -113,18 +48,24 @@ fn main() -> Result<(), eframe::Error> {
     match workspace::initialize_global_plugin_manager() {
         Ok(()) => {
             if let Some(plugin_manager) = workspace::get_global_plugin_manager() {
-                let manager = plugin_manager.lock().unwrap();
-                let loaded_plugins = manager.get_loaded_plugins();
-                
-                if loaded_plugins.is_empty() {
-                    println!("📦 No plugins found in standard directories");
-                    println!("   Looking in: ~/.nodle/plugins/ and ./plugins/");
-                } else {
-                    println!("✅ Loaded {} plugin(s):", loaded_plugins.len());
-                    for plugin in loaded_plugins {
-                        println!("   • {} v{} by {}", plugin.name, plugin.version, plugin.author);
+                match plugin_manager.lock() {
+                    Ok(manager) => {
+                        let loaded_plugins = manager.get_loaded_plugins();
+                        
+                        if loaded_plugins.is_empty() {
+                            println!("📦 No plugins found in standard directories");
+                            println!("   Looking in: ~/.nodle/plugins/ and ./plugins/");
+                        } else {
+                            println!("✅ Loaded {} plugin(s):", loaded_plugins.len());
+                            for plugin in loaded_plugins {
+                                println!("   • {} v{} by {}", plugin.name, plugin.version, plugin.author);
+                            }
+                            println!("🔗 Plugin system initialized successfully");
+                        }
                     }
-                    println!("🔗 Plugin system initialized successfully");
+                    Err(e) => {
+                        error!("Failed to lock plugin manager: {}", e);
+                    }
                 }
             }
         }

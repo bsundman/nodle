@@ -3,7 +3,7 @@
 pub mod logic;
 pub mod parameters;
 
-pub use logic::ScaleLogic;
+// logic::ScaleLogic removed - only used internally
 pub use parameters::ScaleNode;
 
 use crate::nodes::NodeFactory;
