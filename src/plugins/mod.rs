@@ -3,7 +3,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use libloading::{Library, Symbol};
-use nodle_plugin_sdk::{NodePlugin, PluginInfo, PluginError, NodeRegistryTrait, MenuStructure};
+use nodle_plugin_sdk::{NodePlugin, PluginInfo, PluginError, NodeRegistryTrait, MenuStructure, PluginHandle, PluginNodeHandle};
+
+// Re-export plugin UI types for core use
+pub use nodle_plugin_sdk::{UIElement, UIAction, ParameterUI, NodeData, ParameterChange};
 use crate::workspace::WorkspaceMenuItem;
 
 /// Loaded plugin wrapper
@@ -85,15 +88,15 @@ impl PluginManager {
                 .map_err(|e| PluginError::LoadError(format!("Failed to load library: {}", e)))?
         };
         
-        // Get the plugin creation function
-        let create_plugin: Symbol<unsafe extern "C" fn() -> *mut dyn NodePlugin> = unsafe {
+        // Get the plugin creation function - now returns a safe concrete type
+        let create_plugin: Symbol<unsafe extern "C" fn() -> PluginHandle> = unsafe {
             library.get(b"create_plugin")
                 .map_err(|e| PluginError::LoadError(format!("Missing create_plugin function: {}", e)))?
         };
         
-        // Create the plugin instance
-        let plugin_ptr = unsafe { create_plugin() };
-        let plugin = unsafe { Box::from_raw(plugin_ptr) };
+        // Create the plugin instance safely
+        let plugin_handle = unsafe { create_plugin() };
+        let plugin = unsafe { plugin_handle.into_plugin() };
         
         // Get plugin info
         let info = plugin.plugin_info();

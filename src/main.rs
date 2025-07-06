@@ -23,6 +23,23 @@ use editor::NodeEditor;
 
 /// Application entry point
 fn main() -> Result<(), eframe::Error> {
+    // Set up panic hook to catch crashes
+    std::panic::set_hook(Box::new(|panic_info| {
+        println!("💥 PANIC DETECTED: {}", panic_info);
+        if let Some(location) = panic_info.location() {
+            println!("💥 PANIC LOCATION: {}:{}:{}", location.file(), location.line(), location.column());
+        }
+        if let Some(payload) = panic_info.payload().downcast_ref::<&str>() {
+            println!("💥 PANIC PAYLOAD: {}", payload);
+        } else if let Some(payload) = panic_info.payload().downcast_ref::<String>() {
+            println!("💥 PANIC PAYLOAD: {}", payload);
+        }
+        println!("💥 PANIC: This was likely in eframe/egui frame finalization");
+        
+        // Print stack trace if available  
+        println!("💥 BACKTRACE: (captured at panic)");
+    }));
+
     // Initialize logging
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)

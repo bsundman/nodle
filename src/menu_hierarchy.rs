@@ -246,6 +246,10 @@ impl GlobalMenuHierarchy {
                         name: "Null".to_string(), 
                         node_type: "Null".to_string() 
                     },
+                    WorkspaceMenuItem::Node { 
+                        name: "Test Node".to_string(), 
+                        node_type: "Test".to_string() 
+                    },
                 ],
             },
         ]

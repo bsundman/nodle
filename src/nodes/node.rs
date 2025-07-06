@@ -41,7 +41,7 @@ pub enum NodeType {
 }
 
 /// Core node structure representing a visual node in the graph
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
     pub title: String,
@@ -64,6 +64,49 @@ pub struct Node {
     /// Node parameters for interface panels
     #[serde(default)]
     pub parameters: HashMap<String, NodeData>,
+    /// Plugin node instance (if this is a plugin node)
+    #[serde(skip)]
+    pub plugin_node: Option<Box<dyn nodle_plugin_sdk::PluginNode>>,
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("id", &self.id)
+            .field("title", &self.title)
+            .field("position", &self.position)
+            .field("size", &self.size)
+            .field("inputs", &self.inputs)
+            .field("outputs", &self.outputs)
+            .field("color", &self.color)
+            .field("node_type", &self.node_type)
+            .field("button_states", &self.button_states)
+            .field("visible", &self.visible)
+            .field("panel_type", &self.panel_type)
+            .field("parameters", &self.parameters)
+            .field("plugin_node", &if self.plugin_node.is_some() { "Some(PluginNode)" } else { "None" })
+            .finish()
+    }
+}
+
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            title: self.title.clone(),
+            position: self.position,
+            size: self.size,
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+            color: self.color,
+            node_type: self.node_type.clone(),
+            button_states: self.button_states,
+            visible: self.visible,
+            panel_type: self.panel_type,
+            parameters: self.parameters.clone(),
+            plugin_node: None, // Plugin nodes cannot be cloned, so we set to None
+        }
+    }
 }
 
 impl Node {
@@ -83,6 +126,7 @@ impl Node {
             visible: true,
             panel_type: None, // Will be set by factory or with_panel_type()
             parameters: HashMap::new(),
+            plugin_node: None, // Initialize plugin node as None
         };
         
         
@@ -110,6 +154,7 @@ impl Node {
             visible: true,
             panel_type: None, // Workspace nodes typically don't have panels
             parameters: HashMap::new(),
+            plugin_node: None, // Initialize plugin node as None
         };
         
         

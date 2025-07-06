@@ -611,8 +611,10 @@ impl NodeEditor {
 
 impl eframe::App for NodeEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        println!("🚀 UPDATE: Starting frame update");
         // Initialize frame
         self.initialize_frame(ctx);
+        println!("🚀 UPDATE: Frame initialized");
 
         // Render top menu bar as TopBottomPanel to ensure it's always on top with solid background
         let menu_bar_height = egui::TopBottomPanel::top("top_menu_bar")
@@ -1683,14 +1685,22 @@ impl eframe::App for NodeEditor {
             }
 
             // Interface panel rendering - render panels for nodes that have them
+            println!("🎨 MAIN LOOP: About to render interface panels");
             self.render_interface_panels(ui, &viewed_nodes, menu_bar_height);
+            println!("🎨 MAIN LOOP: Finished rendering interface panels");
 
             // Connection-based execution - check for USD LoadStage to Viewport connections
+            println!("🔗 MAIN LOOP: About to check and execute connections");
             self.check_and_execute_connections(&viewed_nodes);
+            println!("🔗 MAIN LOOP: Finished checking connections");
 
             // Performance info overlay
+            println!("📊 MAIN LOOP: About to render performance info");
             self.debug_tools.render_performance_info(ui, self.use_gpu_rendering, self.graph.nodes.len(), self.current_menu_bar_height);
+            println!("📊 MAIN LOOP: Finished rendering performance info");
         });
+        println!("🏁 UPDATE: Frame update completed successfully");
+        println!("🔄 UPDATE: About to return to eframe");
     }
 
 }

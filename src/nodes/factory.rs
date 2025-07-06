@@ -527,7 +527,9 @@ impl NodeRegistry {
             let plugin_node = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 factory.create_node(plugin_pos)
             })) {
-                Ok(node) => {
+                Ok(node_handle) => {
+                    // Safely convert the handle to a boxed trait object
+                    let node = unsafe { node_handle.into_node() };
                     debug!("Created plugin node instance with ID: {}", node.id());
                     node
                 }

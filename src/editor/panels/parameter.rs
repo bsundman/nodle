@@ -467,20 +467,68 @@ impl ParameterPanel {
             println!("🔍 INDIVIDUAL NODE: '{}' (id: {})", title, node_id);
         }
         
-        // Handle plugin nodes first
+        // Handle plugin nodes using FFI-SAFE methods
         if let Some(plugin_node) = &mut node.plugin_node {
-            println!("🎛️ RENDERING PLUGIN PARAMETERS for: {}", title);
+            println!("🎛️ PLUGIN NODE DETECTED for: {}", title);
+            println!("🎛️ PLUGIN NODE: Type info: {:?}", std::any::type_name_of_val(&**plugin_node));
+            println!("🎛️ PLUGIN NODE: Pointer: {:p}", &**plugin_node as *const dyn nodle_plugin_sdk::PluginNode);
             
-            // Render plugin parameters
-            let parameter_changes = plugin_node.render_parameters(ui);
-            
-            // Apply parameter changes to the plugin node
-            for change in parameter_changes {
-                println!("🔄 Parameter change: {} = {:?}", change.parameter, change.value);
-                plugin_node.set_parameter(&change.parameter, change.value);
+            // Try calling a simpler method first
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                println!("🎛️ PLUGIN NODE: Testing id() method");
+                let id = plugin_node.id();
+                println!("🎛️ PLUGIN NODE: id() returned: {}", id);
+            })) {
+                Ok(_) => println!("✅ Simple method call succeeded"),
+                Err(e) => {
+                    println!("❌ Even simple id() method crashed: {:?}", e);
+                    ui.colored_label(egui::Color32::RED, format!("Plugin '{}' vtable corrupted", title));
+                    return true;
+                }
             }
             
-            info!("Rendered parameters for plugin node: {}", title);
+            // Get UI description from plugin using normal Rust types
+            let ui_description = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                println!("🎛️ PLUGIN NODE: Inside panic catch, calling get_parameter_ui()");
+                println!("🎛️ PLUGIN NODE: About to dereference and call method");
+                let result = plugin_node.get_parameter_ui();
+                println!("🎛️ PLUGIN NODE: get_parameter_ui() returned successfully");
+                result
+            })) {
+                Ok(ui_desc) => {
+                    println!("🎛️ PLUGIN NODE: get_parameter_ui() completed without panic");
+                    ui_desc
+                },
+                Err(e) => {
+                    println!("❌ Plugin get_parameter_ui panicked for {}: {:?}", title, e);
+                    ui.colored_label(egui::Color32::RED, format!("Plugin '{}' crashed getting UI description", title));
+                    return true;
+                }
+            };
+            
+            println!("✅ PLUGIN: Got UI description with {} elements", ui_description.elements.len());
+            
+            // CORE renders the UI based on normal Rust description
+            let ui_actions = self.render_ui_elements(ui, &ui_description.elements);
+            
+            // Send actions back to plugin using normal Rust types and get parameter changes
+            for action in ui_actions {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    plugin_node.handle_ui_action(action)
+                })) {
+                    Ok(changes) => {
+                        for change in changes {
+                            // Apply parameter changes
+                            plugin_node.set_parameter(&change.parameter, change.value);
+                        }
+                    }
+                    Err(e) => {
+                        println!("❌ Plugin handle_ui_action panicked for {}: {:?}", title, e);
+                    }
+                }
+            }
+            
+            println!("🏁 PARAMETER PANEL: Plugin rendering completed successfully for {}", title);
             return true;
         }
         
@@ -651,6 +699,110 @@ impl ParameterPanel {
                 node.parameters.insert(change.parameter, change.value);
             }
         }
+    }
+    
+
+    /// Render UI elements based on plugin description and return actions (legacy method)
+    fn render_ui_elements(&self, ui: &mut egui::Ui, elements: &[crate::plugins::UIElement]) -> Vec<crate::plugins::UIAction> {
+        let mut actions = Vec::new();
+        
+        for element in elements {
+            match element {
+                crate::plugins::UIElement::Heading(text) => {
+                    ui.heading(text);
+                }
+                crate::plugins::UIElement::Label(text) => {
+                    ui.label(text);
+                }
+                crate::plugins::UIElement::Separator => {
+                    ui.separator();
+                }
+                crate::plugins::UIElement::TextEdit { label, value, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        if !label.is_empty() {
+                            ui.label(label);
+                        }
+                        let mut text_value = value.clone();
+                        if ui.text_edit_singleline(&mut text_value).changed() {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::String(text_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::Checkbox { label, value, parameter_name } => {
+                    let mut checkbox_value = *value;
+                    if ui.checkbox(&mut checkbox_value, label).changed() {
+                        actions.push(crate::plugins::UIAction::ParameterChanged {
+                            parameter: parameter_name.clone(),
+                            value: crate::plugins::NodeData::Boolean(checkbox_value),
+                        });
+                    }
+                }
+                crate::plugins::UIElement::Button { label, action } => {
+                    if ui.button(label).clicked() {
+                        actions.push(crate::plugins::UIAction::ButtonClicked {
+                            action: action.clone(),
+                        });
+                    }
+                }
+                crate::plugins::UIElement::Slider { label, value, min, max, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut slider_value = *value;
+                        if ui.add(egui::Slider::new(&mut slider_value, *min..=*max)).changed() {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::Float(slider_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::Vec3Edit { label, value, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut vec_value = *value;
+                        let mut changed = false;
+                        changed |= ui.add(egui::DragValue::new(&mut vec_value[0]).prefix("X:")).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut vec_value[1]).prefix("Y:")).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut vec_value[2]).prefix("Z:")).changed();
+                        if changed {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::Vector3(vec_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::ColorEdit { label, value, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut color_value = *value;
+                        if ui.color_edit_button_rgb(&mut color_value).changed() {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::Color(color_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::Horizontal(sub_elements) => {
+                    ui.horizontal(|ui| {
+                        let sub_actions = self.render_ui_elements(ui, sub_elements);
+                        actions.extend(sub_actions);
+                    });
+                }
+                crate::plugins::UIElement::Vertical(sub_elements) => {
+                    ui.vertical(|ui| {
+                        let sub_actions = self.render_ui_elements(ui, sub_elements);
+                        actions.extend(sub_actions);
+                    });
+                }
+            }
+        }
+        
+        actions
     }
     
 }
