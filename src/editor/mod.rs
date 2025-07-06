@@ -505,14 +505,51 @@ impl NodeEditor {
             }
         }
         
-        // Delegate to the panel manager
-        self.panel_manager.render_interface_panels(
-            ui, 
-            viewed_nodes, 
-            menu_bar_height, 
-            self.navigation.current_view(), 
-            &mut self.graph
-        );
+        // Delegate to the panel manager - use the correct graph based on current view
+        match self.navigation.current_view() {
+            crate::editor::navigation::GraphView::Root => {
+                // In root view, use the main graph
+                self.panel_manager.render_interface_panels(
+                    ui, 
+                    viewed_nodes, 
+                    menu_bar_height, 
+                    self.navigation.current_view(), 
+                    &mut self.graph
+                );
+            }
+            crate::editor::navigation::GraphView::WorkspaceNode(workspace_node_id) => {
+                // In workspace view, use the workspace's internal graph
+                if let Some(workspace_node) = self.graph.nodes.get_mut(&workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        self.panel_manager.render_interface_panels(
+                            ui, 
+                            viewed_nodes, 
+                            menu_bar_height, 
+                            self.navigation.current_view(), 
+                            internal_graph
+                        );
+                    } else {
+                        // Fallback to main graph if workspace has no internal graph
+                        self.panel_manager.render_interface_panels(
+                            ui, 
+                            viewed_nodes, 
+                            menu_bar_height, 
+                            self.navigation.current_view(), 
+                            &mut self.graph
+                        );
+                    }
+                } else {
+                    // Fallback to main graph if workspace node not found
+                    self.panel_manager.render_interface_panels(
+                        ui, 
+                        viewed_nodes, 
+                        menu_bar_height, 
+                        self.navigation.current_view(), 
+                        &mut self.graph
+                    );
+                }
+            }
+        }
     }
 
     /// Check for USD LoadStage to Viewport connections and execute automatic data flow
