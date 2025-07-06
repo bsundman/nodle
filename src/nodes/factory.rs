@@ -603,20 +603,27 @@ impl NodeRegistry {
             core_node.update_port_positions();
             debug!("Updated port positions for plugin node");
             
-            // Store the plugin node instance directly in the core node for parameter rendering
-            debug!("Storing plugin node instance in core node");
-            core_node.plugin_node = Some(plugin_node);
-            
-            // Plugin node successfully created with ports and parameters
-            
-            // Also store in global plugin manager for viewport rendering if needed
+            // Handle storage based on panel type
             if panel_type == crate::nodes::interface::PanelType::Viewport {
-                debug!("Node has viewport panel type - also storing in global plugin manager");
+                debug!("Node has viewport panel type - storing in global plugin manager");
                 
-                // TODO: Implement viewport registration when needed
-                debug!("Viewport node created - registration will be implemented later");
+                // For viewport nodes, store in global plugin manager for viewport rendering
+                if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
+                    if let Ok(mut manager) = plugin_manager.lock() {
+                        debug!("Storing viewport plugin node {} in global manager", node_id);
+                        manager.store_plugin_node_instance(node_id, plugin_node);
+                    } else {
+                        warn!("Failed to lock plugin manager for viewport node storage");
+                    }
+                } else {
+                    warn!("No global plugin manager available for viewport node storage");
+                }
+                
+                debug!("Viewport node stored in plugin manager only");
             } else {
-                debug!("Node does not have viewport panel type - not registering for viewport");
+                // For non-viewport nodes, store in core node for parameter rendering
+                debug!("Storing plugin node instance in core node for parameter rendering");
+                core_node.plugin_node = Some(plugin_node);
             }
             
             debug!("Plugin node creation process completed successfully");

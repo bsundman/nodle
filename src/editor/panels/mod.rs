@@ -210,28 +210,37 @@ impl PanelManager {
         current_view: &GraphView,
         graph: &mut NodeGraph,
     ) {
-        // Find the node in the correct graph based on current view and set its visibility to false
-        match current_view {
-            GraphView::Root => {
-                if let Some(node) = graph.nodes.get_mut(&node_id) {
-                    node.visible = false;
+        debug!("close_node_panel: Closing panel for node {}", node_id);
+        
+        // The key insight: the 'graph' parameter is already the correct graph to work with
+        // - For Root view: it's the main graph
+        // - For WorkspaceNode view: it's the workspace's internal graph
+        // So we should just directly update the node in the provided graph
+        
+        if let Some(node) = graph.nodes.get_mut(&node_id) {
+            debug!("close_node_panel: Setting node {} '{}' visibility to false", node_id, node.title);
+            node.visible = false;
+        } else {
+            debug!("close_node_panel: Node {} not found in graph (available nodes: {:?})", 
+                node_id, graph.nodes.keys().collect::<Vec<_>>());
+            
+            // If we're in a workspace view and the node wasn't found, it might be a logic error
+            // Log additional debug info
+            match current_view {
+                GraphView::Root => {
+                    debug!("close_node_panel: In root view, node should have been in main graph");
                 }
-            }
-            GraphView::WorkspaceNode(workspace_node_id) => {
-                if let Some(workspace_node) = graph.nodes.get_mut(workspace_node_id) {
-                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
-                        if let Some(node) = internal_graph.nodes.get_mut(&node_id) {
-                            node.visible = false;
-                        }
-                    }
+                GraphView::WorkspaceNode(workspace_node_id) => {
+                    debug!("close_node_panel: In workspace {} view, node should have been in internal graph", workspace_node_id);
                 }
             }
         }
         
-        // Clear all panel state
+        // Clear panel state properly
+        debug!("close_node_panel: Clearing panel state for node {}", node_id);
         self.interface_panel_manager.set_panel_visibility(node_id, false);
+        self.interface_panel_manager.set_panel_open(node_id, false); // Set to false, not true!
         self.interface_panel_manager.set_panel_minimized(node_id, false);
-        self.interface_panel_manager.set_panel_open(node_id, true); // Reset for next time
     }
 
     /// Auto-load USD stage into a viewport node

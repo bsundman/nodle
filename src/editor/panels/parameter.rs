@@ -468,6 +468,7 @@ impl ParameterPanel {
         }
         
         // Handle plugin nodes using FFI-SAFE methods
+        // Check core node storage first (non-viewport nodes)
         if let Some(plugin_node) = &mut node.plugin_node {
             println!("🎛️ PLUGIN NODE DETECTED for: {}", title);
             println!("🎛️ PLUGIN NODE: Type info: {:?}", std::any::type_name_of_val(&**plugin_node));
@@ -530,6 +531,50 @@ impl ParameterPanel {
             
             println!("🏁 PARAMETER PANEL: Plugin rendering completed successfully for {}", title);
             return true;
+        }
+        
+        // Check global plugin manager for viewport nodes (stored separately)
+        if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
+            if let Ok(mut manager) = plugin_manager.lock() {
+                if let Some(plugin_node) = manager.get_plugin_node_for_rendering(node_id, &title) {
+                    println!("🎛️ PLUGIN NODE DETECTED in manager for: {}", title);
+                    
+                    // Get UI description from plugin using normal Rust types
+                    let ui_description = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        plugin_node.get_parameter_ui()
+                    })) {
+                        Ok(ui_desc) => ui_desc,
+                        Err(e) => {
+                            println!("❌ Plugin get_parameter_ui panicked for {}: {:?}", title, e);
+                            ui.colored_label(egui::Color32::RED, format!("Plugin '{}' crashed getting UI description", title));
+                            return true;
+                        }
+                    };
+                    
+                    // CORE renders the UI based on normal Rust description
+                    let ui_actions = self.render_ui_elements(ui, &ui_description.elements);
+                    
+                    // Send actions back to plugin using normal Rust types and get parameter changes
+                    for action in ui_actions {
+                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            plugin_node.handle_ui_action(action)
+                        })) {
+                            Ok(changes) => {
+                                for change in changes {
+                                    // Apply parameter changes
+                                    plugin_node.set_parameter(&change.parameter, change.value);
+                                }
+                            }
+                            Err(e) => {
+                                println!("❌ Plugin handle_ui_action panicked for {}: {:?}", title, e);
+                            }
+                        }
+                    }
+                    
+                    println!("🏁 PARAMETER PANEL: Manager plugin rendering completed successfully for {}", title);
+                    return true;
+                }
+            }
         }
         
         // USD nodes are now handled by plugins - no core implementation needed
