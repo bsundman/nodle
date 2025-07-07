@@ -4,7 +4,6 @@
 //! allowing plugins to provide viewport data while the core handles all wgpu rendering.
 
 use egui_wgpu::CallbackTrait;
-use wgpu;
 use std::sync::{Arc, Mutex};
 use super::viewport_3d_rendering::{Renderer3D, Camera3D};
 use nodle_plugin_sdk::viewport::ViewportData;
@@ -121,12 +120,12 @@ pub enum CameraManipulationType {
 impl CallbackTrait for ViewportRenderCallback {
     fn prepare(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        device: &eframe::wgpu::Device,
+        queue: &eframe::wgpu::Queue,
         _screen_descriptor: &egui_wgpu::ScreenDescriptor,
-        _egui_encoder: &mut wgpu::CommandEncoder,
+        _egui_encoder: &mut eframe::wgpu::CommandEncoder,
         _callback_resources: &mut egui_wgpu::CallbackResources,
-    ) -> Vec<wgpu::CommandBuffer> {
+    ) -> Vec<eframe::wgpu::CommandBuffer> {
         // Initialize renderer if not already done
         if let Ok(mut renderer) = self.renderer.lock() {
             if renderer.device.is_none() {
@@ -146,7 +145,7 @@ impl CallbackTrait for ViewportRenderCallback {
     fn paint(
         &self,
         _info: egui::PaintCallbackInfo,
-        render_pass: &mut wgpu::RenderPass<'static>,
+        render_pass: &mut eframe::wgpu::RenderPass<'static>,
         _callback_resources: &egui_wgpu::CallbackResources,
     ) {
         // Render the 3D viewport

@@ -1,11 +1,11 @@
-//! Centralized graphics configuration for consistent wgpu settings
+//! Centralized graphics configuration for consistent eframe::wgpu settings
 
-use wgpu;
+use eframe::wgpu;
 
 /// Global graphics configuration
 pub struct GraphicsConfig {
     pub sample_count: u32,
-    pub texture_format: wgpu::TextureFormat,
+    pub texture_format: eframe::wgpu::TextureFormat,
 }
 
 impl GraphicsConfig {
@@ -13,13 +13,13 @@ impl GraphicsConfig {
     pub fn global() -> Self {
         Self {
             sample_count: 1, // Disable multisampling for better compatibility
-            texture_format: wgpu::TextureFormat::Bgra8Unorm,
+            texture_format: eframe::wgpu::TextureFormat::Bgra8Unorm,
         }
     }
 
     /// Create multisample state from config
-    pub fn multisample_state(&self) -> wgpu::MultisampleState {
-        wgpu::MultisampleState {
+    pub fn multisample_state(&self) -> eframe::wgpu::MultisampleState {
+        eframe::wgpu::MultisampleState {
             count: self.sample_count,
             mask: !0,
             alpha_to_coverage_enabled: false,
@@ -27,11 +27,11 @@ impl GraphicsConfig {
     }
 
     /// Create color target state from config
-    pub fn color_target_state(&self) -> wgpu::ColorTargetState {
-        wgpu::ColorTargetState {
+    pub fn color_target_state(&self) -> eframe::wgpu::ColorTargetState {
+        eframe::wgpu::ColorTargetState {
             format: self.texture_format,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
+            blend: Some(eframe::wgpu::BlendState::REPLACE),
+            write_mask: eframe::wgpu::ColorWrites::ALL,
         }
     }
 }

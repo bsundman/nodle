@@ -175,7 +175,7 @@ impl SphereNode {
             let type_names = ["Full", "Hemisphere", "Quarter", "Custom"];
             let mut selected = current_type as usize;
             
-            egui::ComboBox::from_id_source("sphere_type")
+            egui::ComboBox::from_id_salt("sphere_type")
                 .selected_text(*type_names.get(selected).unwrap_or(&"Full"))
                 .show_ui(ui, |ui| {
                     for (i, name) in type_names.iter().enumerate() {

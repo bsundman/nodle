@@ -123,10 +123,10 @@ impl ParameterPanel {
                 ui.separator();
                 
                 // Node-specific content
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::same(8.0))
+                egui::Frame::default()
+                    .inner_margin(egui::Margin::same(8))
                     .fill(Color32::from_gray(40))
-                    .rounding(egui::Rounding::same(4.0))
+                    .corner_radius(4.0)
                     .show(ui, |ui| {
                         self.render_parameter_content(ui, node_id, node, panel_manager, graph);
                     });
@@ -216,22 +216,22 @@ impl ParameterPanel {
                                         }
                                         
                                         // Separator with negative margin to extend to window edge
-                                        egui::Frame::none()
+                                        egui::Frame::default()
                                             .inner_margin(egui::Margin {
-                                                left: 0.0,
-                                                right: -6.0,  // Negative margin to push closer to edge
-                                                top: 0.0,
-                                                bottom: 0.0,
+                                                left: 0,
+                                                right: -6,  // Negative margin to push closer to edge
+                                                top: 0,
+                                                bottom: 0,
                                             })
                                             .show(ui, |ui| {
                                                 ui.separator();
                                             });
                                         
                                         // Node content in a contained frame
-                                        egui::Frame::none()
-                                            .inner_margin(egui::Margin::same(8.0))
+                                        egui::Frame::default()
+                                            .inner_margin(egui::Margin::same(8))
                                             .fill(Color32::from_gray(45))
-                                            .rounding(egui::Rounding::same(4.0))
+                                            .corner_radius(4.0)
                                             .stroke(egui::Stroke::new(1.0, Color32::from_gray(80)))
                                             .show(ui, |ui| {
                                                 self.render_parameter_content(ui, node_id, node, panel_manager, graph);

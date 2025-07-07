@@ -3,6 +3,7 @@
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
 use super::logic::TestLogic;
+use rand::Rng;
 
 /// Test node with comprehensive parameter testing
 #[derive(Debug, Clone)]
@@ -499,7 +500,6 @@ impl TestNode {
             }
             
             if ui.button("⚡ Random Values").clicked() {
-                use rand::Rng;
                 let mut rng = rand::thread_rng();
                 
                 changes.push(ParameterChange {

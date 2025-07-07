@@ -100,26 +100,7 @@ fn main() -> Result<(), eframe::Error> {
             .with_resizable(true), // Explicitly allow resizing
         multisampling: 1, // Disable multisampling to avoid surface capability issues
         renderer: eframe::Renderer::Wgpu, // Use wgpu renderer for GPU acceleration
-        wgpu_options: eframe::egui_wgpu::WgpuConfiguration {
-            supported_backends: wgpu::Backends::all(), // Allow all backends, not just Metal
-            power_preference: wgpu::PowerPreference::LowPower, // Use low power to avoid compatibility issues
-            device_descriptor: std::sync::Arc::new(|adapter| {
-                // Get very conservative limits for maximum compatibility
-                let mut limits = wgpu::Limits::downlevel_webgl2_defaults();
-                // Limit texture dimensions to ensure compatibility across all surface configurations
-                limits.max_texture_dimension_2d = 4096;
-                limits.max_buffer_size = 256 * 1024 * 1024; // 256 MB max buffer
-                
-                wgpu::DeviceDescriptor {
-                    label: Some("Nōdle Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: limits,
-                    memory_hints: wgpu::MemoryHints::MemoryUsage, // Conservative memory usage
-                }
-            }),
-            present_mode: wgpu::PresentMode::Fifo, // Use VSync to avoid tearing during resize
-            ..Default::default()
-        },
+        wgpu_options: eframe::egui_wgpu::WgpuConfiguration::default(),
         ..Default::default()
     };
 

@@ -110,12 +110,12 @@ impl NodeRenderCallback {
 impl egui_wgpu::CallbackTrait for NodeRenderCallback {
     fn prepare(
         &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        device: &eframe::wgpu::Device,
+        queue: &eframe::wgpu::Queue,
         _screen_descriptor: &egui_wgpu::ScreenDescriptor,
-        _egui_encoder: &mut wgpu::CommandEncoder,
+        _egui_encoder: &mut eframe::wgpu::CommandEncoder,
         _callback_resources: &mut egui_wgpu::CallbackResources,
-    ) -> Vec<wgpu::CommandBuffer> {
+    ) -> Vec<eframe::wgpu::CommandBuffer> {
         // Update GPU resources
         
         // Get or create the global renderer
@@ -125,7 +125,7 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
         };
         if renderer_lock.is_none() {
             // Use the format that matches egui's surface format
-            let format = wgpu::TextureFormat::Bgra8Unorm; // Match egui's surface format
+            let format = eframe::wgpu::TextureFormat::Bgra8Unorm; // Match egui's surface format
             // Initialize global renderer
             *renderer_lock = Some(super::GpuNodeRenderer::new(device, format));
         }
@@ -143,7 +143,7 @@ impl egui_wgpu::CallbackTrait for NodeRenderCallback {
     fn paint(
         &self,
         info: egui::PaintCallbackInfo,
-        render_pass: &mut wgpu::RenderPass<'static>,
+        render_pass: &mut eframe::wgpu::RenderPass<'static>,
         _callback_resources: &egui_wgpu::CallbackResources,
     ) {
         // Reduce debug output for performance

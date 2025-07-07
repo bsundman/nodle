@@ -618,7 +618,7 @@ impl eframe::App for NodeEditor {
 
         // Render top menu bar as TopBottomPanel to ensure it's always on top with solid background
         let menu_bar_height = egui::TopBottomPanel::top("top_menu_bar")
-            .frame(egui::Frame::none().fill(Color32::from_rgb(28, 28, 28)).inner_margin(8.0))
+            .frame(egui::Frame::default().fill(Color32::from_rgb(28, 28, 28)).inner_margin(8.0))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(4.0); // Left padding
@@ -723,7 +723,7 @@ impl eframe::App for NodeEditor {
             .height();
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(Color32::from_rgb(22, 27, 34)))
+            .frame(egui::Frame::default().fill(Color32::from_rgb(22, 27, 34)))
             .show(ctx, |ui| {
             let response = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
             
@@ -1681,6 +1681,7 @@ impl eframe::App for NodeEditor {
                     transformed_rect,
                     0.0,
                     Stroke::new(1.0 * zoom, Color32::from_rgb(100, 150, 255)),
+                    egui::StrokeKind::Middle,
                 );
             }
 

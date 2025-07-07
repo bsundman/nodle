@@ -4,7 +4,7 @@
 //! in viewport nodes. It supports mesh rendering, wireframe mode, grid display, and 
 //! Maya-style camera navigation.
 
-use wgpu::{
+use eframe::wgpu::{
     Buffer, Device, Queue, RenderPipeline, BindGroup, BindGroupLayout, 
     TextureFormat, PresentMode, Surface, SurfaceConfiguration,
     CommandEncoder, RenderPass, BufferUsages, ShaderStages,
@@ -18,7 +18,7 @@ use super::config::GraphicsConfig;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec2, Quat};
 use std::mem;
-use wgpu::util::DeviceExt;
+use eframe::wgpu::util::DeviceExt;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -36,12 +36,12 @@ impl Vertex3D {
             format: VertexFormat::Float32x3,
         },
         VertexAttribute {
-            offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+            offset: mem::size_of::<[f32; 3]>() as eframe::wgpu::BufferAddress,
             shader_location: 1,
             format: VertexFormat::Float32x3,
         },
         VertexAttribute {
-            offset: mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+            offset: mem::size_of::<[f32; 6]>() as eframe::wgpu::BufferAddress,
             shader_location: 2,
             format: VertexFormat::Float32x2,
         },
@@ -49,7 +49,7 @@ impl Vertex3D {
 
     pub fn desc<'a>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
-            array_stride: mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
+            array_stride: mem::size_of::<Vertex3D>() as eframe::wgpu::BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &Self::ATTRIBUTES,
         }
@@ -456,7 +456,7 @@ impl Renderer3D {
     /// Initialize the 3D renderer with device and queue
     pub fn initialize(&mut self, device: Device, queue: Queue) {
         // Create uniform buffer
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let uniform_buffer = device.create_buffer(&eframe::wgpu::BufferDescriptor {
             label: Some("3D Uniform Buffer"),
             size: mem::size_of::<Uniforms3D>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -464,13 +464,13 @@ impl Renderer3D {
         });
         
         // Create bind group layout
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bind_group_layout = device.create_bind_group_layout(&eframe::wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupLayoutEntry {
+                eframe::wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                    ty: eframe::wgpu::BindingType::Buffer {
+                        ty: eframe::wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -481,10 +481,10 @@ impl Renderer3D {
         });
         
         // Create bind group
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let uniform_bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
+                eframe::wgpu::BindGroupEntry {
                     binding: 0,
                     resource: uniform_buffer.as_entire_binding(),
                 },
@@ -510,54 +510,54 @@ impl Renderer3D {
     
     fn create_pipelines_with_device(&mut self, device: &Device, bind_group_layout: &BindGroupLayout) {
         // Load shaders
-        let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let mesh_shader = device.create_shader_module(eframe::wgpu::ShaderModuleDescriptor {
             label: Some("3D Mesh Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh3d.wgsl").into()),
+            source: eframe::wgpu::ShaderSource::Wgsl(include_str!("shaders/mesh3d.wgsl").into()),
         });
         
-        let wireframe_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let wireframe_shader = device.create_shader_module(eframe::wgpu::ShaderModuleDescriptor {
             label: Some("3D Wireframe Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/wireframe3d.wgsl").into()),
+            source: eframe::wgpu::ShaderSource::Wgsl(include_str!("shaders/wireframe3d.wgsl").into()),
         });
         
-        let grid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let grid_shader = device.create_shader_module(eframe::wgpu::ShaderModuleDescriptor {
             label: Some("3D Grid Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/grid3d.wgsl").into()),
+            source: eframe::wgpu::ShaderSource::Wgsl(include_str!("shaders/grid3d.wgsl").into()),
         });
         
-        let axis_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let axis_shader = device.create_shader_module(eframe::wgpu::ShaderModuleDescriptor {
             label: Some("3D Axis Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/axis_gizmo.wgsl").into()),
+            source: eframe::wgpu::ShaderSource::Wgsl(include_str!("shaders/axis_gizmo.wgsl").into()),
         });
         
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.create_pipeline_layout(&eframe::wgpu::PipelineLayoutDescriptor {
             label: Some("3D Pipeline Layout"),
             bind_group_layouts: &[bind_group_layout],
             push_constant_ranges: &[],
         });
         
         // Create mesh pipeline
-        self.mesh_pipeline = Some(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        self.mesh_pipeline = Some(device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
             label: Some("3D Mesh Pipeline"),
             layout: Some(&pipeline_layout),
             cache: None,
-            vertex: wgpu::VertexState {
+            vertex: eframe::wgpu::VertexState {
                 module: &mesh_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[Vertex3D::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(eframe::wgpu::FragmentState {
                 module: &mesh_shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
+                entry_point: Some("fs_main"),
+                targets: &[Some(eframe::wgpu::ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    blend: Some(eframe::wgpu::BlendState::REPLACE),
+                    write_mask: eframe::wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
+            primitive: eframe::wgpu::PrimitiveState {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: FrontFace::Ccw,
@@ -572,27 +572,27 @@ impl Renderer3D {
         }));
         
         // Create wireframe pipeline
-        self.wireframe_pipeline = Some(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        self.wireframe_pipeline = Some(device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
             label: Some("3D Wireframe Pipeline"),
             layout: Some(&pipeline_layout),
             cache: None,
-            vertex: wgpu::VertexState {
+            vertex: eframe::wgpu::VertexState {
                 module: &wireframe_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[Vertex3D::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(eframe::wgpu::FragmentState {
                 module: &wireframe_shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
+                entry_point: Some("fs_main"),
+                targets: &[Some(eframe::wgpu::ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    blend: Some(eframe::wgpu::BlendState::REPLACE),
+                    write_mask: eframe::wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
+            primitive: eframe::wgpu::PrimitiveState {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: FrontFace::Ccw,
@@ -607,16 +607,16 @@ impl Renderer3D {
         }));
         
         // Create grid pipeline
-        self.grid_pipeline = Some(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        self.grid_pipeline = Some(device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
             label: Some("3D Grid Pipeline"),
             layout: Some(&pipeline_layout),
             cache: None,
-            vertex: wgpu::VertexState {
+            vertex: eframe::wgpu::VertexState {
                 module: &grid_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[
                     VertexBufferLayout {
-                        array_stride: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                        array_stride: mem::size_of::<[f32; 3]>() as eframe::wgpu::BufferAddress,
                         step_mode: VertexStepMode::Vertex,
                         attributes: &[
                             VertexAttribute {
@@ -627,19 +627,19 @@ impl Renderer3D {
                         ],
                     }
                 ],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(eframe::wgpu::FragmentState {
                 module: &grid_shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
+                entry_point: Some("fs_main"),
+                targets: &[Some(eframe::wgpu::ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    blend: Some(eframe::wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: eframe::wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
+            primitive: eframe::wgpu::PrimitiveState {
                 topology: PrimitiveTopology::LineList,
                 strip_index_format: None,
                 front_face: FrontFace::Ccw,
@@ -654,16 +654,16 @@ impl Renderer3D {
         }));
         
         // Create axis gizmo pipeline
-        self.axis_pipeline = Some(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        self.axis_pipeline = Some(device.create_render_pipeline(&eframe::wgpu::RenderPipelineDescriptor {
             label: Some("3D Axis Pipeline"),
             layout: Some(&pipeline_layout),
             cache: None,
-            vertex: wgpu::VertexState {
+            vertex: eframe::wgpu::VertexState {
                 module: &axis_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[
                     VertexBufferLayout {
-                        array_stride: mem::size_of::<[f32; 6]>() as wgpu::BufferAddress, // position + color
+                        array_stride: mem::size_of::<[f32; 6]>() as eframe::wgpu::BufferAddress, // position + color
                         step_mode: VertexStepMode::Vertex,
                         attributes: &[
                             VertexAttribute {
@@ -672,26 +672,26 @@ impl Renderer3D {
                                 format: VertexFormat::Float32x3,
                             },
                             VertexAttribute {
-                                offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                                offset: mem::size_of::<[f32; 3]>() as eframe::wgpu::BufferAddress,
                                 shader_location: 1,
                                 format: VertexFormat::Float32x3,
                             },
                         ],
                     }
                 ],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: Some(wgpu::FragmentState {
+            fragment: Some(eframe::wgpu::FragmentState {
                 module: &axis_shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
+                entry_point: Some("fs_main"),
+                targets: &[Some(eframe::wgpu::ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
+                    blend: Some(eframe::wgpu::BlendState::REPLACE),
+                    write_mask: eframe::wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: eframe::wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
+            primitive: eframe::wgpu::PrimitiveState {
                 topology: PrimitiveTopology::LineList,
                 strip_index_format: None,
                 front_face: FrontFace::Ccw,
@@ -710,7 +710,7 @@ impl Renderer3D {
     /// This creates minimal state needed for rendering but doesn't store Device/Queue
     pub fn initialize_from_refs(&mut self, device: &Device, queue: &Queue) {
         // Create uniform buffer
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let uniform_buffer = device.create_buffer(&eframe::wgpu::BufferDescriptor {
             label: Some("3D Uniform Buffer"),
             size: mem::size_of::<Uniforms3D>() as u64,  
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -718,13 +718,13 @@ impl Renderer3D {
         });
         
         // Create bind group layout
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bind_group_layout = device.create_bind_group_layout(&eframe::wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupLayoutEntry {
+                eframe::wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                    ty: eframe::wgpu::BindingType::Buffer {
+                        ty: eframe::wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -735,10 +735,10 @@ impl Renderer3D {
         });
         
         // Create bind group
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let uniform_bind_group = device.create_bind_group(&eframe::wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
+                eframe::wgpu::BindGroupEntry {
                     binding: 0,
                     resource: uniform_buffer.as_entire_binding(),
                 },
@@ -776,7 +776,7 @@ impl Renderer3D {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth32Float,
+                format: eframe::wgpu::TextureFormat::Depth32Float,
                 usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
@@ -801,23 +801,23 @@ impl Renderer3D {
     }
     
     /// Render mesh geometry
-    pub fn render_mesh(&self, render_pass: &mut wgpu::RenderPass, vertex_buffer: &Buffer, index_buffer: &Buffer, index_count: u32) {
+    pub fn render_mesh(&self, render_pass: &mut eframe::wgpu::RenderPass, vertex_buffer: &Buffer, index_buffer: &Buffer, index_count: u32) {
         if let (Some(pipeline), Some(bind_group)) = (&self.mesh_pipeline, &self.uniform_bind_group) {
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.set_index_buffer(index_buffer.slice(..), eframe::wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..index_count, 0, 0..1);
         }
     }
     
     /// Render wireframe geometry
-    pub fn render_wireframe(&self, render_pass: &mut wgpu::RenderPass, vertex_buffer: &Buffer, index_buffer: &Buffer, index_count: u32) {
+    pub fn render_wireframe(&self, render_pass: &mut eframe::wgpu::RenderPass, vertex_buffer: &Buffer, index_buffer: &Buffer, index_count: u32) {
         if let (Some(pipeline), Some(bind_group)) = (&self.wireframe_pipeline, &self.uniform_bind_group) {
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.set_index_buffer(index_buffer.slice(..), eframe::wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..index_count, 0, 0..1);
         }
     }
@@ -850,13 +850,13 @@ impl Renderer3D {
             }
             
             // Create buffers
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            let vertex_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
                 label: Some("Grid Vertex Buffer"),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: BufferUsages::VERTEX,
             });
             
-            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            let index_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
                 label: Some("Grid Index Buffer"),
                 contents: bytemuck::cast_slice(&indices),
                 usage: BufferUsages::INDEX,
@@ -869,13 +869,13 @@ impl Renderer3D {
     }
     
     /// Render grid
-    pub fn render_grid(&self, render_pass: &mut wgpu::RenderPass) {
+    pub fn render_grid(&self, render_pass: &mut eframe::wgpu::RenderPass) {
         if let (Some(pipeline), Some(bind_group), Some(vertex_buffer), Some(index_buffer)) = 
             (&self.grid_pipeline, &self.uniform_bind_group, &self.grid_vertex_buffer, &self.grid_index_buffer) {
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.set_index_buffer(index_buffer.slice(..), eframe::wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.grid_index_count, 0, 0..1);
         }
     }
@@ -905,13 +905,13 @@ impl Renderer3D {
             
             let indices: Vec<u32> = vec![0, 1, 2, 3, 4, 5]; // Line list
             
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            let vertex_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
                 label: Some("Axis Vertex Buffer"),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: BufferUsages::VERTEX,
             });
             
-            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            let index_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
                 label: Some("Axis Index Buffer"),
                 contents: bytemuck::cast_slice(&indices),
                 usage: BufferUsages::INDEX,
@@ -950,13 +950,13 @@ impl Renderer3D {
         }
         
         // Create buffers
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vertex_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
             label: Some("Grid Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX,
         });
         
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let index_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
             label: Some("Grid Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
             usage: BufferUsages::INDEX,
@@ -991,13 +991,13 @@ impl Renderer3D {
         
         let indices: Vec<u32> = vec![0, 1, 2, 3, 4, 5]; // Line list
         
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vertex_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
             label: Some("Axis Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX,
         });
         
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let index_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
             label: Some("Axis Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
             usage: BufferUsages::INDEX,
@@ -1009,13 +1009,13 @@ impl Renderer3D {
     }
     
     /// Render axis gizmo
-    pub fn render_axis_gizmo(&self, render_pass: &mut wgpu::RenderPass) {
+    pub fn render_axis_gizmo(&self, render_pass: &mut eframe::wgpu::RenderPass) {
         if let (Some(pipeline), Some(bind_group), Some(vertex_buffer), Some(index_buffer)) = 
             (&self.axis_pipeline, &self.uniform_bind_group, &self.axis_vertex_buffer, &self.axis_index_buffer) {
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.set_index_buffer(index_buffer.slice(..), eframe::wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.axis_index_count, 0, 0..1);
         }
     }
@@ -1026,7 +1026,7 @@ impl Renderer3D {
     }
     
     /// Render a complete scene with plugin viewport data
-    pub fn render_scene(&mut self, render_pass: &mut wgpu::RenderPass, viewport_data: &nodle_plugin_sdk::viewport::ViewportData, _viewport_size: (u32, u32)) {
+    pub fn render_scene(&mut self, render_pass: &mut eframe::wgpu::RenderPass, viewport_data: &nodle_plugin_sdk::viewport::ViewportData, _viewport_size: (u32, u32)) {
         // Update camera from viewport data
         let plugin_camera = &viewport_data.scene.camera;
         self.camera.position = glam::Vec3::new(plugin_camera.position[0], plugin_camera.position[1], plugin_camera.position[2]);
@@ -1052,14 +1052,14 @@ impl Renderer3D {
     }
     
     /// Render basic scene (grid, axes) when no plugin data is available
-    pub fn render_basic_scene(&self, render_pass: &mut wgpu::RenderPass, _viewport_size: (u32, u32)) {
+    pub fn render_basic_scene(&self, render_pass: &mut eframe::wgpu::RenderPass, _viewport_size: (u32, u32)) {
         // Render grid
         if let (Some(vertex_buffer), Some(index_buffer)) = (&self.grid_vertex_buffer, &self.grid_index_buffer) {
             if let (Some(pipeline), Some(bind_group)) = (&self.grid_pipeline, &self.uniform_bind_group) {
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_bind_group(0, bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.set_index_buffer(index_buffer.slice(..), eframe::wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..self.grid_index_count, 0, 0..1);
             }
         }
