@@ -3,8 +3,8 @@
 pub mod transform;
 pub mod geometry;
 pub mod lighting;
-pub mod output;
+pub mod ui;
 
 // Re-exports removed - these were unused wildcard imports
 
-// USD functionality now provided by USD plugin
+// USD functionality now integrated natively in 3D workspace

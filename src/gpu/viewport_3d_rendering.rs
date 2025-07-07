@@ -707,8 +707,14 @@ impl Renderer3D {
     }
     
     /// Initialize renderer using references (for callback system)
-    /// This creates minimal state needed for rendering but doesn't store Device/Queue
+    /// Initialize with device and queue references and store them for later use
     pub fn initialize_from_refs(&mut self, device: &Device, queue: &Queue) {
+        println!("🔧 Renderer3D::initialize_from_refs - Starting initialization");
+        
+        // Store device and queue references - THIS IS THE CRITICAL FIX
+        self.device = Some(device.clone());
+        self.queue = Some(queue.clone());
+        
         // Create uniform buffer
         let uniform_buffer = device.create_buffer(&eframe::wgpu::BufferDescriptor {
             label: Some("3D Uniform Buffer"),
@@ -749,7 +755,7 @@ impl Renderer3D {
         // Create pipelines
         self.create_pipelines_with_device(device, &bind_group_layout);
         
-        // Store created resources (but not device/queue)
+        // Store created resources
         self.uniform_buffer = Some(uniform_buffer);
         self.uniform_bind_group = Some(uniform_bind_group);
         
@@ -757,8 +763,7 @@ impl Renderer3D {
         self.create_grid_buffers_from_refs(device, 20.0, 40);
         self.create_axis_buffers_from_refs(device);
         
-        // Mark as initialized by setting a flag (we'll use a different approach)
-        // Instead of storing device/queue, we'll check for pipeline existence
+        println!("✅ Renderer3D::initialize_from_refs - Initialization complete");
     }
     
     pub fn resize(&mut self, width: u32, height: u32) {

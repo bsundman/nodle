@@ -37,8 +37,8 @@ impl Workspace3D {
         node_registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
         node_registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
         
-        // Register 3D output nodes
-        node_registry.register::<crate::nodes::three_d::output::viewport::ViewportNode>();
+        // Register 3D UI nodes
+        node_registry.register::<crate::nodes::three_d::ui::viewport::ViewportNode>();
         
         // USD nodes now provided by USD plugin
         

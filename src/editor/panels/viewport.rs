@@ -19,7 +19,7 @@ pub struct ViewportPanel {
     /// Selected tab for each stacked viewport window
     selected_tabs: HashMap<String, usize>,
     /// Viewport node instances (to maintain camera state)
-    viewport_instances: HashMap<NodeId, crate::nodes::three_d::output::viewport::ViewportNode>,
+    viewport_instances: HashMap<NodeId, crate::nodes::three_d::ui::viewport::ViewportNode>,
     /// 3D rendering callbacks for each viewport (to avoid renderer conflicts)
     viewport_callbacks: HashMap<NodeId, crate::gpu::viewport_3d_callback::ViewportRenderCallback>,
 }
@@ -200,22 +200,46 @@ impl ViewportPanel {
                             ui.label("No viewport data available from plugin");
                         }
                     } else {
-                        // This is a core viewport node - use the standard viewport interface
+                        // This is a core viewport node
                         let viewport_node = self.viewport_instances.entry(node_id)
-                            .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
-                        let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                            .or_insert_with(|| crate::nodes::three_d::ui::viewport::ViewportNode::default());
+                        
+                        // Try to get viewport data from the core node
+                        if let Some(viewport_data) = crate::nodes::three_d::ui::viewport::ViewportNode::get_viewport_data(&node) {
+                            // Render the 3D viewport
+                            self.render_core_viewport_data(ui, viewport_data, node_id);
+                        } else {
+                            // No viewport data - show parameter interface
+                            let _changes = crate::nodes::three_d::ui::viewport::ViewportNode::build_interface(&mut node.clone(), ui);
+                        }
                     }
                 } else {
                     // Plugin manager lock failed - fall back to core viewport
                     let viewport_node = self.viewport_instances.entry(node_id)
-                        .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
-                    let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                        .or_insert_with(|| crate::nodes::three_d::ui::viewport::ViewportNode::default());
+                    
+                    // Try to get viewport data from the core node
+                    if let Some(viewport_data) = crate::nodes::three_d::ui::viewport::ViewportNode::get_viewport_data(&node) {
+                        // Render the 3D viewport
+                        self.render_core_viewport_data(ui, viewport_data, node_id);
+                    } else {
+                        // No viewport data - show parameter interface
+                        let _changes = crate::nodes::three_d::ui::viewport::ViewportNode::build_interface(&mut node.clone(), ui);
+                    }
                 }
             } else {
                 // No plugin manager - fall back to core viewport
                 let viewport_node = self.viewport_instances.entry(node_id)
-                    .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
-                let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                    .or_insert_with(|| crate::nodes::three_d::ui::viewport::ViewportNode::default());
+                
+                // Try to get viewport data from the core node
+                if let Some(viewport_data) = crate::nodes::three_d::ui::viewport::ViewportNode::get_viewport_data(&node) {
+                    // Render the 3D viewport
+                    self.render_core_viewport_data(ui, viewport_data, node_id);
+                } else {
+                    // No viewport data - show parameter interface
+                    let _changes = crate::nodes::three_d::ui::viewport::ViewportNode::build_interface(&mut node.clone(), ui);
+                }
             }
         } else {
             ui.label("Error: Node does not have viewport panel type");
@@ -322,22 +346,46 @@ impl ViewportPanel {
                                     ui.label("No viewport data available from plugin");
                                 }
                             } else {
-                                // This is a core viewport node - use the standard viewport interface
+                                // This is a core viewport node
                                 let viewport_node = self.viewport_instances.entry(selected_node_id)
-                                    .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
-                                let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                                    .or_insert_with(|| crate::nodes::three_d::ui::viewport::ViewportNode::default());
+                                
+                                // Try to get viewport data from the core node
+                                if let Some(viewport_data) = crate::nodes::three_d::ui::viewport::ViewportNode::get_viewport_data(&node) {
+                                    // Render the 3D viewport
+                                    self.render_core_viewport_data(ui, viewport_data, selected_node_id);
+                                } else {
+                                    // No viewport data - show parameter interface
+                                    let _changes = crate::nodes::three_d::ui::viewport::ViewportNode::build_interface(&mut node.clone(), ui);
+                                }
                             }
                         } else {
                             // Plugin manager lock failed - fall back to core viewport
                             let viewport_node = self.viewport_instances.entry(selected_node_id)
-                                .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
-                            let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                                .or_insert_with(|| crate::nodes::three_d::ui::viewport::ViewportNode::default());
+                            
+                            // Try to get viewport data from the core node
+                            if let Some(viewport_data) = crate::nodes::three_d::ui::viewport::ViewportNode::get_viewport_data(&node) {
+                                // Render the 3D viewport
+                                self.render_core_viewport_data(ui, viewport_data, selected_node_id);
+                            } else {
+                                // No viewport data - show parameter interface
+                                let _changes = crate::nodes::three_d::ui::viewport::ViewportNode::build_interface(&mut node.clone(), ui);
+                            }
                         }
                     } else {
                         // No plugin manager - fall back to core viewport
                         let viewport_node = self.viewport_instances.entry(selected_node_id)
-                            .or_insert_with(|| crate::nodes::three_d::output::viewport::ViewportNode::default());
-                        let _changes = crate::nodes::three_d::output::viewport::viewport_interface::build_interface(viewport_node, ui);
+                            .or_insert_with(|| crate::nodes::three_d::ui::viewport::ViewportNode::default());
+                        
+                        // Try to get viewport data from the core node
+                        if let Some(viewport_data) = crate::nodes::three_d::ui::viewport::ViewportNode::get_viewport_data(&node) {
+                            // Render the 3D viewport
+                            self.render_core_viewport_data(ui, viewport_data, selected_node_id);
+                        } else {
+                            // No viewport data - show parameter interface
+                            let _changes = crate::nodes::three_d::ui::viewport::ViewportNode::build_interface(&mut node.clone(), ui);
+                        }
                     }
                 } else {
                     ui.label("Error: Node does not have viewport panel type");
@@ -446,53 +494,84 @@ impl ViewportPanel {
         callback.update_viewport_data(viewport_data.clone());
         callback.update_viewport_size(viewport_size.x as u32, viewport_size.y as u32);
         
-        // Handle mouse interactions for camera control
+        // Handle mouse interactions for camera control - Maya-style navigation
         if response.dragged() {
             let delta = response.drag_delta();
             let ctx = ui.ctx();
             let modifiers = ctx.input(|i| i.modifiers);
-            
-            // Create camera manipulation based on modifiers
-            let manipulation = if modifiers.alt {
-                // Alt + drag = orbit
-                nodle_plugin_sdk::viewport::CameraManipulation::Orbit {
-                    delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
-                    delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+            let pointer_button = ctx.input(|i| {
+                if i.pointer.primary_down() {
+                    Some(egui::PointerButton::Primary)  // Left mouse button
+                } else if i.pointer.middle_down() {
+                    Some(egui::PointerButton::Middle)   // Middle mouse button  
+                } else if i.pointer.secondary_down() {
+                    Some(egui::PointerButton::Secondary) // Right mouse button
+                } else {
+                    None
                 }
-            } else if modifiers.shift {
-                // Shift + drag = pan
-                nodle_plugin_sdk::viewport::CameraManipulation::Pan {
-                    delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
-                    delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+            });
+            
+            // Maya-style camera navigation: Alt + mouse button combinations
+            let manipulation = if modifiers.alt {
+                match pointer_button {
+                    Some(egui::PointerButton::Primary) => {
+                        // Alt + Left Mouse = Orbit (invert Y for natural feel)
+                        Some(nodle_plugin_sdk::viewport::CameraManipulation::Orbit {
+                            delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                            delta_y: -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                        })
+                    }
+                    Some(egui::PointerButton::Middle) => {
+                        // Alt + Middle Mouse = Pan (invert for natural feel)
+                        Some(nodle_plugin_sdk::viewport::CameraManipulation::Pan {
+                            delta_x: -delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                            delta_y: -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                        })
+                    }
+                    Some(egui::PointerButton::Secondary) => {
+                        // Alt + Right Mouse = Zoom (invert for natural feel)
+                        Some(nodle_plugin_sdk::viewport::CameraManipulation::Zoom {
+                            delta: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                        })
+                    }
+                    Some(egui::PointerButton::Extra1) | Some(egui::PointerButton::Extra2) => None,
+                    None => None,
                 }
             } else {
-                // Default drag = orbit
-                nodle_plugin_sdk::viewport::CameraManipulation::Orbit {
-                    delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
-                    delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
-                }
+                // No navigation without Alt key
+                None
             };
             
-            // Send manipulation to plugin node to update its camera state
-            plugin_node.handle_viewport_camera(manipulation.clone());
-            
-            // Also update the callback for immediate rendering
-            match manipulation {
-                nodle_plugin_sdk::viewport::CameraManipulation::Orbit { delta_x, delta_y } => {
-                    callback.handle_camera_manipulation(
-                        delta_x, 
-                        delta_y, 
-                        crate::gpu::viewport_3d_callback::CameraManipulationType::Orbit
-                    );
+            // Only process manipulation if Alt was held
+            if let Some(manipulation) = manipulation {
+                // Send manipulation to plugin node to update its camera state
+                plugin_node.handle_viewport_camera(manipulation.clone());
+                
+                // Also update the callback for immediate rendering
+                match manipulation {
+                    nodle_plugin_sdk::viewport::CameraManipulation::Orbit { delta_x, delta_y } => {
+                        callback.handle_camera_manipulation(
+                            delta_x, 
+                            delta_y, 
+                            crate::gpu::viewport_3d_callback::CameraManipulationType::Orbit
+                        );
+                    }
+                    nodle_plugin_sdk::viewport::CameraManipulation::Pan { delta_x, delta_y } => {
+                        callback.handle_camera_manipulation(
+                            delta_x, 
+                            delta_y, 
+                            crate::gpu::viewport_3d_callback::CameraManipulationType::Pan
+                        );
+                    }
+                    nodle_plugin_sdk::viewport::CameraManipulation::Zoom { delta } => {
+                        callback.handle_camera_manipulation(
+                            delta, 
+                            0.0, 
+                            crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                        );
+                    }
+                    _ => {}
                 }
-                nodle_plugin_sdk::viewport::CameraManipulation::Pan { delta_x, delta_y } => {
-                    callback.handle_camera_manipulation(
-                        delta_x, 
-                        delta_y, 
-                        crate::gpu::viewport_3d_callback::CameraManipulationType::Pan
-                    );
-                }
-                _ => {}
             }
         }
         
@@ -501,17 +580,17 @@ impl ViewportPanel {
             let ctx = ui.ctx();
             ctx.input(|i| {
                 if i.raw_scroll_delta.y != 0.0 {
-                    // Create zoom manipulation for plugin
+                    // Create zoom manipulation for plugin (invert for natural feel)
                     let zoom_manipulation = nodle_plugin_sdk::viewport::CameraManipulation::Zoom {
-                        delta: i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY,
+                        delta: -i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY,
                     };
                     
                     // Send to plugin node
                     plugin_node.handle_viewport_camera(zoom_manipulation);
                     
-                    // Also update callback for immediate rendering
+                    // Also update callback for immediate rendering (invert for natural feel)
                     callback.handle_camera_manipulation(
-                        i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY, 
+                        -i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY, 
                         0.0, 
                         crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
                     );
@@ -525,19 +604,113 @@ impl ViewportPanel {
             callback.clone(),
         ));
     }
+    
+    /// Render viewport data from a core node (similar to plugin viewport rendering)
+    fn render_core_viewport_data(&mut self, ui: &mut egui::Ui, viewport_data: nodle_plugin_sdk::viewport::ViewportData, node_id: NodeId) {
+        println!("🎬 render_core_viewport_data called for node {} with {} meshes", node_id, viewport_data.scene.meshes.len());
+        // 3D Viewport area with actual wgpu rendering
+        let available_size = ui.available_size();
+        let viewport_size = egui::vec2(
+            available_size.x.max(100.0),
+            available_size.y.max(100.0)
+        );
+        let (rect, response) = ui.allocate_exact_size(viewport_size, egui::Sense::drag());
+            
+        // Get or create 3D rendering callback for this specific viewport node
+        let callback = self.viewport_callbacks.entry(node_id)
+            .or_insert_with(|| crate::gpu::viewport_3d_callback::ViewportRenderCallback::new());
+        callback.update_viewport_data(viewport_data.clone());
+        callback.update_viewport_size(viewport_size.x as u32, viewport_size.y as u32);
+        
+        // Handle mouse interactions for camera control - Maya-style navigation
+        if response.dragged() {
+            let delta = response.drag_delta();
+            let ctx = ui.ctx();
+            let modifiers = ctx.input(|i| i.modifiers);
+            let pointer_button = ctx.input(|i| {
+                if i.pointer.primary_down() {
+                    Some(egui::PointerButton::Primary)  // Left mouse button
+                } else if i.pointer.middle_down() {
+                    Some(egui::PointerButton::Middle)   // Middle mouse button  
+                } else if i.pointer.secondary_down() {
+                    Some(egui::PointerButton::Secondary) // Right mouse button
+                } else {
+                    None
+                }
+            });
+            
+            // Maya-style camera navigation: Alt + mouse button combinations
+            if modifiers.alt {
+                let manipulation = match pointer_button {
+                    Some(egui::PointerButton::Primary) => {
+                        // Alt + Left Mouse = Orbit
+                        crate::gpu::viewport_3d_callback::CameraManipulationType::Orbit
+                    }
+                    Some(egui::PointerButton::Middle) => {
+                        // Alt + Middle Mouse = Pan
+                        crate::gpu::viewport_3d_callback::CameraManipulationType::Pan
+                    }
+                    Some(egui::PointerButton::Secondary) => {
+                        // Alt + Right Mouse = Zoom (vertical drag)
+                        crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                    }
+                    Some(egui::PointerButton::Extra1) | Some(egui::PointerButton::Extra2) | None => return, // No valid button
+                };
+                
+                // Update the callback camera
+                let (delta_x, delta_y) = match manipulation {
+                    crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom => {
+                        // For zoom, use vertical delta as zoom amount (invert for natural feel)
+                        (delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY, 0.0)
+                    }
+                    crate::gpu::viewport_3d_callback::CameraManipulationType::Orbit => {
+                        // For orbit, invert Y for natural feel
+                        (delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                         -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY)
+                    }
+                    _ => {
+                        // For pan, invert both deltas for natural feel
+                        (-delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                         -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY)
+                    }
+                };
+                
+                callback.handle_camera_manipulation(delta_x, delta_y, manipulation);
+            }
+            // No navigation without Alt key
+        }
+        
+        // Handle scroll for zoom
+        if response.hovered() {
+            let ctx = ui.ctx();
+            ctx.input(|i| {
+                if i.raw_scroll_delta.y != 0.0 {
+                    callback.handle_camera_manipulation(
+                        -i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY, 
+                        0.0, 
+                        crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                    );
+                }
+            });
+        }
+        
+        // Add the 3D rendering callback to egui
+        ui.painter().add(egui_wgpu::Callback::new_paint_callback(
+            rect,
+            callback.clone(),
+        ));
+    }
 
     /// Auto-load USD stage into a viewport node
     pub fn auto_load_usd_into_viewport(&mut self, viewport_node_id: NodeId, stage_id: &str) {
-        // Get the viewport instance and load the USD stage
-        if let Some(viewport_instance) = self.viewport_instances.get_mut(&viewport_node_id) {
-            info!("Auto-loading USD stage {} into viewport {}", stage_id, viewport_node_id);
-            viewport_instance.load_usd_scene(stage_id);
-        } else {
-            // Create a new viewport instance if it doesn't exist
-            let mut new_viewport = crate::nodes::three_d::output::viewport::ViewportNode::default();
-            new_viewport.load_usd_scene(stage_id);
+        // TODO: Update viewport node parameters to load the USD stage
+        // Note: The new viewport system uses parameters in the Node struct, not instance state
+        info!("Auto-loading USD stage {} into viewport {} (implementation pending with new architecture)", stage_id, viewport_node_id);
+        
+        // Create a placeholder viewport instance for compatibility
+        if !self.viewport_instances.contains_key(&viewport_node_id) {
+            let new_viewport = crate::nodes::three_d::ui::viewport::ViewportNode::default();
             self.viewport_instances.insert(viewport_node_id, new_viewport);
-            info!("Created new viewport instance and loaded USD stage {} into viewport {}", stage_id, viewport_node_id);
         }
     }
 

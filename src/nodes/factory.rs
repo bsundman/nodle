@@ -1124,7 +1124,7 @@ impl Default for NodeRegistry {
         registry.register::<crate::nodes::three_d::lighting::PointLightNode>();
         registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
         registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
-        registry.register::<crate::nodes::three_d::output::ViewportNode>();
+        registry.register::<crate::nodes::three_d::ui::viewport::ViewportNode>();
         
         // USD nodes now loaded via comprehensive USD plugin
         
