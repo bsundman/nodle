@@ -1,0 +1,31 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "SdrDiscoveryPlugin": {
+                        "bases": [
+                            "NdrDiscoveryPlugin"
+                        ]
+                    },
+                    "_SdrFilesystemDiscoveryPlugin": {
+                        "bases": [
+                            "SdrDiscoveryPlugin"
+                        ],
+                        "displayName": "Filesystem Discovery"
+                    },
+                    "SdrParserPlugin": {
+                        "bases": [
+                            "NdrParserPlugin"
+                        ]
+                    }
+                }
+            },
+            "LibraryPath": "../../.dylibs/libusd_sdr.dylib",
+            "Name": "sdr",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}
