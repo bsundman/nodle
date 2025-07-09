@@ -7,7 +7,6 @@ use pyo3::types::{PyDict, PyList, PyString};
 #[cfg(feature = "usd")]
 use numpy::{PyArray1, PyArray2, PyArrayMethods};
 use std::collections::HashMap;
-use super::local_usd;
 use glam::{Mat4, Vec3, Vec2};
 
 /// USD Stage handle - holds a reference to a USD stage
@@ -65,9 +64,10 @@ pub struct USDEngine {
 
 impl USDEngine {
     pub fn new() -> Self {
-        // Initialize local USD on first engine creation
-        #[cfg(feature = "usd")]
-        local_usd::init_local_usd();
+        // Set up Python environment for embedded Python
+        std::env::set_var("PYTHONHOME", "./vendor/python-runtime/python");
+        std::env::set_var("PYTHONPATH", "./vendor/python-runtime/python/lib/python3.9/site-packages:./vendor/python-runtime/python/lib/python3.9");
+        std::env::set_var("PYTHONDONTWRITEBYTECODE", "1");
         
         Self {
             #[cfg(feature = "usd")]

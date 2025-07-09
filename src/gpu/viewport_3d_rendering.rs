@@ -18,6 +18,7 @@ use super::config::GraphicsConfig;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec2, Quat};
 use std::mem;
+use std::collections::HashMap;
 use eframe::wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -320,6 +321,14 @@ pub struct Mesh3D {
     pub indices: Vec<u32>,
 }
 
+/// GPU mesh with uploaded buffers ready for rendering
+pub struct GpuMesh {
+    pub vertex_buffer: Buffer,
+    pub index_buffer: Buffer,
+    pub index_count: u32,
+    pub material_id: Option<String>,
+}
+
 impl Mesh3D {
     /// Create a cube mesh
     pub fn cube() -> Self {
@@ -408,6 +417,8 @@ pub struct Renderer3D {
     pub axis_vertex_buffer: Option<Buffer>,
     pub axis_index_buffer: Option<Buffer>,
     pub axis_index_count: u32,
+    // USD mesh storage
+    pub gpu_meshes: HashMap<String, GpuMesh>,
 }
 
 impl std::fmt::Debug for Renderer3D {
@@ -444,6 +455,7 @@ impl Default for Renderer3D {
             axis_vertex_buffer: None,
             axis_index_buffer: None,
             axis_index_count: 0,
+            gpu_meshes: HashMap::new(),
         }
     }
 }
@@ -566,7 +578,7 @@ impl Renderer3D {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None, // No depth buffer in egui callback system
+            depth_stencil: None, // Depth testing requires render target setup
             multisample: GraphicsConfig::global().multisample_state(),
             multiview: None,
         }));
@@ -601,7 +613,7 @@ impl Renderer3D {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None, // No depth buffer in egui callback system
+            depth_stencil: None, // Depth testing requires render target setup
             multisample: GraphicsConfig::global().multisample_state(),
             multiview: None,
         }));
@@ -648,7 +660,7 @@ impl Renderer3D {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None, // No depth buffer in egui callback system
+            depth_stencil: None, // Depth testing requires render target setup
             multisample: GraphicsConfig::global().multisample_state(),
             multiview: None,
         }));
@@ -1030,6 +1042,89 @@ impl Renderer3D {
         self.camera = camera.clone();
     }
     
+    /// Upload mesh data to GPU and store in gpu_meshes map
+    pub fn upload_mesh_to_gpu(&mut self, mesh_id: String, mesh_data: &nodle_plugin_sdk::viewport::MeshData) -> Result<(), String> {
+        let device = self.device.as_ref().ok_or("Device not initialized")?;
+        
+        // Check if mesh is already uploaded
+        if self.gpu_meshes.contains_key(&mesh_id) {
+            return Ok(()); // Already uploaded
+        }
+        
+        // Convert mesh data to Vertex3D format
+        let vertex_count = mesh_data.vertices.len() / 3;
+        let normal_count = mesh_data.normals.len() / 3;
+        let uv_count = mesh_data.uvs.len() / 2;
+        
+        if vertex_count == 0 {
+            return Err(format!("Mesh {} has no vertices", mesh_id));
+        }
+        
+        // Ensure we have matching counts or can handle mismatches
+        let has_normals = normal_count == vertex_count;
+        let has_uvs = uv_count == vertex_count;
+        
+        let mut vertices = Vec::with_capacity(vertex_count);
+        
+        for i in 0..vertex_count {
+            let position = [
+                mesh_data.vertices[i * 3],
+                mesh_data.vertices[i * 3 + 1],
+                mesh_data.vertices[i * 3 + 2],
+            ];
+            
+            let normal = if has_normals {
+                [
+                    mesh_data.normals[i * 3],
+                    mesh_data.normals[i * 3 + 1],
+                    mesh_data.normals[i * 3 + 2],
+                ]
+            } else {
+                [0.0, 1.0, 0.0] // Default up normal
+            };
+            
+            let uv = if has_uvs {
+                [
+                    mesh_data.uvs[i * 2],
+                    mesh_data.uvs[i * 2 + 1],
+                ]
+            } else {
+                [0.0, 0.0] // Default UV
+            };
+            
+            vertices.push(Vertex3D {
+                position,
+                normal,
+                uv,
+            });
+        }
+        
+        // Create vertex buffer
+        let vertex_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("USD Mesh Vertex Buffer - {}", mesh_id)),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: BufferUsages::VERTEX,
+        });
+        
+        // Create index buffer
+        let index_buffer = device.create_buffer_init(&eframe::wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("USD Mesh Index Buffer - {}", mesh_id)),
+            contents: bytemuck::cast_slice(&mesh_data.indices),
+            usage: BufferUsages::INDEX,
+        });
+        
+        let gpu_mesh = GpuMesh {
+            vertex_buffer,
+            index_buffer,
+            index_count: mesh_data.indices.len() as u32,
+            material_id: mesh_data.material_id.clone(),
+        };
+        
+        self.gpu_meshes.insert(mesh_id, gpu_mesh);
+        
+        Ok(())
+    }
+    
     /// Render a complete scene with plugin viewport data
     pub fn render_scene(&mut self, render_pass: &mut eframe::wgpu::RenderPass, viewport_data: &nodle_plugin_sdk::viewport::ViewportData, _viewport_size: (u32, u32)) {
         // Update camera from viewport data
@@ -1045,14 +1140,32 @@ impl Renderer3D {
         // Render basic scene (grid and axis) first
         self.render_basic_scene(render_pass, _viewport_size);
         
-        // TODO: Render plugin meshes
-        // For now, render basic scene representation
+        // Upload and render USD meshes
         if !viewport_data.scene.meshes.is_empty() {
-            // Render a placeholder cube for each mesh
+            println!("🎬 Rendering {} USD meshes", viewport_data.scene.meshes.len());
+            
             for mesh in &viewport_data.scene.meshes {
-                println!("🔧 Rendering mesh: {}", mesh.id);
-                // TODO: Convert plugin mesh data to wgpu buffers and render
+                // Upload mesh to GPU if not already uploaded
+                if let Err(e) = self.upload_mesh_to_gpu(mesh.id.clone(), mesh) {
+                    println!("❌ Failed to upload mesh {}: {}", mesh.id, e);
+                    continue;
+                }
+                
+                // Render the mesh
+                if let Some(gpu_mesh) = self.gpu_meshes.get(&mesh.id) {
+                    // Apply transform if needed
+                    // For now, using identity transform from the uniform buffer
+                    
+                    // Render based on viewport settings
+                    if viewport_data.settings.wireframe {
+                        self.render_wireframe(render_pass, &gpu_mesh.vertex_buffer, &gpu_mesh.index_buffer, gpu_mesh.index_count);
+                    } else {
+                        self.render_mesh(render_pass, &gpu_mesh.vertex_buffer, &gpu_mesh.index_buffer, gpu_mesh.index_count);
+                    }
+                }
             }
+            
+            println!("✅ Rendered {} GPU meshes", self.gpu_meshes.len());
         }
     }
     

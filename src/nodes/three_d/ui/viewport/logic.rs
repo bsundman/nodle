@@ -150,9 +150,10 @@ impl USDViewportLogic {
     
     /// Load test stage with sample geometry
     pub fn load_test_stage(&mut self) {
-        let stage_id = "test_stage";
-        self.current_stage = Some(stage_id.to_string());
-        if let Err(e) = self.usd_renderer.load_stage(stage_id) {
+        let stage_path = "./Kitchen_set.usd";
+        let stage_id = format!("file://{}", stage_path);
+        self.current_stage = Some(stage_id.clone());
+        if let Err(e) = self.usd_renderer.load_stage(&stage_id) {
             eprintln!("Failed to load test stage: {}", e);
         }
     }

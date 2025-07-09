@@ -74,7 +74,7 @@ impl Default for ViewportNode {
         viewport_logic.load_test_stage();
         
         Self {
-            current_stage: "default_scene".to_string(),
+            current_stage: "./Kitchen_set.usd".to_string(),
             viewport_data: ViewportData::default(),
             camera_settings: CameraSettings::default(),
             viewport_logic,
@@ -429,7 +429,7 @@ impl ViewportNode {
         let mut params = HashMap::new();
         
         // USD stage parameters - start with a default stage to show something
-        params.insert("current_stage".to_string(), NodeData::String("default_scene".to_string()));
+        params.insert("current_stage".to_string(), NodeData::String("./Kitchen_set.usd".to_string()));
         params.insert("stage_loaded".to_string(), NodeData::Boolean(true));
         params.insert("stage_dirty".to_string(), NodeData::Boolean(true));
         
@@ -648,5 +648,35 @@ impl NodeFactory for ViewportNode {
         .with_panel_type(PanelType::Viewport)
         .with_processing_cost(crate::nodes::factory::ProcessingCost::High)
         .with_version("3.0")
+    }
+    
+    fn create(position: egui::Pos2) -> Node {
+        let meta = Self::metadata();
+        let mut node = Node::new(0, meta.node_type, position);
+        node.color = meta.color;
+        
+        // Add inputs
+        for input in &meta.inputs {
+            node.add_input(&input.name);
+        }
+        
+        // Add outputs  
+        for output in &meta.outputs {
+            node.add_output(&output.name);
+        }
+        
+        // Set panel type from metadata
+        node.set_panel_type(meta.panel_type);
+        
+        // Initialize default parameters
+        let params = ViewportNode::initialize_parameters();
+        for (key, value) in params {
+            node.parameters.insert(key, value);
+        }
+        
+        // CRITICAL: Update port positions after adding ports
+        node.update_port_positions();
+        
+        node
     }
 }

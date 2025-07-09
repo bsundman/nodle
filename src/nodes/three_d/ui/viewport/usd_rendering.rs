@@ -4,10 +4,11 @@
 //! and renders USD geometry, materials, and lights using wgpu.
 
 use eframe::wgpu::{Device, Queue, Buffer, BufferUsages, util::DeviceExt};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec2};
 use std::collections::HashMap;
 use crate::gpu::viewport_3d_rendering::{Renderer3D, Vertex3D};
 use crate::gpu::viewport_3d_rendering::Camera3D as GpuCamera3D;
+use crate::workspaces::three_d::usd::usd_engine::{USDEngine, USDSceneData};
 
 /// USD Geometry data extracted from USD prims
 #[derive(Debug, Clone)]
@@ -94,6 +95,8 @@ pub struct USDRenderer {
     pub selected_prims: Vec<String>,
     /// Viewport camera or USD camera mode
     pub camera_mode: CameraMode,
+    /// USD engine for loading USD files
+    pub usd_engine: USDEngine,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +159,7 @@ impl Clone for USDRenderer {
             render_settings: self.render_settings.clone(),
             selected_prims: self.selected_prims.clone(),
             camera_mode: self.camera_mode.clone(),
+            usd_engine: USDEngine::new(), // Create new USD engine
         }
     }
 }
@@ -182,6 +186,7 @@ impl Default for USDRenderer {
             render_settings: USDRenderSettings::default(),
             selected_prims: Vec::new(),
             camera_mode: CameraMode::Viewport,
+            usd_engine: USDEngine::new(),
         }
     }
 }
@@ -207,8 +212,32 @@ impl USDRenderer {
         };
         self.geometry_buffers.clear();
         
-        // Create mock scene for testing without USD
-        self.create_mock_scene(stage_id);
+        // Extract file path from stage_id (handle file:// prefix)
+        let file_path = if stage_id.starts_with("file://") {
+            &stage_id[7..] // Remove "file://" prefix
+        } else {
+            stage_id
+        };
+        
+        // Try to load real USD file if it exists
+        if std::path::Path::new(file_path).exists() {
+            println!("Loading real USD file: {}", file_path);
+            match self.usd_engine.load_stage(file_path) {
+                Ok(usd_scene_data) => {
+                    println!("✓ Successfully loaded USD scene with {} meshes", usd_scene_data.meshes.len());
+                    
+                    // Convert USD scene data to renderer format
+                    self.convert_usd_scene_to_renderer(&usd_scene_data);
+                },
+                Err(e) => {
+                    println!("Failed to load USD file: {}, falling back to mock scene", e);
+                    self.create_mock_scene(stage_id);
+                }
+            }
+        } else {
+            println!("USD file not found: {}, creating mock scene", file_path);
+            self.create_mock_scene(stage_id);
+        }
         
         self.upload_geometry_buffers()?;
         
@@ -218,6 +247,76 @@ impl USDRenderer {
                  self.current_scene.materials.len());
         
         Ok(())
+    }
+    
+    /// Convert USDEngine scene data to renderer format
+    fn convert_usd_scene_to_renderer(&mut self, usd_scene_data: &USDSceneData) {
+        // Convert USD meshes to renderer geometry
+        for usd_mesh in &usd_scene_data.meshes {
+            // Convert Vec3 vertices to Vertex3D
+            let vertices: Vec<Vertex3D> = usd_mesh.vertices.iter().enumerate().map(|(i, &pos)| {
+                let normal = if i < usd_mesh.normals.len() {
+                    usd_mesh.normals[i]
+                } else {
+                    Vec3::new(0.0, 1.0, 0.0) // Default normal
+                };
+                let uv = if i < usd_mesh.uvs.len() {
+                    usd_mesh.uvs[i]
+                } else {
+                    Vec2::new(0.0, 0.0) // Default UV
+                };
+                Vertex3D {
+                    position: pos.into(),
+                    normal: normal.into(),
+                    uv: uv.into(),
+                }
+            }).collect();
+            
+            let geometry = USDGeometry {
+                prim_path: usd_mesh.prim_path.clone(),
+                prim_type: "Mesh".to_string(),
+                vertices,
+                indices: usd_mesh.indices.clone(),
+                transform: usd_mesh.transform,
+                material_path: None, // USD mesh doesn't have material_path directly
+                visibility: true,
+            };
+            self.current_scene.geometries.push(geometry);
+        }
+        
+        // Convert USD lights to renderer lights
+        for usd_light in &usd_scene_data.lights {
+            let light = USDLight {
+                prim_path: usd_light.prim_path.clone(),
+                light_type: usd_light.light_type.clone(),
+                intensity: usd_light.intensity,
+                color: usd_light.color,
+                transform: usd_light.transform,
+                exposure: 0.0,
+                cone_angle: None,
+                cone_softness: None,
+            };
+            self.current_scene.lights.push(light);
+        }
+        
+        // Convert USD materials to renderer materials
+        for usd_material in &usd_scene_data.materials {
+            let material = USDMaterial {
+                prim_path: usd_material.prim_path.clone(),
+                diffuse_color: usd_material.diffuse_color,
+                metallic: usd_material.metallic,
+                roughness: usd_material.roughness,
+                opacity: 1.0, // Default opacity
+                emission_color: Vec3::ZERO, // Default emission
+            };
+            // Materials are stored in HashMap, not Vec
+            self.current_scene.materials.insert(usd_material.prim_path.clone(), material);
+        }
+        
+        println!("Converted USD scene: {} geometries, {} lights, {} materials",
+                 self.current_scene.geometries.len(),
+                 self.current_scene.lights.len(),
+                 self.current_scene.materials.len());
     }
     
     pub fn create_mock_scene(&mut self, stage_id: &str) {
