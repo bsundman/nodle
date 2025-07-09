@@ -5,9 +5,152 @@ use crate::nodes::interface::{NodeData, ParameterChange, PanelType};
 use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory};
 use egui::Ui;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
 use nodle_plugin_sdk::viewport::*;
 use super::logic::USDViewportLogic;
 use super::usd_rendering::USDRenderer;
+
+/// Cache for USD renderers to avoid reloading stages every frame
+struct USDRendererCache {
+    renderers: HashMap<String, (USDRenderer, ViewportData)>,
+}
+
+impl USDRendererCache {
+    fn new() -> Self {
+        Self {
+            renderers: HashMap::new(),
+        }
+    }
+    
+    fn get_or_load(&mut self, stage_path: &str) -> &ViewportData {
+        if !self.renderers.contains_key(stage_path) {
+            println!("📦 Cache miss: Loading USD stage '{}'", stage_path);
+            
+            // Create and load USD renderer
+            let mut usd_renderer = USDRenderer::new();
+            if let Err(e) = usd_renderer.load_stage(stage_path) {
+                println!("Failed to load USD stage: {}", e);
+            }
+            
+            // Convert to viewport data
+            let viewport_data = Self::convert_to_viewport_data(&usd_renderer, stage_path);
+            
+            self.renderers.insert(stage_path.to_string(), (usd_renderer, viewport_data));
+        } else {
+            println!("✅ Cache hit: Using cached USD stage '{}'", stage_path);
+        }
+        
+        &self.renderers.get(stage_path).unwrap().1
+    }
+    
+    fn convert_to_viewport_data(usd_renderer: &USDRenderer, stage_path: &str) -> ViewportData {
+        // Convert USD scene to SDK ViewportData format
+        let mut scene = SceneData::default();
+        scene.name = format!("USD Stage: {}", stage_path);
+        
+        // Set up proper camera with default position
+        scene.camera = CameraData {
+            position: [5.0, 5.0, 5.0],
+            target: [0.0, 0.0, 0.0],
+            up: [0.0, 1.0, 0.0],
+            fov: 45.0_f32.to_radians(),
+            near: 0.1,
+            far: 100.0,
+            aspect: 800.0 / 600.0,
+        };
+        
+        // Convert USD geometries to SDK mesh format
+        for usd_geometry in &usd_renderer.current_scene.geometries {
+            let mesh_data = MeshData {
+                id: usd_geometry.prim_path.clone(),
+                vertices: usd_geometry.vertices.iter().flat_map(|v| v.position.iter().cloned()).collect(),
+                normals: usd_geometry.vertices.iter().flat_map(|v| v.normal.iter().cloned()).collect(),
+                uvs: usd_geometry.vertices.iter().flat_map(|v| v.uv.iter().cloned()).collect(),
+                indices: usd_geometry.indices.clone(),
+                material_id: usd_geometry.material_path.clone(),
+                transform: [
+                    [usd_geometry.transform.x_axis.x, usd_geometry.transform.x_axis.y, usd_geometry.transform.x_axis.z, usd_geometry.transform.x_axis.w],
+                    [usd_geometry.transform.y_axis.x, usd_geometry.transform.y_axis.y, usd_geometry.transform.y_axis.z, usd_geometry.transform.y_axis.w],
+                    [usd_geometry.transform.z_axis.x, usd_geometry.transform.z_axis.y, usd_geometry.transform.z_axis.z, usd_geometry.transform.z_axis.w],
+                    [usd_geometry.transform.w_axis.x, usd_geometry.transform.w_axis.y, usd_geometry.transform.w_axis.z, usd_geometry.transform.w_axis.w],
+                ],
+            };
+            scene.meshes.push(mesh_data);
+        }
+        
+        // Convert USD materials to SDK format
+        for (material_id, usd_material) in &usd_renderer.current_scene.materials {
+            let material_data = MaterialData {
+                id: material_id.clone(),
+                name: usd_material.prim_path.clone(),
+                base_color: [usd_material.diffuse_color.x, usd_material.diffuse_color.y, usd_material.diffuse_color.z, usd_material.opacity],
+                metallic: usd_material.metallic,
+                roughness: usd_material.roughness,
+                emission: [usd_material.emission_color.x, usd_material.emission_color.y, usd_material.emission_color.z],
+                diffuse_texture: None,
+                normal_texture: None,
+                roughness_texture: None,
+                metallic_texture: None,
+            };
+            scene.materials.push(material_data);
+        }
+        
+        // Convert USD lights to SDK format
+        for usd_light in &usd_renderer.current_scene.lights {
+            let light_data = LightData {
+                id: usd_light.prim_path.clone(),
+                light_type: match usd_light.light_type.as_str() {
+                    "distant" => LightType::Directional,
+                    "sphere" => LightType::Point,
+                    _ => LightType::Directional,
+                },
+                position: [
+                    usd_light.transform.w_axis.x,
+                    usd_light.transform.w_axis.y,
+                    usd_light.transform.w_axis.z
+                ],
+                direction: [
+                    -usd_light.transform.z_axis.x,
+                    -usd_light.transform.z_axis.y,
+                    -usd_light.transform.z_axis.z
+                ],
+                color: [usd_light.color.x, usd_light.color.y, usd_light.color.z],
+                intensity: usd_light.intensity,
+                range: 100.0,
+                spot_angle: 0.0,
+            };
+            scene.lights.push(light_data);
+        }
+        
+        // Set scene bounding box based on geometry
+        if !scene.meshes.is_empty() {
+            scene.bounding_box = Some(([-5.0, -5.0, -5.0], [5.0, 5.0, 5.0]));
+        }
+        
+        // Create viewport data with default settings
+        ViewportData {
+            scene,
+            dimensions: (800, 600),
+            scene_dirty: true,
+            settings: ViewportSettings {
+                background_color: [0.2, 0.2, 0.2, 1.0],
+                wireframe: false,
+                lighting: true,
+                show_grid: true,
+                show_ground_plane: false,
+                aa_samples: 4,
+                shading_mode: ShadingMode::Smooth,
+            },
+            settings_dirty: false,
+        }
+    }
+}
+
+// Global cache for USD renderers
+static USD_RENDERER_CACHE: Lazy<Arc<Mutex<USDRendererCache>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(USDRendererCache::new()))
+});
 
 /// Core viewport instance that holds state and provides 3D rendering
 #[derive(Debug)]
@@ -487,137 +630,42 @@ impl ViewportNode {
         outputs
     }
     
-    /// Get viewport data for 3D rendering - ALWAYS provides data for rendering
+    /// Get viewport data for 3D rendering - uses cached data when possible
     /// This is called by the viewport panel system to get scene data
     pub fn get_viewport_data(node: &Node) -> Option<ViewportData> {
         println!("🔍 ViewportNode::get_viewport_data called");
         
-        // Always provide viewport data with a test scene 
-        // This ensures the 3D viewport is always rendered
+        // Get the current stage path from node parameters
         let current_stage = node.parameters.get("current_stage")
             .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
-            .unwrap_or_else(|| "default_scene".to_string()); // Always have a stage
+            .unwrap_or_else(|| "./Kitchen_set.usd".to_string());
         
-        println!("🔍 Creating viewport data for stage: '{}'", current_stage);
+        // Use the cached renderer if available
+        let mut cache = USD_RENDERER_CACHE.lock().unwrap();
+        let cached_viewport_data = cache.get_or_load(&current_stage);
         
-        // Create a USD renderer instance to generate proper scene data
-        let mut usd_renderer = USDRenderer::new();
-        if let Err(e) = usd_renderer.load_stage(&current_stage) {
-            println!("Failed to load USD stage, using fallback: {}", e);
-        }
+        // Clone the viewport data but update settings from node parameters
+        let mut viewport_data = cached_viewport_data.clone();
         
-        // Convert USD scene to SDK ViewportData format
-        let mut scene = SceneData::default();
-        scene.name = format!("USD Stage: {}", current_stage);
-        
-        // Set up proper camera with default position
-        scene.camera = CameraData {
-            position: [5.0, 5.0, 5.0],
-            target: [0.0, 0.0, 0.0],
-            up: [0.0, 1.0, 0.0],
-            fov: 45.0_f32.to_radians(),
-            near: 0.1,
-            far: 100.0,
-            aspect: 800.0 / 600.0,
-        };
-        
-        // Convert USD geometries to SDK mesh format
-        for usd_geometry in &usd_renderer.current_scene.geometries {
-            let mesh_data = MeshData {
-                id: usd_geometry.prim_path.clone(),
-                vertices: usd_geometry.vertices.iter().flat_map(|v| v.position.iter().cloned()).collect(),
-                normals: usd_geometry.vertices.iter().flat_map(|v| v.normal.iter().cloned()).collect(),
-                uvs: usd_geometry.vertices.iter().flat_map(|v| v.uv.iter().cloned()).collect(),
-                indices: usd_geometry.indices.clone(),
-                material_id: usd_geometry.material_path.clone(),
-                transform: [
-                    [usd_geometry.transform.x_axis.x, usd_geometry.transform.x_axis.y, usd_geometry.transform.x_axis.z, usd_geometry.transform.x_axis.w],
-                    [usd_geometry.transform.y_axis.x, usd_geometry.transform.y_axis.y, usd_geometry.transform.y_axis.z, usd_geometry.transform.y_axis.w],
-                    [usd_geometry.transform.z_axis.x, usd_geometry.transform.z_axis.y, usd_geometry.transform.z_axis.z, usd_geometry.transform.z_axis.w],
-                    [usd_geometry.transform.w_axis.x, usd_geometry.transform.w_axis.y, usd_geometry.transform.w_axis.z, usd_geometry.transform.w_axis.w],
-                ],
-            };
-            scene.meshes.push(mesh_data);
-        }
-        
-        // Convert USD materials to SDK format
-        for (material_id, usd_material) in &usd_renderer.current_scene.materials {
-            let material_data = MaterialData {
-                id: material_id.clone(),
-                name: usd_material.prim_path.clone(),
-                base_color: [usd_material.diffuse_color.x, usd_material.diffuse_color.y, usd_material.diffuse_color.z, usd_material.opacity],
-                metallic: usd_material.metallic,
-                roughness: usd_material.roughness,
-                emission: [usd_material.emission_color.x, usd_material.emission_color.y, usd_material.emission_color.z],
-                diffuse_texture: None,
-                normal_texture: None,
-                roughness_texture: None,
-                metallic_texture: None,
-            };
-            scene.materials.push(material_data);
-        }
-        
-        // Convert USD lights to SDK format
-        for usd_light in &usd_renderer.current_scene.lights {
-            let light_data = LightData {
-                id: usd_light.prim_path.clone(),
-                light_type: match usd_light.light_type.as_str() {
-                    "distant" => LightType::Directional,
-                    "sphere" => LightType::Point,
-                    _ => LightType::Directional,
-                },
-                position: [
-                    usd_light.transform.w_axis.x,
-                    usd_light.transform.w_axis.y,
-                    usd_light.transform.w_axis.z
-                ],
-                direction: [
-                    -usd_light.transform.z_axis.x,
-                    -usd_light.transform.z_axis.y,
-                    -usd_light.transform.z_axis.z
-                ],
-                color: [usd_light.color.x, usd_light.color.y, usd_light.color.z],
-                intensity: usd_light.intensity,
-                range: 100.0,
-                spot_angle: 0.0,
-            };
-            scene.lights.push(light_data);
-        }
-        
-        // Set scene bounding box based on geometry
-        if !scene.meshes.is_empty() {
-            scene.bounding_box = Some(([-5.0, -5.0, -5.0], [5.0, 5.0, 5.0]));
-        }
-        
-        // Create viewport data with settings from node parameters
-        let viewport_data = ViewportData {
-            scene,
-            dimensions: (800, 600), // Default viewport size
-            scene_dirty: true,
-            settings: ViewportSettings {
-                background_color: [0.2, 0.2, 0.2, 1.0],
-                wireframe: node.parameters.get("wireframe")
-                    .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                    .unwrap_or(false),
-                lighting: node.parameters.get("lighting")
-                    .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                    .unwrap_or(true),
-                show_grid: node.parameters.get("show_grid")
-                    .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                    .unwrap_or(true),
-                show_ground_plane: node.parameters.get("show_ground_plane")
-                    .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                    .unwrap_or(false),
-                aa_samples: 4,
-                shading_mode: ShadingMode::Smooth,
-            },
-            settings_dirty: false,
-        };
+        // Update viewport settings from node parameters
+        viewport_data.settings.wireframe = node.parameters.get("wireframe")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(false);
+        viewport_data.settings.lighting = node.parameters.get("lighting")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(true);
+        viewport_data.settings.show_grid = node.parameters.get("show_grid")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(true);
+        viewport_data.settings.show_ground_plane = node.parameters.get("show_ground_plane")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(false);
         
         println!("🔍 Returning viewport data with {} meshes, {} materials, {} lights", 
                  viewport_data.scene.meshes.len(),
                  viewport_data.scene.materials.len(),
                  viewport_data.scene.lights.len());
+        
         Some(viewport_data)
     }
 }
