@@ -35,6 +35,19 @@ impl ViewportRenderCallback {
     
     /// Update the viewport data from plugins
     pub fn update_viewport_data(&mut self, data: ViewportData) {
+        // Extract scene size from viewport data for adaptive sensitivity
+        let scene_size = if let Some(bounding_box) = &data.scene.bounding_box {
+            let min = glam::Vec3::new(bounding_box.0[0], bounding_box.0[1], bounding_box.0[2]);
+            let max = glam::Vec3::new(bounding_box.1[0], bounding_box.1[1], bounding_box.1[2]);
+            let size = max - min;
+            size.x.max(size.y).max(size.z)
+        } else {
+            10.0 // Default reference size
+        };
+        
+        // Update camera scene size for adaptive sensitivity
+        self.camera.set_scene_size(scene_size);
+        
         // Update camera state from viewport data to maintain persistence
         if let Some(ref viewport_data) = self.viewport_data {
             // Only update if camera has changed to avoid overwriting local manipulations

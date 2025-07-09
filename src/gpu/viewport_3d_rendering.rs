@@ -81,6 +81,12 @@ pub struct Camera3D {
     pub orbit_sensitivity: f32,
     pub pan_sensitivity: f32,
     pub zoom_sensitivity: f32,
+    
+    // Adaptive sensitivity settings
+    pub scene_size: f32,  // Size of the scene for adaptive sensitivity
+    pub base_orbit_sensitivity: f32,  // Base sensitivity values
+    pub base_pan_sensitivity: f32,
+    pub base_zoom_sensitivity: f32,
 }
 
 impl Default for Camera3D {
@@ -93,9 +99,13 @@ impl Default for Camera3D {
             near: 0.1,
             far: 100.0,
             aspect: 1.0,
-            orbit_sensitivity: 0.5,   // Increased from 0.005 to 0.5 for more responsive orbiting
-            pan_sensitivity: 1.0,     // Increased from 0.01 to 1.0 for more responsive panning
-            zoom_sensitivity: 1.0,    // Increased from 0.1 to 1.0 for more responsive zooming
+            orbit_sensitivity: 0.5,   // Will be dynamically calculated
+            pan_sensitivity: 1.0,     // Will be dynamically calculated
+            zoom_sensitivity: 1.0,    // Will be dynamically calculated
+            scene_size: 10.0,         // Default reference scene size
+            base_orbit_sensitivity: 0.5,   // Base sensitivity values
+            base_pan_sensitivity: 1.0,
+            base_zoom_sensitivity: 1.0,
         }
     }
 }
@@ -111,6 +121,35 @@ impl Camera3D {
         proj * view
     }
     
+    /// Update scene size for adaptive sensitivity
+    pub fn set_scene_size(&mut self, scene_size: f32) {
+        self.scene_size = scene_size;
+        println!("📏 Camera scene size updated to: {:.1}", scene_size);
+    }
+    
+    /// Calculate adaptive sensitivity based on scene size and camera distance
+    /// Only applies to pan and zoom - orbit sensitivity remains unchanged
+    fn calculate_adaptive_sensitivity(&self) -> (f32, f32) {
+        let distance = (self.position - self.target).length();
+        
+        // Scene scale factor (how much bigger/smaller than reference 10-unit scene)
+        let scene_scale_factor = self.scene_size / 10.0;
+        
+        // Distance factor (how far camera is relative to scene size)
+        let distance_factor = distance / self.scene_size;
+        
+        // Adaptive sensitivity calculations - only for pan and zoom
+        let pan_sensitivity = self.base_pan_sensitivity * scene_scale_factor * distance_factor;
+        let zoom_sensitivity = self.base_zoom_sensitivity * scene_scale_factor;
+        
+        println!("🎯 Adaptive sensitivity - scene_size: {:.1}, distance: {:.1}, scale_factor: {:.3}, distance_factor: {:.3}", 
+                 self.scene_size, distance, scene_scale_factor, distance_factor);
+        println!("🎯 Calculated sensitivity - pan: {:.4}, zoom: {:.4} (orbit: {:.4} unchanged)", 
+                 pan_sensitivity, zoom_sensitivity, self.orbit_sensitivity);
+        
+        (pan_sensitivity, zoom_sensitivity)
+    }
+    
     /// Maya-style orbit around target
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
         let offset = self.position - self.target;
@@ -120,7 +159,7 @@ impl Camera3D {
         let mut theta = offset.z.atan2(offset.x); // Azimuth
         let mut phi = (offset.y / radius).acos(); // Elevation
         
-        // Apply rotation
+        // Use fixed orbit sensitivity - already works well at all distances
         theta += delta_x * self.orbit_sensitivity;
         phi += delta_y * self.orbit_sensitivity;
         
@@ -143,8 +182,11 @@ impl Camera3D {
         let right = forward.cross(self.up).normalize();
         let up = right.cross(forward).normalize();
         
-        let pan_vector = right * delta_x * self.pan_sensitivity 
-                        + up * delta_y * self.pan_sensitivity;
+        // Calculate adaptive sensitivity for pan
+        let (adaptive_pan, _) = self.calculate_adaptive_sensitivity();
+        
+        let pan_vector = right * delta_x * adaptive_pan 
+                        + up * delta_y * adaptive_pan;
         
         self.position += pan_vector;
         self.target += pan_vector;
@@ -154,7 +196,11 @@ impl Camera3D {
     pub fn zoom(&mut self, delta: f32) {
         let direction = (self.target - self.position).normalize();
         let distance = (self.target - self.position).length();
-        let new_distance = (distance + delta * self.zoom_sensitivity).max(0.1);
+        
+        // Calculate adaptive sensitivity for zoom
+        let (_, adaptive_zoom) = self.calculate_adaptive_sensitivity();
+        
+        let new_distance = (distance + delta * adaptive_zoom).max(0.1);
         
         self.position = self.target - direction * new_distance;
     }
@@ -215,7 +261,7 @@ impl Camera3D {
         let mut theta = position_offset.z.atan2(position_offset.x);
         let mut phi = (position_offset.y / radius).acos();
         
-        // Apply rotation
+        // Use fixed orbit sensitivity - already works well at all distances
         theta += delta_x * self.orbit_sensitivity;
         phi += delta_y * self.orbit_sensitivity;
         
@@ -1037,6 +1083,22 @@ impl Renderer3D {
         }
     }
     
+    /// Render axis labels (X, Y, Z)
+    pub fn render_axis_labels(&self, _render_pass: &mut eframe::wgpu::RenderPass) {
+        // For now, just print debug info about the axis gizmo
+        // The gizmo is positioned at bottom-left corner (-0.85, -0.85) in screen space
+        // X-axis = Red, Y-axis = Green, Z-axis = Blue
+        // This would require text rendering implementation to show actual labels
+        static mut PRINTED: bool = false;
+        unsafe {
+            if !PRINTED {
+                println!("🎯 Axis Gizmo Active: X=Red (right), Y=Green (up), Z=Blue (forward)");
+                println!("🎯 Gizmo position: bottom-left corner of viewport");
+                PRINTED = true;
+            }
+        }
+    }
+    
     /// Set camera for rendering
     pub fn set_camera(&mut self, camera: &Camera3D) {
         self.camera = camera.clone();
@@ -1184,5 +1246,8 @@ impl Renderer3D {
         
         // Render axis gizmo
         self.render_axis_gizmo(render_pass);
+        
+        // Render axis labels
+        self.render_axis_labels(render_pass);
     }
 }

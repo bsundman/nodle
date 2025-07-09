@@ -36,5 +36,5 @@ pyo3 = { version = "0.25", features = ["auto-initialize"], optional = true }
 numpy = { version = "0.25", optional = true }
 
 [features]
-default = []
+default = ["usd"]
 usd = ["pyo3", "numpy"]

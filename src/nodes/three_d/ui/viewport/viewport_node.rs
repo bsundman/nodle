@@ -10,6 +10,7 @@ use once_cell::sync::Lazy;
 use nodle_plugin_sdk::viewport::*;
 use super::logic::USDViewportLogic;
 use super::usd_rendering::USDRenderer;
+use glam::{Mat4, Vec3};
 
 /// Cache for USD renderers to avoid reloading stages every frame
 struct USDRendererCache {
@@ -22,6 +23,32 @@ impl USDRendererCache {
             renderers: HashMap::new(),
         }
     }
+    
+    /// Calculate scene bounds from USD geometries - no transforms
+    fn calculate_scene_bounds(usd_renderer: &USDRenderer) -> Option<(Vec3, Vec3)> {
+        if usd_renderer.current_scene.geometries.is_empty() {
+            return None;
+        }
+        
+        let mut min = Vec3::splat(f32::MAX);
+        let mut max = Vec3::splat(f32::MIN);
+        
+        // Calculate bounds using raw USD coordinates - no transforms at all
+        for geometry in &usd_renderer.current_scene.geometries {
+            for vertex in &geometry.vertices {
+                // Use raw vertex position - no transforms
+                let vertex_pos: Vec3 = vertex.position.into();
+                min = min.min(vertex_pos);
+                max = max.max(vertex_pos);
+            }
+        }
+        
+        println!("📐 RAW USD Scene bounds: min={:?}, max={:?}", min, max);
+        Some((min, max))
+    }
+    
+    
+    
     
     fn get_or_load(&mut self, stage_path: &str) -> &ViewportData {
         if !self.renderers.contains_key(stage_path) {
@@ -44,24 +71,68 @@ impl USDRendererCache {
         &self.renderers.get(stage_path).unwrap().1
     }
     
+    /// Calculate optimal camera position based on scene bounds
+    fn calculate_camera_position(bounds: (Vec3, Vec3)) -> (Vec3, Vec3, f32) {
+        let (min, max) = bounds;
+        let center = (min + max) * 0.5;
+        let size = max - min;
+        let max_dimension = size.x.max(size.y).max(size.z);
+        
+        println!("📐 Scene center: {:?}, size: {:?}, max_dim: {}", center, size, max_dimension);
+        
+        // Position camera to see the whole scene
+        let camera_distance = max_dimension * 1.5;
+        let camera_position = center + Vec3::new(
+            camera_distance * 0.7,  // Slight angle
+            camera_distance * 0.7,  // Above the scene
+            camera_distance * 0.7,  // Away from scene
+        );
+        
+        // Calculate far plane based on scene size
+        let far_plane = max_dimension * 3.0; // Ensure we can see the whole scene
+        
+        println!("📷 Camera position: {:?}, target: {:?}", camera_position, center);
+        (camera_position, center, far_plane)
+    }
+
     fn convert_to_viewport_data(usd_renderer: &USDRenderer, stage_path: &str) -> ViewportData {
         // Convert USD scene to SDK ViewportData format
         let mut scene = SceneData::default();
         scene.name = format!("USD Stage: {}", stage_path);
         
-        // Set up proper camera with default position
+        // Calculate scene bounds - no transforms
+        let scene_bounds = Self::calculate_scene_bounds(usd_renderer);
+        
+        // Calculate camera position based on scene bounds
+        let (camera_position, camera_target, far_plane) = if let Some(bounds) = scene_bounds {
+            Self::calculate_camera_position(bounds)
+        } else {
+            (Vec3::new(5.0, 5.0, 5.0), Vec3::ZERO, 100.0)
+        };
+        
+        // Calculate scene size for adaptive sensitivity
+        let scene_size = if let Some(bounds) = scene_bounds {
+            let size = bounds.1 - bounds.0;
+            size.x.max(size.y).max(size.z)
+        } else {
+            10.0 // Default reference size
+        };
+        
         scene.camera = CameraData {
-            position: [5.0, 5.0, 5.0],
-            target: [0.0, 0.0, 0.0],
-            up: [0.0, 1.0, 0.0],
+            position: camera_position.into(),
+            target: camera_target.into(),
+            up: [0.0, 1.0, 0.0],  // Default Y-up viewport
             fov: 45.0_f32.to_radians(),
             near: 0.1,
-            far: 100.0,
+            far: far_plane,  // Calculated based on scene size
             aspect: 800.0 / 600.0,
         };
         
-        // Convert USD geometries to SDK mesh format
+        // Convert USD geometries to SDK mesh format - no transforms
         for usd_geometry in &usd_renderer.current_scene.geometries {
+            // Use identity transform - no scaling, no coordinate conversion
+            let final_transform = Mat4::IDENTITY;
+            
             let mesh_data = MeshData {
                 id: usd_geometry.prim_path.clone(),
                 vertices: usd_geometry.vertices.iter().flat_map(|v| v.position.iter().cloned()).collect(),
@@ -69,12 +140,7 @@ impl USDRendererCache {
                 uvs: usd_geometry.vertices.iter().flat_map(|v| v.uv.iter().cloned()).collect(),
                 indices: usd_geometry.indices.clone(),
                 material_id: usd_geometry.material_path.clone(),
-                transform: [
-                    [usd_geometry.transform.x_axis.x, usd_geometry.transform.x_axis.y, usd_geometry.transform.x_axis.z, usd_geometry.transform.x_axis.w],
-                    [usd_geometry.transform.y_axis.x, usd_geometry.transform.y_axis.y, usd_geometry.transform.y_axis.z, usd_geometry.transform.y_axis.w],
-                    [usd_geometry.transform.z_axis.x, usd_geometry.transform.z_axis.y, usd_geometry.transform.z_axis.z, usd_geometry.transform.z_axis.w],
-                    [usd_geometry.transform.w_axis.x, usd_geometry.transform.w_axis.y, usd_geometry.transform.w_axis.z, usd_geometry.transform.w_axis.w],
-                ],
+                transform: final_transform.to_cols_array_2d(),
             };
             scene.meshes.push(mesh_data);
         }
@@ -123,13 +189,18 @@ impl USDRendererCache {
             scene.lights.push(light_data);
         }
         
-        // Set scene bounding box based on geometry
+        // Set scene bounding box based on raw USD coordinates
         if !scene.meshes.is_empty() {
-            scene.bounding_box = Some(([-5.0, -5.0, -5.0], [5.0, 5.0, 5.0]));
+            if let Some(bounds) = scene_bounds {
+                // Use raw USD bounds - no transforms
+                scene.bounding_box = Some((bounds.0.into(), bounds.1.into()));
+            } else {
+                scene.bounding_box = Some(([-5.0, -5.0, -5.0], [5.0, 5.0, 5.0]));
+            }
         }
         
         // Create viewport data with default settings
-        ViewportData {
+        let mut viewport_data = ViewportData {
             scene,
             dimensions: (800, 600),
             scene_dirty: true,
@@ -143,7 +214,13 @@ impl USDRendererCache {
                 shading_mode: ShadingMode::Smooth,
             },
             settings_dirty: false,
-        }
+        };
+        
+        // Store scene size for adaptive sensitivity in scene metadata
+        // We'll use the scene name to encode the scene size for now
+        viewport_data.scene.name = format!("USD Stage: {} (size: {:.1})", stage_path, scene_size);
+        
+        viewport_data
     }
 }
 
@@ -198,6 +275,7 @@ pub struct CameraSettings {
     pub orbit_sensitivity: f32,
     pub pan_sensitivity: f32,
     pub zoom_sensitivity: f32,
+    pub scene_size: f32,  // For adaptive sensitivity calculation
 }
 
 impl Default for CameraSettings {
@@ -206,6 +284,7 @@ impl Default for CameraSettings {
             orbit_sensitivity: 0.5,
             pan_sensitivity: 1.0,
             zoom_sensitivity: 1.0,
+            scene_size: 10.0,  // Default reference size
         }
     }
 }
@@ -226,6 +305,63 @@ impl Default for ViewportNode {
 }
 
 impl ViewportNode {
+    /// Update scene size in camera settings based on current USD stage
+    pub fn update_scene_size(&mut self, node: &Node) {
+        // Get current stage
+        let current_stage = node.parameters.get("current_stage")
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "./Kitchen_set.usd".to_string());
+        
+        // Get scene size from cached data if available
+        let mut cache = USD_RENDERER_CACHE.lock().unwrap();
+        let cached_viewport_data = cache.get_or_load(&current_stage);
+        
+        // Extract scene size from scene name (encoded during creation)
+        let scene_size = if let Some(size_start) = cached_viewport_data.scene.name.rfind("(size: ") {
+            let size_part = &cached_viewport_data.scene.name[size_start + 7..];
+            if let Some(size_end) = size_part.find(')') {
+                size_part[..size_end].parse::<f32>().unwrap_or(10.0)
+            } else { 10.0 }
+        } else { 10.0 };
+        
+        // Update camera settings with scene size
+        self.camera_settings.scene_size = scene_size;
+        println!("📐 Updated scene size to: {:.1}", scene_size);
+    }
+    
+    /// Calculate adaptive sensitivity based on scene scale and camera distance
+    fn calculate_adaptive_sensitivity(
+        camera_pos: [f32; 3],
+        target_pos: [f32; 3],
+        scene_size: f32,
+        base_orbit: f32,
+        base_pan: f32,
+        base_zoom: f32,
+    ) -> (f32, f32, f32) {
+        // Calculate distance from camera to target
+        let distance = ((camera_pos[0] - target_pos[0]).powi(2) + 
+                       (camera_pos[1] - target_pos[1]).powi(2) + 
+                       (camera_pos[2] - target_pos[2]).powi(2)).sqrt();
+        
+        // Scene scale factor (how much bigger/smaller than reference 10-unit scene)
+        let scene_scale_factor = scene_size / 10.0;
+        
+        // Distance factor (how far camera is relative to scene size)
+        let distance_factor = distance / scene_size;
+        
+        // Adaptive sensitivity calculations
+        let orbit_sensitivity = base_orbit * scene_scale_factor * distance_factor;
+        let pan_sensitivity = base_pan * scene_scale_factor * distance_factor;
+        let zoom_sensitivity = base_zoom * scene_scale_factor;
+        
+        println!("🎯 Adaptive sensitivity - scene_size: {:.1}, distance: {:.1}, scale_factor: {:.3}, distance_factor: {:.3}", 
+                 scene_size, distance, scene_scale_factor, distance_factor);
+        println!("🎯 Calculated sensitivity - orbit: {:.4}, pan: {:.4}, zoom: {:.4}", 
+                 orbit_sensitivity, pan_sensitivity, zoom_sensitivity);
+        
+        (orbit_sensitivity, pan_sensitivity, zoom_sensitivity)
+    }
+
     /// Load USD stage and convert to scene data
     pub fn load_stage(&mut self, stage_path: &str) {
         println!("Core Viewport: Loading stage: {}", stage_path);
@@ -350,6 +486,16 @@ impl ViewportNode {
     pub fn handle_camera_manipulation(&mut self, manipulation: CameraManipulation) {
         let camera = &mut self.viewport_data.scene.camera;
         
+        // Calculate adaptive sensitivity based on current camera state
+        let (adaptive_orbit, adaptive_pan, adaptive_zoom) = Self::calculate_adaptive_sensitivity(
+            camera.position,
+            camera.target,
+            self.camera_settings.scene_size,
+            self.camera_settings.orbit_sensitivity,
+            self.camera_settings.pan_sensitivity,
+            self.camera_settings.zoom_sensitivity,
+        );
+        
         match manipulation {
             CameraManipulation::Orbit { delta_x, delta_y } => {
                 let radius = ((camera.position[0] - camera.target[0]).powi(2) + 
@@ -360,9 +506,9 @@ impl ViewportNode {
                 let mut theta = (camera.position[2] - camera.target[2]).atan2(camera.position[0] - camera.target[0]);
                 let mut phi = ((camera.position[1] - camera.target[1]) / radius).asin();
                 
-                // Apply orbit deltas
-                theta += delta_x * self.camera_settings.orbit_sensitivity;
-                phi += delta_y * self.camera_settings.orbit_sensitivity;
+                // Apply orbit deltas using adaptive sensitivity
+                theta += delta_x * adaptive_orbit;
+                phi += delta_y * adaptive_orbit;
                 
                 // Clamp phi to prevent gimbal lock
                 phi = phi.clamp(-std::f32::consts::PI * 0.49, std::f32::consts::PI * 0.49);
@@ -385,9 +531,9 @@ impl ViewportNode {
                     forward[0] * camera.up[1] - forward[1] * camera.up[0]
                 ];
                 
-                // Pan both position and target
-                let pan_x = delta_x * self.camera_settings.pan_sensitivity;
-                let pan_y = delta_y * self.camera_settings.pan_sensitivity;
+                // Pan both position and target using adaptive sensitivity
+                let pan_x = delta_x * adaptive_pan;
+                let pan_y = delta_y * adaptive_pan;
                 
                 for i in 0..3 {
                     camera.position[i] += right[i] * pan_x + camera.up[i] * pan_y;
@@ -401,7 +547,7 @@ impl ViewportNode {
                     camera.target[2] - camera.position[2]
                 ];
                 
-                let zoom_factor = delta * self.camera_settings.zoom_sensitivity;
+                let zoom_factor = delta * adaptive_zoom;
                 
                 for i in 0..3 {
                     camera.position[i] += direction[i] * zoom_factor;
@@ -580,6 +726,7 @@ impl ViewportNode {
         params.insert("orbit_sensitivity".to_string(), NodeData::Float(0.5));
         params.insert("pan_sensitivity".to_string(), NodeData::Float(1.0));
         params.insert("zoom_sensitivity".to_string(), NodeData::Float(1.0));
+        params.insert("scene_size".to_string(), NodeData::Float(10.0));
         params.insert("camera_reset".to_string(), NodeData::Boolean(false));
         
         // Viewport settings
@@ -647,6 +794,14 @@ impl ViewportNode {
         // Clone the viewport data but update settings from node parameters
         let mut viewport_data = cached_viewport_data.clone();
         
+        // Extract scene size from scene name (encoded during creation)
+        let scene_size = if let Some(size_start) = viewport_data.scene.name.rfind("(size: ") {
+            let size_part = &viewport_data.scene.name[size_start + 7..];
+            if let Some(size_end) = size_part.find(')') {
+                size_part[..size_end].parse::<f32>().unwrap_or(10.0)
+            } else { 10.0 }
+        } else { 10.0 };
+        
         // Update viewport settings from node parameters
         viewport_data.settings.wireframe = node.parameters.get("wireframe")
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
@@ -660,6 +815,9 @@ impl ViewportNode {
         viewport_data.settings.show_ground_plane = node.parameters.get("show_ground_plane")
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
             .unwrap_or(false);
+        
+        // Store scene size in a temporary way (we'll need to improve this later)
+        println!("📏 Scene size extracted: {:.1}", scene_size);
         
         println!("🔍 Returning viewport data with {} meshes, {} materials, {} lights", 
                  viewport_data.scene.meshes.len(),
