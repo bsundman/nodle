@@ -201,21 +201,25 @@ EOF
     run_test "USD Tf import" "$python_cmd -c 'import pxr.Tf'"
     run_test "USD Gf import" "$python_cmd -c 'import pxr.Gf'"
     
+    # Test 12: Python isolation (verify it's using embedded Python)
+    run_test "Python isolation check" "$python_cmd -c 'import sys; assert \"vendor/python-runtime\" in sys.executable or \"vendor/python-runtime\" in sys.prefix'"
+    
     echo ""
     log_info "Configuration Tests"
     
-    # Test 12: Cargo configuration exists
+    # Test 13: Cargo configuration exists
     local cargo_config="$SCRIPT_DIR/../.cargo/config.toml"
     run_test "Cargo config exists" "[ -f '$cargo_config' ]"
     
-    # Test 13: Cargo configuration has correct Python path
+    # Test 14: Cargo configuration has correct Python path
     if [ -f "$cargo_config" ]; then
         run_test "Cargo config Python path" "grep -q 'PYO3_PYTHON.*vendor/python-runtime' '$cargo_config'"
         run_test "Cargo config Python version" "grep -q 'PYO3_PYTHON_VERSION.*3.9' '$cargo_config'"
         run_test "Cargo config PYTHONPATH" "grep -q 'PYTHONPATH.*vendor/python-runtime' '$cargo_config'"
+        run_test "Cargo config PYTHONHOME" "grep -q 'PYTHONHOME.*vendor/python-runtime' '$cargo_config'"
     fi
     
-    # Test 14: gitignore configuration
+    # Test 15: gitignore configuration
     local gitignore_file="$SCRIPT_DIR/../.gitignore"
     if [ -f "$gitignore_file" ]; then
         run_test "gitignore excludes python-runtime" "grep -q 'vendor/python-runtime' '$gitignore_file'"
