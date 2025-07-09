@@ -1,16 +1,9 @@
 # Cargo configuration for embedded Python and USD
 [env]
-# Point PyO3 to our embedded Python (this overrides system Python)
+# Point PyO3 to our embedded Python
 PYO3_PYTHON = "./vendor/python-runtime/python/bin/python3"
 PYO3_PYTHON_VERSION = "3.9"
-
-# Force Python to use our embedded packages only
 PYTHONPATH = "./vendor/python-runtime/python/lib/python3.9/site-packages"
-PYTHONHOME = "./vendor/python-runtime/python"
-
-# Prevent Python from looking elsewhere for modules
-PYTHONDONTWRITEBYTECODE = "1"
-PYTHONUSERBASE = "./vendor/python-runtime/python"
 
 # USD paths
 NODLE_USD_ROOT = "./vendor/python-runtime/python"

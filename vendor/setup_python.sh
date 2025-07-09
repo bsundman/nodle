@@ -6,10 +6,7 @@
 set -e  # Exit on any error
 
 # Configuration
-# Note: 3.9.19 is source-only, 3.9.13 is last with binary installers
-PYTHON_VERSION_BINARY="3.9.13"  # Last version with official binary installers
-PYTHON_VERSION_SOURCE="3.9.19"  # Latest security release (source only)
-PYTHON_VERSION="$PYTHON_VERSION_BINARY"  # Default to binary version
+PYTHON_VERSION="3.9.23"  # Use latest available 3.9.x version
 USD_VERSION="25.5.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENDOR_DIR="$SCRIPT_DIR"
@@ -17,21 +14,34 @@ RUNTIME_DIR="$VENDOR_DIR/python-runtime"
 PYTHON_DIR="$RUNTIME_DIR/python"
 CARGO_CONFIG="$SCRIPT_DIR/../.cargo/config.toml"
 
-# Platform detection
+# Platform detection - use astral-sh standalone Python builds
 case "$(uname -s)" in
     Darwin*)
         PLATFORM="macos"
-        # macOS systems have Python - we'll use system Python + venv
+        case "$(uname -m)" in
+            arm64)
+                PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250708/cpython-${PYTHON_VERSION}+20250708-aarch64-apple-darwin-install_only.tar.gz"
+                PYTHON_ARCHIVE="cpython-${PYTHON_VERSION}+20250708-aarch64-apple-darwin-install_only.tar.gz"
+                ;;
+            x86_64)
+                PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250708/cpython-${PYTHON_VERSION}+20250708-x86_64-apple-darwin-install_only.tar.gz"
+                PYTHON_ARCHIVE="cpython-${PYTHON_VERSION}+20250708-x86_64-apple-darwin-install_only.tar.gz"
+                ;;
+            *)
+                echo "❌ Unsupported macOS architecture: $(uname -m)"
+                exit 1
+                ;;
+        esac
         ;;
     Linux*)
         PLATFORM="linux"
-        # Linux systems have Python - we'll use system Python + venv
+        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250708/cpython-${PYTHON_VERSION}+20250708-x86_64-unknown-linux-gnu-install_only.tar.gz"
+        PYTHON_ARCHIVE="cpython-${PYTHON_VERSION}+20250708-x86_64-unknown-linux-gnu-install_only.tar.gz"
         ;;
     CYGWIN*|MINGW32*|MSYS*|MINGW*)
         PLATFORM="windows"
-        # Windows often doesn't have Python - download embeddable package
-        PYTHON_URL="https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-embed-amd64.zip"
-        PYTHON_ARCHIVE="python-${PYTHON_VERSION}-embed-amd64.zip"
+        PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250708/cpython-${PYTHON_VERSION}+20250708-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
+        PYTHON_ARCHIVE="cpython-${PYTHON_VERSION}+20250708-x86_64-pc-windows-msvc-shared-install_only.tar.gz"
         ;;
     *)
         echo "❌ Unsupported platform: $(uname -s)"
@@ -101,53 +111,48 @@ download_file() {
     fi
 }
 
-# Create Python virtual environment using system Python (macOS/Linux)
-create_python_venv() {
-    log_info "Creating Python virtual environment using system Python..."
+# Install standalone Python for all platforms
+install_standalone_python() {
+    local temp_dir="$1"
+    local archive_path="$temp_dir/$PYTHON_ARCHIVE"
     
-    # Try different Python commands
-    local python_cmd=""
-    for cmd in python3.9 python3 python; do
-        if command -v "$cmd" >/dev/null 2>&1; then
-            local version
-            version=$("$cmd" --version 2>&1 | grep -o "3\.[0-9]\+")
-            if [[ "$version" == "3.9" ]] || [[ "$version" > "3.9" ]]; then
-                python_cmd="$cmd"
-                break
-            fi
-        fi
-    done
+    log_info "Installing standalone Python..."
     
-    if [ -z "$python_cmd" ]; then
-        log_error "No suitable Python 3.9+ found on system"
-        log_info "Please install Python 3.9+ first:"
-        case "$PLATFORM" in
-            macos)
-                log_info "  Install with: brew install python@3.9"
-                log_info "  Or download from: https://www.python.org/downloads/macos/"
-                ;;
-            linux)
-                log_info "  Ubuntu/Debian: sudo apt install python3.9 python3.9-venv"
-                log_info "  RHEL/CentOS: sudo yum install python39 python39-pip"
-                log_info "  Or download from: https://www.python.org/downloads/source/"
-                ;;
-        esac
-        return 1
-    fi
+    # Download Python archive
+    download_file "$PYTHON_URL" "$archive_path"
     
-    log_info "Using system Python: $python_cmd ($($python_cmd --version))"
-    
-    # Create virtual environment
+    # Extract Python
+    log_info "Extracting Python..."
     mkdir -p "$RUNTIME_DIR"
-    "$python_cmd" -m venv "$PYTHON_DIR"
+    cd "$RUNTIME_DIR"
+    tar -xzf "$archive_path"
     
-    # Verify virtual environment
-    if [ ! -f "$PYTHON_DIR/bin/python3" ]; then
-        log_error "Failed to create virtual environment"
+    # The archive extracts to 'python' directory
+    if [ ! -d "python" ]; then
+        log_error "Python directory not found after extraction"
         return 1
     fi
     
-    log_success "Virtual environment created"
+    # Verify Python executable exists
+    local python_exe=""
+    if [ -f "python/bin/python3" ]; then
+        python_exe="python/bin/python3"
+    elif [ -f "python/bin/python3.9" ]; then
+        python_exe="python/bin/python3.9"
+    elif [ -f "python/python.exe" ]; then
+        python_exe="python/python.exe"
+    else
+        log_error "Python executable not found in expected locations"
+        return 1
+    fi
+    
+    # Test Python installation
+    if ! "$python_exe" --version >/dev/null 2>&1; then
+        log_error "Python installation test failed"
+        return 1
+    fi
+    
+    log_success "Standalone Python installed successfully"
     return 0
 }
 
@@ -337,12 +342,12 @@ OPTIONS:
 
 DESCRIPTION:
     This script sets up Python ${PYTHON_VERSION} with USD ${USD_VERSION}
-    for the Nōdle project with minimal system requirements.
+    for the Nōdle project using embedded Python for all platforms.
     
     Platform support:
-    - macOS: Uses system Python + virtual environment
-    - Linux: Uses system Python + virtual environment  
-    - Windows: Downloads embedded Python distribution
+    - macOS: Downloads standalone Python build (ARM64/x86_64)
+    - Linux: Downloads standalone Python build (x86_64)
+    - Windows: Downloads standalone Python build (x86_64)
 
 EXAMPLES:
     ./setup_python.sh         # Install Python runtime
@@ -419,22 +424,11 @@ EOF
     temp_dir=$(mktemp -d)
     log_info "Using temporary directory: $temp_dir"
     
-    # Install Python based on platform
-    case "$PLATFORM" in
-        macos|linux)
-            # Use system Python + virtual environment
-            if ! create_python_venv; then
-                log_error "Failed to create Python environment"
-                exit 1
-            fi
-            ;;
-        windows)
-            # Download and install embeddable Python
-            install_python_windows "$temp_dir"
-            # Cleanup temporary directory
-            rm -rf "$temp_dir"
-            ;;
-    esac
+    # Install standalone Python for all platforms
+    install_standalone_python "$temp_dir"
+    
+    # Cleanup temporary directory
+    rm -rf "$temp_dir"
     
     # Install packages
     install_packages
