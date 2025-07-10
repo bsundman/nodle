@@ -12,6 +12,11 @@ use super::logic::USDViewportLogic;
 use super::usd_rendering::USDRenderer;
 use glam::{Mat4, Vec3};
 
+/// Global cache for viewport input data to bridge process_node and get_viewport_data
+static VIEWPORT_INPUT_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, crate::workspaces::three_d::usd::usd_engine::USDSceneData>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
 /// Cache for USD renderers to avoid reloading stages every frame
 struct USDRendererCache {
     renderers: HashMap<String, (USDRenderer, ViewportData)>,
@@ -291,12 +296,11 @@ impl Default for CameraSettings {
 
 impl Default for ViewportNode {
     fn default() -> Self {
-        let mut viewport_logic = USDViewportLogic::default();
-        // Load test stage immediately to show something
-        viewport_logic.load_test_stage();
+        let viewport_logic = USDViewportLogic::default();
+        // Don't load any test stage - wait for input connection
         
         Self {
-            current_stage: "./Kitchen_set.usd".to_string(),
+            current_stage: "".to_string(), // No default stage
             viewport_data: ViewportData::default(),
             camera_settings: CameraSettings::default(),
             viewport_logic,
@@ -307,10 +311,16 @@ impl Default for ViewportNode {
 impl ViewportNode {
     /// Update scene size in camera settings based on current USD stage
     pub fn update_scene_size(&mut self, node: &Node) {
-        // Get current stage
+        // Get current stage - only use if explicitly set
         let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
-            .unwrap_or_else(|| "./Kitchen_set.usd".to_string());
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None });
+        
+        // If no stage is set, don't load anything
+        if current_stage.is_none() || current_stage.as_ref().unwrap().is_empty() {
+            return;
+        }
+        
+        let current_stage = current_stage.unwrap();
         
         // Get scene size from cached data if available
         let mut cache = USD_RENDERER_CACHE.lock().unwrap();
@@ -957,8 +967,8 @@ impl ViewportNode {
     pub fn initialize_parameters() -> HashMap<String, NodeData> {
         let mut params = HashMap::new();
         
-        // USD stage parameters - start with a default stage to show something
-        params.insert("current_stage".to_string(), NodeData::String("./Kitchen_set.usd".to_string()));
+        // USD stage parameters - no default stage, wait for input connection
+        params.insert("current_stage".to_string(), NodeData::String("".to_string()));
         params.insert("stage_loaded".to_string(), NodeData::Boolean(true));
         params.insert("stage_dirty".to_string(), NodeData::Boolean(true));
         
@@ -984,34 +994,61 @@ impl ViewportNode {
     
     /// Process the viewport node's logic (called during graph execution)
     pub fn process_node(node: &Node, inputs: &[NodeData]) -> Vec<NodeData> {
+        println!("🎬 ViewportNode::process_node called for node '{}' with {} inputs", node.title, inputs.len());
         let mut outputs = Vec::new();
         
-        // Get current stage
-        let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
-            .unwrap_or_default();
-        
-        // Process stage input if provided via connections
+        // Check for USDSceneData input (first priority)
+        let mut usd_scene_input = None;
         let mut stage_from_input = None;
-        for input in inputs {
-            if let NodeData::String(stage_path) = input {
+        
+        // Process inputs in order: USD Scene, Stage, Camera
+        if inputs.len() > 0 {
+            if let NodeData::USDSceneData(usd_scene_data) = &inputs[0] {
+                usd_scene_input = Some(usd_scene_data.clone());
+                println!("🎬 Viewport: Received USDSceneData input with {} meshes, {} lights, {} materials",
+                         usd_scene_data.meshes.len(), 
+                         usd_scene_data.lights.len(), 
+                         usd_scene_data.materials.len());
+            }
+        }
+        
+        if inputs.len() > 1 {
+            if let NodeData::String(stage_path) = &inputs[1] {
                 if !stage_path.is_empty() {
                     stage_from_input = Some(stage_path.clone());
-                    break;
                 }
             }
         }
         
-        // Use input stage if provided, otherwise use current parameter
-        let active_stage = stage_from_input.unwrap_or(current_stage.clone());
+        // Get current stage from parameters as fallback
+        let current_stage = node.parameters.get("current_stage")
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_default();
         
-        // Return appropriate output
-        if !active_stage.is_empty() {
-            outputs.push(NodeData::String(format!("USD Viewport: {}", active_stage)));
-            outputs.push(NodeData::Boolean(true)); // Stage loaded indicator
+        // Determine active data source and prepare outputs
+        if let Some(usd_scene_data) = usd_scene_input {
+            // Store the USDSceneData in the global cache for get_viewport_data to access
+            if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
+                cache.insert(node.id, usd_scene_data.clone());
+                println!("🎬 Viewport: Cached USDSceneData for node {} with {} meshes", node.id, usd_scene_data.meshes.len());
+            }
+            
+            outputs.push(NodeData::String(format!("USD Viewport: {} (from input)", usd_scene_data.stage_path)));
+            outputs.push(NodeData::Boolean(true)); // Scene loaded indicator
+            
+            println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path);
         } else {
-            outputs.push(NodeData::String("No USD stage loaded".to_string()));
-            outputs.push(NodeData::Boolean(false)); // No stage loaded
+            // Fall back to stage path (input or parameter)
+            let active_stage = stage_from_input.unwrap_or(current_stage.clone());
+            
+            if !active_stage.is_empty() {
+                outputs.push(NodeData::String(format!("USD Viewport: {}", active_stage)));
+                outputs.push(NodeData::Boolean(true)); // Stage loaded indicator
+                println!("🎬 Viewport: Using file path: {}", active_stage);
+            } else {
+                outputs.push(NodeData::String("No USD stage loaded".to_string()));
+                outputs.push(NodeData::Boolean(false)); // No stage loaded
+            }
         }
         
         outputs
@@ -1022,27 +1059,157 @@ impl ViewportNode {
     pub fn get_viewport_data(node: &Node) -> Option<ViewportData> {
         println!("🔍 ViewportNode::get_viewport_data called");
         
-        // Get the current stage path from node parameters
+        // First check if we have input USDSceneData cached
+        if let Ok(input_cache) = VIEWPORT_INPUT_CACHE.lock() {
+            if let Some(usd_scene_data) = input_cache.get(&node.id) {
+                println!("🎬 Using cached USDSceneData input with {} meshes", usd_scene_data.meshes.len());
+                return Some(Self::convert_usd_scene_to_viewport_data(usd_scene_data, node));
+            }
+        }
+        
+        // Check if we have a stage path from parameters (user explicitly set a file)
         let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
-            .unwrap_or_else(|| "./Kitchen_set.usd".to_string());
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None });
         
-        // Use the cached renderer if available
-        let mut cache = USD_RENDERER_CACHE.lock().unwrap();
-        let cached_viewport_data = cache.get_or_load(&current_stage);
+        // Only fall back to file loading if user has explicitly set a stage path
+        if let Some(stage_path) = current_stage {
+            if !stage_path.is_empty() {
+                println!("🎬 Loading USD file from parameter: {}", stage_path);
+                // Use the cached renderer if available
+                let mut cache = USD_RENDERER_CACHE.lock().unwrap();
+                let cached_viewport_data = cache.get_or_load(&stage_path);
+                
+                // Clone the viewport data but update settings from node parameters
+                let mut viewport_data = cached_viewport_data.clone();
+                
+                // Apply parameter settings and return
+                Self::apply_viewport_settings(&mut viewport_data, node);
+                return Some(viewport_data);
+            }
+        }
         
-        // Clone the viewport data but update settings from node parameters
-        let mut viewport_data = cached_viewport_data.clone();
+        // No input data and no file parameter - return empty scene
+        println!("🎬 No USD input data or file parameter - showing empty viewport");
+        Some(Self::create_empty_viewport_data(node))
+    }
+    
+    /// Convert USDSceneData to ViewportData for rendering
+    fn convert_usd_scene_to_viewport_data(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData, node: &Node) -> ViewportData {
+        let mut scene = SceneData::default();
+        scene.name = format!("USD Scene: {}", usd_scene_data.stage_path);
         
-        // Extract scene size from scene name (encoded during creation)
-        let scene_size = if let Some(size_start) = viewport_data.scene.name.rfind("(size: ") {
-            let size_part = &viewport_data.scene.name[size_start + 7..];
-            if let Some(size_end) = size_part.find(')') {
-                size_part[..size_end].parse::<f32>().unwrap_or(10.0)
-            } else { 10.0 }
-        } else { 10.0 };
+        // Convert USD meshes to viewport meshes
+        for (mesh_idx, usd_mesh) in usd_scene_data.meshes.iter().enumerate() {
+            // Convert Vec<Vec3> to Vec<f32> (flatten)
+            let vertices: Vec<f32> = usd_mesh.vertices.iter()
+                .flat_map(|v| [v.x, v.y, v.z])
+                .collect();
+            
+            let normals: Vec<f32> = usd_mesh.normals.iter()
+                .flat_map(|n| [n.x, n.y, n.z])
+                .collect();
+            
+            let uvs: Vec<f32> = usd_mesh.uvs.iter()
+                .flat_map(|uv| [uv.x, uv.y])
+                .collect();
+            
+            let mesh = MeshData {
+                id: format!("mesh_{}", mesh_idx),
+                vertices,
+                normals,
+                uvs,
+                indices: usd_mesh.indices.clone(),
+                material_id: None, // USD mesh doesn't have material_id in this structure
+                transform: [
+                    [usd_mesh.transform.x_axis.x, usd_mesh.transform.x_axis.y, usd_mesh.transform.x_axis.z, usd_mesh.transform.x_axis.w],
+                    [usd_mesh.transform.y_axis.x, usd_mesh.transform.y_axis.y, usd_mesh.transform.y_axis.z, usd_mesh.transform.y_axis.w],
+                    [usd_mesh.transform.z_axis.x, usd_mesh.transform.z_axis.y, usd_mesh.transform.z_axis.z, usd_mesh.transform.z_axis.w],
+                    [usd_mesh.transform.w_axis.x, usd_mesh.transform.w_axis.y, usd_mesh.transform.w_axis.z, usd_mesh.transform.w_axis.w],
+                ],
+            };
+            scene.meshes.push(mesh);
+        }
         
-        // Update viewport settings from node parameters
+        // Convert USD materials to viewport materials
+        for (mat_idx, usd_material) in usd_scene_data.materials.iter().enumerate() {
+            let material = MaterialData {
+                id: format!("material_{}", mat_idx),
+                name: format!("USD Material: {}", usd_material.prim_path),
+                base_color: [usd_material.diffuse_color.x, usd_material.diffuse_color.y, usd_material.diffuse_color.z, 1.0],
+                metallic: usd_material.metallic,
+                roughness: usd_material.roughness,
+                emission: [0.0, 0.0, 0.0], // USD doesn't have emission in this format
+                diffuse_texture: None,
+                normal_texture: None,
+                roughness_texture: None,
+                metallic_texture: None,
+            };
+            scene.materials.push(material);
+        }
+        
+        // Convert USD lights to viewport lights
+        for (light_idx, usd_light) in usd_scene_data.lights.iter().enumerate() {
+            let light = LightData {
+                id: format!("light_{}", light_idx),
+                light_type: LightType::Directional,
+                position: [usd_light.transform.w_axis.x, usd_light.transform.w_axis.y, usd_light.transform.w_axis.z],
+                direction: [-usd_light.transform.z_axis.x, -usd_light.transform.z_axis.y, -usd_light.transform.z_axis.z],
+                color: [usd_light.color.x, usd_light.color.y, usd_light.color.z],
+                intensity: usd_light.intensity,
+                range: 100.0,
+                spot_angle: 0.0,
+            };
+            scene.lights.push(light);
+        }
+        
+        // Calculate scene bounds from vertices
+        let mut min_pos = [f32::MAX; 3];
+        let mut max_pos = [f32::MIN; 3];
+        let mut has_bounds = false;
+        
+        for mesh in &scene.meshes {
+            // vertices is Vec<f32> with x,y,z,x,y,z... format
+            for vertex_chunk in mesh.vertices.chunks(3) {
+                if vertex_chunk.len() == 3 {
+                    for i in 0..3 {
+                        min_pos[i] = min_pos[i].min(vertex_chunk[i]);
+                        max_pos[i] = max_pos[i].max(vertex_chunk[i]);
+                    }
+                    has_bounds = true;
+                }
+            }
+        }
+        
+        if has_bounds {
+            scene.bounding_box = Some((min_pos, max_pos));
+        } else {
+            scene.bounding_box = Some(([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]));
+        }
+        
+        // Create viewport data with settings from node parameters
+        let mut viewport_data = ViewportData {
+            scene,
+            dimensions: (800, 600),
+            scene_dirty: true,
+            settings: ViewportSettings {
+                background_color: [0.2, 0.2, 0.2, 1.0],
+                wireframe: false,
+                lighting: true,
+                show_grid: true,
+                show_ground_plane: false,
+                aa_samples: 4,
+                shading_mode: ShadingMode::Smooth,
+            },
+            settings_dirty: false,
+        };
+        
+        // Apply settings from node parameters
+        Self::apply_viewport_settings(&mut viewport_data, node);
+        viewport_data
+    }
+    
+    /// Apply viewport settings from node parameters to viewport data
+    fn apply_viewport_settings(viewport_data: &mut ViewportData, node: &Node) {
         viewport_data.settings.wireframe = node.parameters.get("wireframe")
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
             .unwrap_or(false);
@@ -1055,16 +1222,36 @@ impl ViewportNode {
         viewport_data.settings.show_ground_plane = node.parameters.get("show_ground_plane")
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
             .unwrap_or(false);
+    }
+    
+    /// Create empty viewport data when no input is available
+    fn create_empty_viewport_data(node: &Node) -> ViewportData {
+        let mut scene = SceneData::default();
+        scene.name = "Empty Viewport - Connect USD File Reader".to_string();
         
-        // Store scene size in a temporary way (we'll need to improve this later)
-        println!("📏 Scene size extracted: {:.1}", scene_size);
+        // Add a simple text mesh to indicate no data
+        // For now, we'll just return an empty scene
+        scene.bounding_box = Some(([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]));
         
-        println!("🔍 Returning viewport data with {} meshes, {} materials, {} lights", 
-                 viewport_data.scene.meshes.len(),
-                 viewport_data.scene.materials.len(),
-                 viewport_data.scene.lights.len());
+        let mut viewport_data = ViewportData {
+            scene,
+            dimensions: (800, 600),
+            scene_dirty: true,
+            settings: ViewportSettings {
+                background_color: [0.1, 0.1, 0.1, 1.0], // Darker background for empty state
+                wireframe: false,
+                lighting: true,
+                show_grid: true,
+                show_ground_plane: false,
+                aa_samples: 4,
+                shading_mode: ShadingMode::Smooth,
+            },
+            settings_dirty: false,
+        };
         
-        Some(viewport_data)
+        // Apply any settings from node parameters
+        Self::apply_viewport_settings(&mut viewport_data, node);
+        viewport_data
     }
 }
 
@@ -1079,8 +1266,10 @@ impl NodeFactory for ViewportNode {
         .with_color(egui::Color32::from_rgb(100, 200, 100))
         .with_icon("🎥")
         .with_inputs(vec![
+            crate::nodes::PortDefinition::optional("USD Scene", crate::nodes::DataType::Any)
+                .with_description("USD scene data from USD File Reader"),
             crate::nodes::PortDefinition::optional("Stage", crate::nodes::DataType::String)
-                .with_description("USD Stage to visualize"),
+                .with_description("USD Stage file path (fallback)"),
             crate::nodes::PortDefinition::optional("Camera", crate::nodes::DataType::String)
                 .with_description("Camera prim for viewport (optional)"),
         ])

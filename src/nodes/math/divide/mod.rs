@@ -5,7 +5,7 @@
 //! - logic.rs: Core computation logic
 //! - parameters.rs: Pattern A interface with build_interface method
 
-mod functions;
+pub mod functions;
 mod logic;
 pub mod parameters;
 

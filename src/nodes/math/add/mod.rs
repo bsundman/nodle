@@ -5,7 +5,7 @@
 //! - functions.rs: Core computation logic
 //! - parameters.rs: Pattern A interface with build_interface method
 
-mod functions;
+pub mod functions;
 pub mod parameters;
 
 // Re-exports removed - these were unused

@@ -148,14 +148,10 @@ impl USDViewportLogic {
         self.usd_renderer.load_stage(stage_id)
     }
     
-    /// Load test stage with sample geometry
+    /// Load test stage with sample geometry - now disabled to avoid hard-coded loading
     pub fn load_test_stage(&mut self) {
-        let stage_path = "./Kitchen_set.usd";
-        let stage_id = format!("file://{}", stage_path);
-        self.current_stage = Some(stage_id.clone());
-        if let Err(e) = self.usd_renderer.load_stage(&stage_id) {
-            eprintln!("Failed to load test stage: {}", e);
-        }
+        // No longer automatically load test stages - wait for input connections
+        println!("🎬 load_test_stage called but disabled - use USD File Reader input instead");
     }
     
     /// Set shading mode for the viewport

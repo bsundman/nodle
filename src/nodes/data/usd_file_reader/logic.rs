@@ -122,10 +122,11 @@ impl UsdFileReaderLogic {
                 // Cache the scene data for reuse
                 self.cached_scene_data = Some(usd_scene_data.clone());
                 
-                // Create filtered scene data based on user preferences
-                let scene_data = self.create_filtered_scene_data(&usd_scene_data)?;
+                // Apply user extraction filters to the full scene data
+                let filtered_scene_data = self.apply_extraction_filters(usd_scene_data)?;
                 
-                Ok(scene_data)
+                // Return the full USDSceneData directly - no more metadata conversion
+                Ok(crate::nodes::interface::NodeData::USDSceneData(filtered_scene_data))
             }
             Err(e) => {
                 eprintln!("❌ USD File Reader: Failed to load USD file: {}", e);
@@ -135,114 +136,42 @@ impl UsdFileReaderLogic {
     }
 
 
-    /// Create filtered scene data based on user extraction preferences
-    fn create_filtered_scene_data(&self, usd_scene_data: &USDSceneData) -> Result<NodeData, String> {
-        let scene_info = UsdSceneExtractedData {
-            name: format!("USD Scene: {}", 
-                Path::new(&self.file_path).file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("Unknown")),
-            source_file: self.file_path.clone(),
-            
-            // Filter data based on user preferences
-            geometries: if self.extract_geometry { 
-                usd_scene_data.meshes.iter().map(|mesh| {
-                    GeometryInfo {
-                        prim_path: mesh.prim_path.clone(),
-                        vertex_count: mesh.vertices.len(),
-                        triangle_count: mesh.indices.len() / 3,
-                        has_normals: !mesh.normals.is_empty(),
-                        has_uvs: !mesh.uvs.is_empty(),
-                    }
-                }).collect()
-            } else { 
-                vec![] 
-            },
-            
-            materials: if self.extract_materials { 
-                usd_scene_data.materials.iter().map(|mat| {
-                    MaterialInfo {
-                        prim_path: mat.prim_path.clone(),
-                        diffuse_color: [mat.diffuse_color.x, mat.diffuse_color.y, mat.diffuse_color.z],
-                        metallic: mat.metallic,
-                        roughness: mat.roughness,
-                    }
-                }).collect()
-            } else { 
-                vec![] 
-            },
-            
-            lights: if self.extract_lights { 
-                usd_scene_data.lights.iter().map(|light| {
-                    LightInfo {
-                        prim_path: light.prim_path.clone(),
-                        light_type: light.light_type.clone(),
-                        intensity: light.intensity,
-                        color: [light.color.x, light.color.y, light.color.z],
-                    }
-                }).collect()
-            } else { 
-                vec![] 
-            },
-            
-            // Cameras would be extracted here when USD engine supports them
-            cameras: if self.extract_cameras { 
-                vec![] // TODO: Extract cameras when USD engine supports them
-            } else { 
-                vec![] 
-            },
-        };
+    /// Apply user extraction filters to the full USD scene data
+    fn apply_extraction_filters(&self, mut usd_scene_data: USDSceneData) -> Result<USDSceneData, String> {
+        println!("📁 USD File Reader: Applying extraction filters - geometry: {}, materials: {}, lights: {}, cameras: {}", 
+                 self.extract_geometry, self.extract_materials, self.extract_lights, self.extract_cameras);
         
-        Ok(NodeData::String(serde_json::to_string(&scene_info).map_err(|e| e.to_string())?))
+        // Filter geometry based on user preferences
+        if !self.extract_geometry {
+            println!("📁 USD File Reader: Filtering out geometry data");
+            usd_scene_data.meshes.clear();
+        }
+        
+        // Filter materials based on user preferences  
+        if !self.extract_materials {
+            println!("📁 USD File Reader: Filtering out material data");
+            usd_scene_data.materials.clear();
+        }
+        
+        // Filter lights based on user preferences
+        if !self.extract_lights {
+            println!("📁 USD File Reader: Filtering out light data");
+            usd_scene_data.lights.clear();
+        }
+        
+        // TODO: Filter cameras when USD engine supports them
+        if !self.extract_cameras {
+            // No camera data to filter yet
+        }
+        
+        println!("✅ USD File Reader: Filtered scene data contains {} meshes, {} materials, {} lights",
+                 usd_scene_data.meshes.len(), usd_scene_data.materials.len(), usd_scene_data.lights.len());
+        
+        Ok(usd_scene_data)
     }
 }
 
 
-/// USD Scene extracted data - filtered content based on user preferences
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]  
-pub struct UsdSceneExtractedData {
-    pub name: String,
-    pub source_file: String,
-    pub geometries: Vec<GeometryInfo>,
-    pub materials: Vec<MaterialInfo>,
-    pub lights: Vec<LightInfo>,
-    pub cameras: Vec<CameraInfo>,
-}
-
-/// Geometry information extracted from USD mesh
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct GeometryInfo {
-    pub prim_path: String,
-    pub vertex_count: usize,
-    pub triangle_count: usize,
-    pub has_normals: bool,
-    pub has_uvs: bool,
-}
-
-/// Material information extracted from USD material
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MaterialInfo {
-    pub prim_path: String,
-    pub diffuse_color: [f32; 3],
-    pub metallic: f32,
-    pub roughness: f32,
-}
-
-/// Light information extracted from USD light
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LightInfo {
-    pub prim_path: String,
-    pub light_type: String,
-    pub intensity: f32,
-    pub color: [f32; 3],
-}
-
-/// Camera information extracted from USD camera  
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CameraInfo {
-    pub prim_path: String,
-    // TODO: Add camera-specific fields when USD engine supports cameras
-}
 
 impl Default for UsdFileReaderLogic {
     fn default() -> Self {

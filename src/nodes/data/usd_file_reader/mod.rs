@@ -74,4 +74,13 @@ impl UsdFileReaderNode {
     pub fn build_interface(node: &mut Node, ui: &mut Ui) -> Vec<ParameterChange> {
         parameters::UsdFileReaderParameters::build_interface(node, ui)
     }
+    
+    /// Process the USD File Reader node's logic (called during graph execution)
+    pub fn process_node(node: &Node) -> Vec<NodeData> {
+        println!("📁 UsdFileReaderNode::process_node called for node '{}'", node.title);
+        let mut logic = logic::UsdFileReaderLogic::from_node(node);
+        let outputs = logic.process(vec![]);
+        println!("📁 UsdFileReaderNode::process_node returning {} outputs", outputs.len());
+        outputs
+    }
 }

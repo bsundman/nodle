@@ -8,6 +8,7 @@ pub mod math_utils;
 pub mod factory;
 pub mod interface;
 pub mod defaults;
+pub mod execution_engine;
 
 // Generic node implementations
 pub mod math;
@@ -36,4 +37,9 @@ pub use factory::{
 // Re-export interface types
 pub use interface::{
     InterfacePanelManager, PanelType,
+};
+
+// Re-export execution engine types
+pub use execution_engine::{
+    NodeGraphEngine, NodeState, ExecutionStats,
 };

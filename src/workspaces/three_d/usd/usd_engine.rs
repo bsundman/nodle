@@ -8,16 +8,17 @@ use pyo3::types::{PyDict, PyList, PyString};
 use numpy::{PyArray1, PyArray2, PyArrayMethods};
 use std::collections::HashMap;
 use glam::{Mat4, Vec3, Vec2};
+use serde::{Serialize, Deserialize};
 
 /// USD Stage handle - holds a reference to a USD stage
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDStage {
     pub path: String,
     pub identifier: String,
 }
 
 /// USD Geometry extracted from USD mesh prims
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDMeshGeometry {
     pub prim_path: String,
     pub vertices: Vec<Vec3>,
@@ -28,7 +29,7 @@ pub struct USDMeshGeometry {
 }
 
 /// USD Light extracted from UsdLux prims
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDLightData {
     pub prim_path: String,
     pub light_type: String,
@@ -38,7 +39,7 @@ pub struct USDLightData {
 }
 
 /// USD Material extracted from UsdShade prims
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDMaterialData {
     pub prim_path: String,
     pub diffuse_color: Vec3,
@@ -47,7 +48,7 @@ pub struct USDMaterialData {
 }
 
 /// USD Scene extracted from a stage
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDSceneData {
     pub stage_path: String,
     pub meshes: Vec<USDMeshGeometry>,

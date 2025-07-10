@@ -325,20 +325,34 @@ impl InputState {
     /// Find which port (if any) is being clicked, returns (node_id, port_idx, is_input)
     pub fn find_clicked_port(&self, graph: &NodeGraph, click_radius: f32) -> Option<(NodeId, usize, bool)> {
         if let Some(pos) = self.mouse_world_pos {
+            println!("🔍 FIND PORT: Mouse pos: {:?}, click_radius: {}", pos, click_radius);
+            println!("🔍 FIND PORT: Checking {} nodes", graph.nodes.len());
+            
             for (node_id, node) in &graph.nodes {
+                println!("🔍 FIND PORT: Checking node {} '{}'", node_id, node.title);
+                
                 // Check output ports
                 for (port_idx, port) in node.outputs.iter().enumerate() {
-                    if (port.position - pos).length() < click_radius {
+                    let distance = (port.position - pos).length();
+                    println!("🔍 FIND PORT:   Output port {} at {:?}, distance: {}", port_idx, port.position, distance);
+                    if distance < click_radius {
+                        println!("🔍 FIND PORT: ✅ Found output port!");
                         return Some((*node_id, port_idx, false));
                     }
                 }
                 // Check input ports
                 for (port_idx, port) in node.inputs.iter().enumerate() {
-                    if (port.position - pos).length() < click_radius {
+                    let distance = (port.position - pos).length();
+                    println!("🔍 FIND PORT:   Input port {} at {:?}, distance: {}", port_idx, port.position, distance);
+                    if distance < click_radius {
+                        println!("🔍 FIND PORT: ✅ Found input port!");
                         return Some((*node_id, port_idx, true));
                     }
                 }
             }
+            println!("🔍 FIND PORT: ❌ No port found within radius");
+        } else {
+            println!("🔍 FIND PORT: ❌ No mouse position!");
         }
         None
     }

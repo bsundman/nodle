@@ -398,15 +398,65 @@ impl ParameterPanel {
         
         ui.separator();
         
-        // Show ports
+        // Show connection debug info
+        ui.label(format!("Graph Connections: {}", graph.connections.len()));
+        if graph.connections.len() > 0 {
+            ui.collapsing("Debug: All Connections", |ui| {
+                for (i, conn) in graph.connections.iter().enumerate() {
+                    let from_name = graph.nodes.get(&conn.from_node)
+                        .map(|n| n.title.as_str()).unwrap_or("Unknown");
+                    let to_name = graph.nodes.get(&conn.to_node)
+                        .map(|n| n.title.as_str()).unwrap_or("Unknown");
+                    ui.label(format!("  {}: {} port {} → {} port {}", 
+                        i, from_name, conn.from_port, to_name, conn.to_port));
+                }
+            });
+        }
+        
+        ui.separator();
+        
+        // Show ports with connection information
         ui.label("Input Ports:");
         for (i, input) in node.inputs.iter().enumerate() {
-            ui.label(format!("  {}: {}", i, input.name));
+            // Find connections to this input port
+            let connected_from = graph.connections.iter()
+                .find(|conn| conn.to_node == node_id && conn.to_port == i)
+                .map(|conn| {
+                    let source_node = graph.nodes.get(&conn.from_node)
+                        .map(|n| n.title.as_str())
+                        .unwrap_or("Unknown");
+                    format!("← {} port {}", source_node, conn.from_port)
+                });
+            
+            if let Some(connection_info) = connected_from {
+                ui.colored_label(egui::Color32::from_rgb(100, 255, 100), 
+                    format!("  🔗 {}: {} {}", i, input.name, connection_info));
+            } else {
+                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), 
+                    format!("  ○ {}: {} (not connected)", i, input.name));
+            }
         }
         
         ui.label("Output Ports:");
         for (i, output) in node.outputs.iter().enumerate() {
-            ui.label(format!("  {}: {}", i, output.name));
+            // Find connections from this output port
+            let connected_to: Vec<String> = graph.connections.iter()
+                .filter(|conn| conn.from_node == node_id && conn.from_port == i)
+                .map(|conn| {
+                    let target_node = graph.nodes.get(&conn.to_node)
+                        .map(|n| n.title.as_str())
+                        .unwrap_or("Unknown");
+                    format!("{} port {}", target_node, conn.to_port)
+                })
+                .collect();
+            
+            if !connected_to.is_empty() {
+                ui.colored_label(egui::Color32::from_rgb(100, 255, 100), 
+                    format!("  🔗 {}: {} → {}", i, output.name, connected_to.join(", ")));
+            } else {
+                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), 
+                    format!("  ○ {}: {} (not connected)", i, output.name));
+            }
         }
         
         ui.separator();

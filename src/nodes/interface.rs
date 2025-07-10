@@ -31,6 +31,8 @@ pub enum NodeData {
     Material(MaterialData),
     /// USD stage reference
     Stage(StageData),
+    /// Complete USD scene data with full geometry
+    USDSceneData(crate::workspaces::three_d::usd::usd_engine::USDSceneData),
     /// Lighting data
     Light(LightData),
     /// Image/texture data
