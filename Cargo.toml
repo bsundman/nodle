@@ -7,6 +7,10 @@ license = "MIT"
 description = "Node-based visual programming editor"
 repository = "https://github.com/bsundman/nodle"
 
+[lib]
+name = "nodle"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nodle"
 path = "src/main.rs"

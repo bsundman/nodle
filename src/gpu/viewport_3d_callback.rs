@@ -6,7 +6,7 @@
 use egui_wgpu::CallbackTrait;
 use std::sync::{Arc, Mutex};
 use super::viewport_3d_rendering::{Renderer3D, Camera3D};
-use nodle_plugin_sdk::viewport::ViewportData;
+use crate::viewport::ViewportData;
 use once_cell::sync::Lazy;
 
 // Global shared renderer instance for all viewports
@@ -110,9 +110,26 @@ impl ViewportRenderCallback {
         self.camera.set_aspect(self.viewport_size.0 as f32 / self.viewport_size.1 as f32);
     }
     
+    /// Frame the camera to the scene or selected geometry
+    pub fn frame_scene(&mut self, selected_bounds: Option<(glam::Vec3, glam::Vec3)>) {
+        // Extract scene bounds from viewport data
+        let scene_bounds = if let Some(ref viewport_data) = self.viewport_data {
+            viewport_data.scene.bounding_box.map(|(min, max)| {
+                (
+                    glam::Vec3::new(min[0], min[1], min[2]),
+                    glam::Vec3::new(max[0], max[1], max[2])
+                )
+            })
+        } else {
+            None
+        };
+        
+        self.camera.frame_bounds(scene_bounds, selected_bounds);
+    }
+    
     /// Get current camera data for plugins
-    pub fn get_camera_data(&self) -> nodle_plugin_sdk::viewport::CameraData {
-        nodle_plugin_sdk::viewport::CameraData {
+    pub fn get_camera_data(&self) -> crate::viewport::CameraData {
+        crate::viewport::CameraData {
             position: [self.camera.position.x, self.camera.position.y, self.camera.position.z],
             target: [self.camera.target.x, self.camera.target.y, self.camera.target.z],
             up: [self.camera.up.x, self.camera.up.y, self.camera.up.z],

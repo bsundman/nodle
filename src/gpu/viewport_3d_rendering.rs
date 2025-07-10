@@ -209,6 +209,52 @@ impl Camera3D {
         self.aspect = aspect;
     }
     
+    /// Frame the camera to view the specified bounds
+    /// If selected_bounds is provided, frame that; otherwise frame scene_bounds
+    pub fn frame_bounds(&mut self, scene_bounds: Option<(Vec3, Vec3)>, selected_bounds: Option<(Vec3, Vec3)>) {
+        let bounds_to_frame = selected_bounds.or(scene_bounds);
+        
+        if let Some((min, max)) = bounds_to_frame {
+            let center = (min + max) * 0.5;
+            let size = max - min;
+            let max_dimension = size.x.max(size.y).max(size.z);
+            
+            if max_dimension > 0.0 {
+                // Position camera to see the whole bounds
+                let camera_distance = max_dimension * 1.5;
+                self.target = center;
+                
+                // Maintain current viewing direction but adjust distance
+                let current_direction = (self.position - self.target).normalize();
+                if current_direction.length() > 0.1 {
+                    self.position = self.target + current_direction * camera_distance;
+                } else {
+                    // Default viewing angle if current direction is invalid
+                    self.position = center + Vec3::new(
+                        camera_distance * 0.7,
+                        camera_distance * 0.7,
+                        camera_distance * 0.7,
+                    );
+                }
+                
+                // Update clipping planes based on framed bounds
+                self.near = (max_dimension * 0.001).max(0.01);
+                self.far = max_dimension * 10.0;
+                
+                // Update scene size for adaptive sensitivity
+                self.set_scene_size(max_dimension);
+                
+                if selected_bounds.is_some() {
+                    println!("🎯 Framed selected geometry: center={:?}, size={:.1}", center, max_dimension);
+                } else {
+                    println!("🎯 Framed scene: center={:?}, size={:.1}", center, max_dimension);
+                }
+            }
+        } else {
+            println!("⚠️ No bounds available for framing");
+        }
+    }
+    
     /// Convert screen delta to world space movement for 1:1 pan
     pub fn screen_to_world_pan(&self, screen_delta_x: f32, screen_delta_y: f32, viewport_height: f32) -> Vec3 {
         // Calculate the vertical field of view extent at the target distance
@@ -1105,7 +1151,7 @@ impl Renderer3D {
     }
     
     /// Upload mesh data to GPU and store in gpu_meshes map
-    pub fn upload_mesh_to_gpu(&mut self, mesh_id: String, mesh_data: &nodle_plugin_sdk::viewport::MeshData) -> Result<(), String> {
+    pub fn upload_mesh_to_gpu(&mut self, mesh_id: String, mesh_data: &crate::viewport::MeshData) -> Result<(), String> {
         let device = self.device.as_ref().ok_or("Device not initialized")?;
         
         // Check if mesh is already uploaded
@@ -1188,7 +1234,7 @@ impl Renderer3D {
     }
     
     /// Render a complete scene with plugin viewport data
-    pub fn render_scene(&mut self, render_pass: &mut eframe::wgpu::RenderPass, viewport_data: &nodle_plugin_sdk::viewport::ViewportData, _viewport_size: (u32, u32)) {
+    pub fn render_scene(&mut self, render_pass: &mut eframe::wgpu::RenderPass, viewport_data: &crate::viewport::ViewportData, _viewport_size: (u32, u32)) {
         // Update camera from viewport data
         let plugin_camera = &viewport_data.scene.camera;
         self.camera.position = glam::Vec3::new(plugin_camera.position[0], plugin_camera.position[1], plugin_camera.position[2]);

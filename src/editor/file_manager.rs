@@ -12,7 +12,7 @@ use crate::editor::canvas::Canvas;
 pub struct SaveData {
     pub version: String,
     pub metadata: SaveMetadata,
-    pub viewport: ViewportData,
+    pub viewport: CanvasData,
     pub root_graph: NodeGraph,
 }
 
@@ -27,7 +27,7 @@ pub struct SaveMetadata {
 
 /// Canvas state for save files (2D node editor pan/zoom)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ViewportData {  // Keep name for backwards compatibility
+pub struct CanvasData {  // Renamed from ViewportData to avoid conflict with 3D viewport
     pub pan_offset: [f32; 2],
     pub zoom: f32,
 }
@@ -109,7 +109,7 @@ impl FileManager {
                 creator: "Nōdle 1.0".to_string(),
                 description: "Node graph created with Nōdle".to_string(),
             },
-            viewport: ViewportData {
+            viewport: CanvasData {
                 pan_offset: [canvas.pan_offset.x, canvas.pan_offset.y],
                 zoom: canvas.zoom,
             },

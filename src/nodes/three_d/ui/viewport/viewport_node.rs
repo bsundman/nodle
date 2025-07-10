@@ -7,7 +7,7 @@ use egui::Ui;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
-use nodle_plugin_sdk::viewport::*;
+use crate::viewport::*;
 use super::logic::USDViewportLogic;
 use super::usd_rendering::USDRenderer;
 use glam::{Mat4, Vec3};
@@ -480,6 +480,246 @@ impl ViewportNode {
         self.viewport_data.scene = scene;
         self.viewport_data.scene_dirty = true;
         self.current_stage = stage_path.to_string();
+    }
+    
+    /// Handle viewport input events (mouse, keyboard, etc.) for core viewports
+    pub fn handle_viewport_input(&mut self, ui: &egui::Ui, response: &egui::Response, callback: &mut crate::gpu::viewport_3d_callback::ViewportRenderCallback) {
+        // Handle mouse interactions for camera control - Maya-style navigation
+        if response.dragged() {
+            let delta = response.drag_delta();
+            let ctx = ui.ctx();
+            let modifiers = ctx.input(|i| i.modifiers);
+            let pointer_button = ctx.input(|i| {
+                if i.pointer.primary_down() {
+                    Some(egui::PointerButton::Primary)  // Left mouse button
+                } else if i.pointer.middle_down() {
+                    Some(egui::PointerButton::Middle)   // Middle mouse button  
+                } else if i.pointer.secondary_down() {
+                    Some(egui::PointerButton::Secondary) // Right mouse button
+                } else {
+                    None
+                }
+            });
+            
+            // Maya-style camera navigation: Alt + mouse button combinations
+            if modifiers.alt {
+                let manipulation = match pointer_button {
+                    Some(egui::PointerButton::Primary) => {
+                        // Alt + Left Mouse = Orbit (invert Y for natural feel)
+                        Some(CameraManipulation::Orbit {
+                            delta_x: delta.x * 0.01, // TODO: Use constants
+                            delta_y: -delta.y * 0.01,
+                        })
+                    }
+                    Some(egui::PointerButton::Middle) => {
+                        // Alt + Middle Mouse = Pan (invert for natural feel)
+                        Some(CameraManipulation::Pan {
+                            delta_x: -delta.x * 0.01,
+                            delta_y: -delta.y * 0.01,
+                        })
+                    }
+                    Some(egui::PointerButton::Secondary) => {
+                        // Alt + Right Mouse = Zoom (invert for natural feel)
+                        Some(CameraManipulation::Zoom {
+                            delta: delta.y * 0.01,
+                        })
+                    }
+                    _ => None,
+                };
+                
+                if let Some(manip) = manipulation {
+                    // Apply to viewport node camera
+                    self.handle_camera_manipulation(manip.clone());
+                    
+                    // Also apply to callback for immediate rendering
+                    match manip {
+                        CameraManipulation::Orbit { delta_x, delta_y } => {
+                            callback.handle_camera_manipulation(
+                                delta_x, delta_y, 
+                                crate::gpu::viewport_3d_callback::CameraManipulationType::Orbit
+                            );
+                        }
+                        CameraManipulation::Pan { delta_x, delta_y } => {
+                            callback.handle_camera_manipulation(
+                                delta_x, delta_y, 
+                                crate::gpu::viewport_3d_callback::CameraManipulationType::Pan
+                            );
+                        }
+                        CameraManipulation::Zoom { delta } => {
+                            callback.handle_camera_manipulation(
+                                delta, 0.0, 
+                                crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        
+        // Handle scroll for zoom
+        if response.hovered() {
+            let ctx = ui.ctx();
+            ctx.input(|i| {
+                if i.raw_scroll_delta.y != 0.0 {
+                    let zoom_manip = CameraManipulation::Zoom {
+                        delta: -i.raw_scroll_delta.y * 0.1, // TODO: Use constants
+                    };
+                    
+                    // Apply to viewport node camera
+                    self.handle_camera_manipulation(zoom_manip);
+                    
+                    // Also apply to callback for immediate rendering
+                    callback.handle_camera_manipulation(
+                        -i.raw_scroll_delta.y * 0.1, 0.0,
+                        crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                    );
+                }
+                
+                // Handle F key for framing - only when viewport is focused
+                if i.key_pressed(egui::Key::F) {
+                    // TODO: In the future, check if geometry is selected and frame that instead
+                    // let selected_bounds = self.get_selected_geometry_bounds(); // Future implementation
+                    let selected_bounds = None; // No selection system yet
+                    
+                    // Frame the scene or selected geometry
+                    callback.frame_scene(selected_bounds);
+                    
+                    if selected_bounds.is_some() {
+                        println!("🎯 F key: Framed selected geometry");
+                    } else {
+                        println!("🎯 F key: Framed entire scene");
+                    }
+                }
+            });
+        }
+    }
+
+    /// Handle viewport input events for plugin viewports
+    pub fn handle_plugin_viewport_input(&mut self, ui: &egui::Ui, response: &egui::Response, callback: &mut crate::gpu::viewport_3d_callback::ViewportRenderCallback, plugin_node: &mut dyn nodle_plugin_sdk::PluginNode) {
+        // Handle mouse interactions for camera control - Maya-style navigation
+        if response.dragged() {
+            let delta = response.drag_delta();
+            let ctx = ui.ctx();
+            let modifiers = ctx.input(|i| i.modifiers);
+            let pointer_button = ctx.input(|i| {
+                if i.pointer.primary_down() {
+                    Some(egui::PointerButton::Primary)  // Left mouse button
+                } else if i.pointer.middle_down() {
+                    Some(egui::PointerButton::Middle)   // Middle mouse button  
+                } else if i.pointer.secondary_down() {
+                    Some(egui::PointerButton::Secondary) // Right mouse button
+                } else {
+                    None
+                }
+            });
+            
+            // Maya-style camera navigation: Alt + mouse button combinations
+            let manipulation = if modifiers.alt {
+                match pointer_button {
+                    Some(egui::PointerButton::Primary) => {
+                        // Alt + Left Mouse = Orbit (invert Y for natural feel)
+                        Some(CameraManipulation::Orbit {
+                            delta_x: delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                            delta_y: -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                        })
+                    }
+                    Some(egui::PointerButton::Middle) => {
+                        // Alt + Middle Mouse = Pan (invert for natural feel)
+                        Some(CameraManipulation::Pan {
+                            delta_x: -delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                            delta_y: -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                        })
+                    }
+                    Some(egui::PointerButton::Secondary) => {
+                        // Alt + Right Mouse = Zoom (invert for natural feel)
+                        Some(CameraManipulation::Zoom {
+                            delta: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                        })
+                    }
+                    Some(egui::PointerButton::Extra1) | Some(egui::PointerButton::Extra2) => None,
+                    None => None,
+                }
+            } else {
+                // No navigation without Alt key
+                None
+            };
+            
+            // Only process manipulation if Alt was held
+            if let Some(manipulation) = manipulation {
+                // Send manipulation to plugin node to update its camera state
+                // Convert core manipulation to plugin manipulation using conversion layer
+                let plugin_manipulation: nodle_plugin_sdk::viewport::CameraManipulation = manipulation.clone().into();
+                plugin_node.handle_viewport_camera(plugin_manipulation);
+                
+                // Also update the callback for immediate rendering
+                match manipulation {
+                    CameraManipulation::Orbit { delta_x, delta_y } => {
+                        callback.handle_camera_manipulation(
+                            delta_x, 
+                            delta_y, 
+                            crate::gpu::viewport_3d_callback::CameraManipulationType::Orbit
+                        );
+                    }
+                    CameraManipulation::Pan { delta_x, delta_y } => {
+                        callback.handle_camera_manipulation(
+                            delta_x, 
+                            delta_y, 
+                            crate::gpu::viewport_3d_callback::CameraManipulationType::Pan
+                        );
+                    }
+                    CameraManipulation::Zoom { delta } => {
+                        callback.handle_camera_manipulation(
+                            delta, 
+                            0.0, 
+                            crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        // Handle scroll for zoom
+        if response.hovered() {
+            let ctx = ui.ctx();
+            ctx.input(|i| {
+                if i.raw_scroll_delta.y != 0.0 {
+                    // Create zoom manipulation for plugin (invert for natural feel)
+                    let zoom_manipulation = CameraManipulation::Zoom {
+                        delta: -i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY,
+                    };
+                    
+                    // Send to plugin node
+                    // Convert core manipulation to plugin manipulation using conversion layer
+                    let plugin_manipulation: nodle_plugin_sdk::viewport::CameraManipulation = zoom_manipulation.into();
+                    plugin_node.handle_viewport_camera(plugin_manipulation);
+                    
+                    // Also update callback for immediate rendering (invert for natural feel)
+                    callback.handle_camera_manipulation(
+                        -i.raw_scroll_delta.y * crate::constants::camera::DEFAULT_SCROLL_SENSITIVITY, 
+                        0.0, 
+                        crate::gpu::viewport_3d_callback::CameraManipulationType::Zoom
+                    );
+                }
+                
+                // Handle F key for framing - only when viewport is focused
+                if i.key_pressed(egui::Key::F) {
+                    // TODO: In the future, check if geometry is selected and frame that instead
+                    // let selected_bounds = get_selected_geometry_bounds(); // Future implementation
+                    let selected_bounds = None; // No selection system yet
+                    
+                    // Frame the scene or selected geometry
+                    callback.frame_scene(selected_bounds);
+                    
+                    if selected_bounds.is_some() {
+                        println!("🎯 F key: Framed selected geometry");
+                    } else {
+                        println!("🎯 F key: Framed entire scene");
+                    }
+                }
+            });
+        }
     }
     
     /// Handle camera manipulation with USD-specific behavior

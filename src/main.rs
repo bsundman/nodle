@@ -14,6 +14,8 @@ mod gpu;
 mod startup_checks;
 mod theme;
 mod plugins;
+mod viewport;
+mod plugin_interface;
 
 use editor::NodeEditor;
 
