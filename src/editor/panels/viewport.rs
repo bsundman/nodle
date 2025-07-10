@@ -514,7 +514,7 @@ impl ViewportPanel {
     
     /// Render viewport data from a core node (similar to plugin viewport rendering)
     fn render_core_viewport_data(&mut self, ui: &mut egui::Ui, viewport_data: crate::viewport::ViewportData, node_id: NodeId) {
-        println!("🎬 render_core_viewport_data called for node {} with {} meshes", node_id, viewport_data.scene.meshes.len());
+        // Rendering viewport data
         // 3D Viewport area with actual wgpu rendering
         let available_size = ui.available_size();
         let viewport_size = egui::vec2(

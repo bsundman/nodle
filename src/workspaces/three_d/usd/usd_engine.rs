@@ -117,18 +117,24 @@ def extract_all_meshes(stage_path):
             if not (points_attr and indices_attr and counts_attr):
                 continue
                 
-            # Extract raw data
-            points = points_attr.Get()
-            face_indices = indices_attr.Get()
-            face_counts = counts_attr.Get()
+            # Extract raw data (USD native types)
+            points = points_attr.Get()  # Gf.Vec3fArray
+            face_indices = indices_attr.Get()  # IntArray
+            face_counts = counts_attr.Get()  # IntArray
             
             if not (points and face_indices and face_counts):
                 continue
             
-            # Convert to numpy for fast processing
-            vertices = np.array(points, dtype=np.float32)
-            indices = np.array(face_indices, dtype=np.uint32)
-            counts = np.array(face_counts, dtype=np.uint32)
+            # OPTIMIZED: Convert USD types to Python lists first (fast)
+            # This avoids slow per-element USD type -> NumPy conversion
+            vertices_list = [(float(v[0]), float(v[1]), float(v[2])) for v in points]
+            indices_list = [int(i) for i in face_indices]
+            counts_list = [int(c) for c in face_counts]
+            
+            # Only call NumPy once at the end (fast)
+            vertices = np.array(vertices_list, dtype=np.float32)
+            indices = np.array(indices_list, dtype=np.uint32)
+            counts = np.array(counts_list, dtype=np.uint32)
             
             # Fast triangulation in Python
             triangles = []

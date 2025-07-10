@@ -156,23 +156,23 @@ impl CallbackTrait for ViewportRenderCallback {
         _egui_encoder: &mut eframe::wgpu::CommandEncoder,
         _callback_resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<eframe::wgpu::CommandBuffer> {
-        println!("🔧 ViewportCallback::prepare - Starting preparation");
+        // Starting preparation
         
         // Initialize renderer if not already done
         match self.renderer.lock() {
             Ok(mut renderer) => {
                 if renderer.device.is_none() {
-                    println!("🔧 ViewportCallback::prepare - Initializing renderer");
+                    // Initializing renderer
                     renderer.initialize_from_refs(device, queue);
                     
                     // Verify initialization succeeded
                     if renderer.device.is_some() {
-                        println!("✅ ViewportCallback::prepare - Renderer initialized successfully");
+                        // Renderer initialized successfully
                     } else {
-                        println!("❌ ViewportCallback::prepare - Renderer initialization failed");
+                        // Renderer initialization failed
                     }
                 } else {
-                    println!("✅ ViewportCallback::prepare - Renderer already initialized");
+                    // Renderer already initialized
                 }
                 
                 // Update camera in renderer
@@ -181,10 +181,10 @@ impl CallbackTrait for ViewportRenderCallback {
                 // Update camera uniforms
                 renderer.update_camera_uniforms(queue);
                 
-                println!("✅ ViewportCallback::prepare - Preparation complete");
+                // Preparation complete
             }
             Err(e) => {
-                println!("❌ ViewportCallback::prepare - Failed to lock renderer: {:?}", e);
+                // Failed to lock renderer
             }
         }
         
@@ -197,43 +197,42 @@ impl CallbackTrait for ViewportRenderCallback {
         render_pass: &mut eframe::wgpu::RenderPass<'static>,
         _callback_resources: &egui_wgpu::CallbackResources,
     ) {
-        println!("🎨 ViewportCallback::paint - Starting render");
+        // Starting render
         
         // Render the 3D viewport with proper error handling
         match self.renderer.lock() {
             Ok(mut renderer) => {
                 // Validate renderer is properly initialized
                 if renderer.device.is_none() {
-                    println!("❌ ViewportCallback::paint - Renderer not initialized (device is None)");
+                    // Renderer not initialized
                     return;
                 }
                 
                 if renderer.mesh_pipeline.is_none() {
-                    println!("❌ ViewportCallback::paint - Renderer pipelines not created");
+                    // Renderer pipelines not created
                     return;
                 }
                 
-                println!("✅ ViewportCallback::paint - Renderer validation passed");
+                // Renderer validation passed
                 
                 // Update camera in renderer
                 renderer.set_camera(&self.camera);
                 
                 // Render the scene
                 if let Some(ref viewport_data) = self.viewport_data {
-                    println!("🎨 ViewportCallback::paint - Rendering scene with {} meshes", 
-                             viewport_data.scene.meshes.len());
+                    // Rendering scene
                     // Convert plugin viewport data to renderer format and render
                     renderer.render_scene(render_pass, viewport_data, self.viewport_size);
                 } else {
-                    println!("🎨 ViewportCallback::paint - Rendering basic scene (no viewport data)");
+                    // Rendering basic scene
                     // Render basic grid and axes when no scene data
                     renderer.render_basic_scene(render_pass, self.viewport_size);
                 }
                 
-                println!("✅ ViewportCallback::paint - Render complete");
+                // Render complete
             }
             Err(e) => {
-                println!("❌ ViewportCallback::paint - Failed to lock renderer: {:?}", e);
+                // Failed to lock renderer
             }
         }
     }

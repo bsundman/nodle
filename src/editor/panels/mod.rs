@@ -77,6 +77,7 @@ impl PanelManager {
         menu_bar_height: f32,
         current_view: &GraphView,
         graph: &mut NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) {
         // Store menu bar height
         self.set_menu_bar_height(menu_bar_height);
@@ -152,6 +153,7 @@ impl PanelManager {
                             menu_bar_height,
                             viewed_nodes,
                             graph,
+                            execution_engine,
                         )
                     }
                 };

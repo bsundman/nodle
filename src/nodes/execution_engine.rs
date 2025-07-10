@@ -49,7 +49,7 @@ impl NodeGraphEngine {
             return; // Already dirty
         }
 
-        println!("🟡 Marking node {} as dirty", node_id);
+        // Marking node as dirty
         self.node_states.insert(node_id, NodeState::Dirty);
         self.dirty_nodes.insert(node_id);
         
@@ -69,7 +69,7 @@ impl NodeGraphEngine {
         
         for downstream_id in downstream_nodes {
             if self.node_states.get(&downstream_id) != Some(&NodeState::Dirty) {
-                println!("🟡 Propagating dirty to downstream node {}", downstream_id);
+                // Propagating dirty to downstream node
                 self.node_states.insert(downstream_id, NodeState::Dirty);
                 self.dirty_nodes.insert(downstream_id);
                 
@@ -102,7 +102,7 @@ impl NodeGraphEngine {
             return Ok(order.clone());
         }
 
-        println!("🔍 Computing execution order via topological sort");
+        // Computing execution order
         
         // Build dependency graph
         let mut in_degree = HashMap::new();
@@ -155,7 +155,7 @@ impl NodeGraphEngine {
             return Err("Cycle detected in node graph".to_string());
         }
         
-        println!("🔍 Execution order: {:?}", result);
+        // Execution order computed
         
         // Cache the result
         self.execution_order_cache = Some(result.clone());
@@ -165,31 +165,27 @@ impl NodeGraphEngine {
     /// Execute all dirty nodes in dependency order
     pub fn execute_dirty_nodes(&mut self, graph: &NodeGraph) -> Result<(), String> {
         // Debug: Show all node states
-        println!("🔍 ENGINE: Node states before execution:");
-        for (&node_id, state) in &self.node_states {
-            println!("  Node {}: {:?}", node_id, state);
-        }
-        println!("🔍 ENGINE: Dirty nodes set: {:?}", self.dirty_nodes);
+        // Node states checked
         
         if self.dirty_nodes.is_empty() {
-            println!("✅ No dirty nodes to execute");
+            // No dirty nodes to execute
             
             // Check if we have any new nodes that need initial execution
             for &node_id in graph.nodes.keys() {
                 if !self.node_states.contains_key(&node_id) {
-                    println!("🟡 Found new node {} - marking as dirty for initial execution", node_id);
+                    // Found new node - marking as dirty
                     self.mark_dirty(node_id, graph);
                 }
             }
             
             // If we found new nodes, try execution again
             if !self.dirty_nodes.is_empty() {
-                println!("🔄 Executing {} newly discovered dirty nodes", self.dirty_nodes.len());
+                // Executing newly discovered dirty nodes
             } else {
                 return Ok(());
             }
         } else {
-            println!("🔄 Executing {} dirty nodes", self.dirty_nodes.len());
+            // Executing dirty nodes
         }
         
         let execution_order = self.get_execution_order(graph)?;
@@ -203,7 +199,7 @@ impl NodeGraphEngine {
         
         // Clear dirty set after successful execution
         self.dirty_nodes.clear();
-        println!("✅ All dirty nodes executed successfully");
+        // All dirty nodes executed
         
         Ok(())
     }
@@ -213,7 +209,7 @@ impl NodeGraphEngine {
         let node = graph.nodes.get(&node_id)
             .ok_or_else(|| format!("Node {} not found", node_id))?;
 
-        println!("🔄 Executing node {} ({})", node_id, node.title);
+        // Executing node
         
         // Mark as computing
         self.node_states.insert(node_id, NodeState::Computing);
@@ -225,16 +221,15 @@ impl NodeGraphEngine {
         let outputs = match self.dispatch_node_execution(node, inputs) {
             Ok(outputs) => outputs,
             Err(e) => {
-                println!("❌ Node {} execution failed: {}", node_id, e);
+                // Node execution failed
                 self.node_states.insert(node_id, NodeState::Error);
                 return Err(e);
             }
         };
         
         // Cache the outputs
-        println!("🔄 Caching {} outputs for node {}", outputs.len(), node_id);
+        // Caching outputs
         for (port_idx, output) in outputs.into_iter().enumerate() {
-            println!("  Output port {}: {:?}", port_idx, output);
             self.output_cache.insert((node_id, port_idx), output);
         }
         
@@ -242,7 +237,7 @@ impl NodeGraphEngine {
         self.node_states.insert(node_id, NodeState::Clean);
         self.dirty_nodes.remove(&node_id);
         
-        println!("✅ Node {} executed successfully", node_id);
+        // Node executed successfully
         Ok(())
     }
 
@@ -255,34 +250,30 @@ impl NodeGraphEngine {
 
         let mut inputs = vec![NodeData::None; node.inputs.len()];
         
-        println!("🔍 Collecting inputs for node {} ({}):", node_id, node.title);
-        println!("  Node has {} input ports", node.inputs.len());
+        // Collecting inputs for node
         
         // Find all connections feeding into this node
         let mut found_connections = 0;
         for connection in &graph.connections {
             if connection.to_node == node_id {
                 found_connections += 1;
-                println!("  Found connection from node {} port {} to port {}", 
-                    connection.from_node, connection.from_port, connection.to_port);
+                // Found connection
                 
                 // Get the output from the source node
                 if let Some(output_data) = self.output_cache.get(&(connection.from_node, connection.from_port)) {
                     if connection.to_port < inputs.len() {
                         inputs[connection.to_port] = output_data.clone();
-                        println!("    ✅ Found cached data: {:?}", output_data);
+                        // Found cached data
                     } else {
-                        println!("    ❌ Target port {} out of range (max {})", connection.to_port, inputs.len());
+                        // Target port out of range
                     }
                 } else {
-                    println!("    ⚠️ No cached output found for source node {} port {}", 
-                        connection.from_node, connection.from_port);
+                    // No cached output found
                 }
             }
         }
         
-        println!("  Total connections found: {}", found_connections);
-        println!("  Final inputs: {:?}", inputs);
+        // Inputs collected
         inputs
     }
 
@@ -292,27 +283,27 @@ impl NodeGraphEngine {
         match node.title.as_str() {
             // Data nodes
             "USD File Reader" => {
-                println!("📁 Executing USD File Reader node");
+                // Executing USD File Reader
                 Ok(crate::nodes::data::usd_file_reader::UsdFileReaderNode::process_node(node))
             }
             
             // Viewport/UI nodes
             "Viewport" => {
-                println!("🖼️ Executing Viewport node with {} inputs", inputs.len());
+                // Executing Viewport node
                 Ok(crate::nodes::three_d::ui::viewport::ViewportNode::process_node(node, &inputs))
             }
             
             // Math nodes
             "Add" => {
-                println!("➕ Executing Add node with {} inputs", inputs.len());
+                // Executing Add node
                 Ok(crate::nodes::math::add::functions::process_add(inputs))
             }
             "Subtract" => {
-                println!("➖ Executing Subtract node with {} inputs", inputs.len());
+                // Executing Subtract node
                 Ok(crate::nodes::math::subtract::functions::process_subtract(inputs))
             }
             "Multiply" => {
-                println!("✖️ Executing Multiply node with {} inputs", inputs.len());
+                // Executing Multiply node
                 // Simple multiplication implementation since multiply functions module doesn't exist
                 if inputs.len() >= 2 {
                     let a = match &inputs[0] {
@@ -329,13 +320,13 @@ impl NodeGraphEngine {
                 }
             }
             "Divide" => {
-                println!("➗ Executing Divide node with {} inputs", inputs.len());
+                // Executing Divide node
                 Ok(crate::nodes::math::divide::functions::process_divide(inputs))
             }
             
             // Logic nodes (simple implementations since functions modules don't exist)
             "And" => {
-                println!("🔗 Executing And node with {} inputs", inputs.len());
+                // Executing And node
                 if inputs.len() >= 2 {
                     let a = match &inputs[0] {
                         NodeData::Boolean(b) => *b,
@@ -351,7 +342,7 @@ impl NodeGraphEngine {
                 }
             }
             "Or" => {
-                println!("🔀 Executing Or node with {} inputs", inputs.len());
+                // Executing Or node
                 if inputs.len() >= 2 {
                     let a = match &inputs[0] {
                         NodeData::Boolean(b) => *b,
@@ -367,7 +358,7 @@ impl NodeGraphEngine {
                 }
             }
             "Not" => {
-                println!("🚫 Executing Not node with {} inputs", inputs.len());
+                // Executing Not node
                 if !inputs.is_empty() {
                     let input = match &inputs[0] {
                         NodeData::Boolean(b) => *b,
@@ -381,7 +372,7 @@ impl NodeGraphEngine {
             
             // Output nodes (simple implementations)
             "Print" => {
-                println!("🖨️ Executing Print node with {} inputs", inputs.len());
+                // Executing Print node
                 for (i, input) in inputs.iter().enumerate() {
                     println!("Print Output [{}]: {:?}", i, input);
                 }
@@ -389,7 +380,7 @@ impl NodeGraphEngine {
                 Ok(inputs)
             }
             "Debug" => {
-                println!("🐛 Executing Debug node with {} inputs", inputs.len());
+                // Executing Debug node
                 for (i, input) in inputs.iter().enumerate() {
                     println!("Debug Output [{}]: {:?}", i, input);
                 }
@@ -399,12 +390,12 @@ impl NodeGraphEngine {
             
             // 3D Transform nodes
             "Translate" | "3D_Translate" => {
-                println!("↔️ Executing Translate node with {} inputs", inputs.len());
+                // Executing Translate node
                 let logic = crate::nodes::three_d::transform::translate::logic::TranslateLogic::default();
                 Ok(logic.process(inputs))
             }
             "Rotate" | "3D_Rotate" => {
-                println!("🔄 Executing Rotate node with {} inputs", inputs.len());
+                // Executing Rotate node
                 // For now, just pass through - implement rotation logic later
                 if !inputs.is_empty() {
                     Ok(vec![inputs[0].clone()])
@@ -413,7 +404,7 @@ impl NodeGraphEngine {
                 }
             }
             "Scale" | "3D_Scale" => {
-                println!("📐 Executing Scale node with {} inputs", inputs.len());
+                // Executing Scale node
                 // For now, just pass through - implement scaling logic later
                 if !inputs.is_empty() {
                     Ok(vec![inputs[0].clone()])
@@ -424,53 +415,53 @@ impl NodeGraphEngine {
             
             // 3D Geometry nodes
             "Cube" => {
-                println!("🧊 Executing Cube node with {} inputs", inputs.len());
+                // Executing Cube node
                 // For now, just pass through - implement cube generation later
                 Ok(vec![NodeData::None])
             }
             "Sphere" => {
-                println!("🔮 Executing Sphere node with {} inputs", inputs.len());
+                // Executing Sphere node
                 // For now, just pass through - implement sphere generation later
                 Ok(vec![NodeData::None])
             }
             "Plane" => {
-                println!("🟫 Executing Plane node with {} inputs", inputs.len());
+                // Executing Plane node
                 // For now, just pass through - implement plane generation later
                 Ok(vec![NodeData::None])
             }
             
             // 3D Lighting nodes
             "Point Light" => {
-                println!("💡 Executing Point Light node with {} inputs", inputs.len());
+                // Executing Point Light node
                 // For now, just pass through - implement lighting later
                 Ok(vec![NodeData::None])
             }
             "Directional Light" => {
-                println!("🔦 Executing Directional Light node with {} inputs", inputs.len());
+                // Executing Directional Light node
                 // For now, just pass through - implement lighting later
                 Ok(vec![NodeData::None])
             }
             "Spot Light" => {
-                println!("🎯 Executing Spot Light node with {} inputs", inputs.len());
+                // Executing Spot Light node
                 // For now, just pass through - implement lighting later
                 Ok(vec![NodeData::None])
             }
             
             // Data nodes
             "Constant" => {
-                println!("🔢 Executing Constant node with {} inputs", inputs.len());
+                // Executing Constant node
                 // For now, just pass through - implement constant value logic later
                 Ok(vec![NodeData::None])
             }
             "Variable" => {
-                println!("📊 Executing Variable node with {} inputs", inputs.len());
+                // Executing Variable node
                 // For now, just pass through - implement variable logic later
                 Ok(vec![NodeData::None])
             }
             
             // Unknown node types
             _ => {
-                println!("⚠️ Unsupported node type for execution: {}", node.title);
+                // Unsupported node type
                 // Instead of failing, just pass through the inputs (if any) or return None
                 if !inputs.is_empty() {
                     Ok(vec![inputs[0].clone()])
@@ -493,7 +484,7 @@ impl NodeGraphEngine {
 
     /// Mark all nodes as dirty (force full re-evaluation)
     pub fn mark_all_dirty(&mut self, graph: &NodeGraph) {
-        println!("🟡 Marking all nodes as dirty");
+        // Marking all nodes as dirty
         
         for &node_id in graph.nodes.keys() {
             self.node_states.insert(node_id, NodeState::Dirty);
@@ -506,27 +497,24 @@ impl NodeGraphEngine {
 
     /// Handle a new connection being created
     pub fn on_connection_added(&mut self, connection: &Connection, graph: &NodeGraph) {
-        println!("🔗 ENGINE: Connection added: Node {} port {} → Node {} port {}", 
-            connection.from_node, connection.from_port, connection.to_node, connection.to_port);
-        println!("🔗 ENGINE: Graph now has {} total connections", graph.connections.len());
+        // Connection added
         
         // Mark BOTH source and target nodes as dirty to ensure data flow
-        println!("🟡 Marking source node {} as dirty (connection created)", connection.from_node);
+        // Marking source node as dirty
         self.mark_dirty(connection.from_node, graph);
         
-        println!("🟡 Marking target node {} as dirty (connection created)", connection.to_node);
+        // Marking target node as dirty
         self.mark_dirty(connection.to_node, graph);
         
         // Debug: List all connections in the graph
         for (i, conn) in graph.connections.iter().enumerate() {
-            println!("🔗 ENGINE: Connection {}: {} port {} → {} port {}", 
-                i, conn.from_node, conn.from_port, conn.to_node, conn.to_port);
+            // Connection details logged
         }
     }
 
     /// Handle a connection being removed
     pub fn on_connection_removed(&mut self, connection: &Connection, graph: &NodeGraph) {
-        println!("🔗 Connection removed: {} -> {}", connection.from_node, connection.to_node);
+        // Connection removed
         
         // Mark the target node as dirty
         self.mark_dirty(connection.to_node, graph);
@@ -534,10 +522,17 @@ impl NodeGraphEngine {
 
     /// Handle a node parameter change
     pub fn on_node_parameter_changed(&mut self, node_id: NodeId, graph: &NodeGraph) {
-        println!("🔧 Parameter changed on node {}", node_id);
+        // Parameter changed
+        
+        // Show node title for better debugging
+        if let Some(node) = graph.nodes.get(&node_id) {
+            // Node parameters changed
+        }
         
         // Mark the node as dirty
         self.mark_dirty(node_id, graph);
+        
+        // Node marked as dirty
     }
 
     /// Get execution statistics

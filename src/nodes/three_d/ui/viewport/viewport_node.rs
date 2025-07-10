@@ -48,7 +48,7 @@ impl USDRendererCache {
             }
         }
         
-        println!("📐 RAW USD Scene bounds: min={:?}, max={:?}", min, max);
+        // println!("📐 RAW USD Scene bounds: min={:?}, max={:?}", min, max); // Removed: called every frame
         Some((min, max))
     }
     
@@ -57,7 +57,7 @@ impl USDRendererCache {
     
     fn get_or_load(&mut self, stage_path: &str) -> &ViewportData {
         if !self.renderers.contains_key(stage_path) {
-            println!("📦 Cache miss: Loading USD stage '{}'", stage_path);
+            // println!("📦 Cache miss: Loading USD stage '{}'", stage_path); // Removed: called during loading
             
             // Create and load USD renderer
             let mut usd_renderer = USDRenderer::new();
@@ -70,7 +70,7 @@ impl USDRendererCache {
             
             self.renderers.insert(stage_path.to_string(), (usd_renderer, viewport_data));
         } else {
-            println!("✅ Cache hit: Using cached USD stage '{}'", stage_path);
+            // println!("✅ Cache hit: Using cached USD stage '{}'", stage_path); // Removed: called frequently
         }
         
         &self.renderers.get(stage_path).unwrap().1
@@ -83,7 +83,7 @@ impl USDRendererCache {
         let size = max - min;
         let max_dimension = size.x.max(size.y).max(size.z);
         
-        println!("📐 Scene center: {:?}, size: {:?}, max_dim: {}", center, size, max_dimension);
+        // println!("📐 Scene center: {:?}, size: {:?}, max_dim: {}", center, size, max_dimension); // Removed: called every frame
         
         // Position camera to see the whole scene
         let camera_distance = max_dimension * 1.5;
@@ -96,7 +96,7 @@ impl USDRendererCache {
         // Calculate far plane based on scene size
         let far_plane = max_dimension * 3.0; // Ensure we can see the whole scene
         
-        println!("📷 Camera position: {:?}, target: {:?}", camera_position, center);
+        // println!("📷 Camera position: {:?}, target: {:?}", camera_position, center); // Removed: called every frame
         (camera_position, center, far_plane)
     }
 
@@ -336,7 +336,7 @@ impl ViewportNode {
         
         // Update camera settings with scene size
         self.camera_settings.scene_size = scene_size;
-        println!("📐 Updated scene size to: {:.1}", scene_size);
+        // println!("📐 Updated scene size to: {:.1}", scene_size); // Removed: called every frame
     }
     
     /// Calculate adaptive sensitivity based on scene scale and camera distance
@@ -364,10 +364,11 @@ impl ViewportNode {
         let pan_sensitivity = base_pan * scene_scale_factor * distance_factor;
         let zoom_sensitivity = base_zoom * scene_scale_factor;
         
-        println!("🎯 Adaptive sensitivity - scene_size: {:.1}, distance: {:.1}, scale_factor: {:.3}, distance_factor: {:.3}", 
-                 scene_size, distance, scene_scale_factor, distance_factor);
-        println!("🎯 Calculated sensitivity - orbit: {:.4}, pan: {:.4}, zoom: {:.4}", 
-                 orbit_sensitivity, pan_sensitivity, zoom_sensitivity);
+        // println!("🎯 Adaptive sensitivity - scene_size: {:.1}, distance: {:.1}, scale_factor: {:.3}, distance_factor: {:.3}", 
+        //          scene_size, distance, scene_scale_factor, distance_factor);
+        // println!("🎯 Calculated sensitivity - orbit: {:.4}, pan: {:.4}, zoom: {:.4}", 
+        //          orbit_sensitivity, pan_sensitivity, zoom_sensitivity);
+        // Removed: called every frame during camera movement
         
         (orbit_sensitivity, pan_sensitivity, zoom_sensitivity)
     }
@@ -994,7 +995,7 @@ impl ViewportNode {
     
     /// Process the viewport node's logic (called during graph execution)
     pub fn process_node(node: &Node, inputs: &[NodeData]) -> Vec<NodeData> {
-        println!("🎬 ViewportNode::process_node called for node '{}' with {} inputs", node.title, inputs.len());
+        // println!("🎬 ViewportNode::process_node called for node '{}' with {} inputs", node.title, inputs.len()); // Removed: called every frame
         let mut outputs = Vec::new();
         
         // Check for USDSceneData input (first priority)
@@ -1005,10 +1006,11 @@ impl ViewportNode {
         if inputs.len() > 0 {
             if let NodeData::USDSceneData(usd_scene_data) = &inputs[0] {
                 usd_scene_input = Some(usd_scene_data.clone());
-                println!("🎬 Viewport: Received USDSceneData input with {} meshes, {} lights, {} materials",
-                         usd_scene_data.meshes.len(), 
-                         usd_scene_data.lights.len(), 
-                         usd_scene_data.materials.len());
+                // println!("🎬 Viewport: Received USDSceneData input with {} meshes, {} lights, {} materials",
+                //          usd_scene_data.meshes.len(), 
+                //          usd_scene_data.lights.len(), 
+                //          usd_scene_data.materials.len());
+                // Removed: called every frame when USD input is present
             }
         }
         
@@ -1030,13 +1032,13 @@ impl ViewportNode {
             // Store the USDSceneData in the global cache for get_viewport_data to access
             if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
                 cache.insert(node.id, usd_scene_data.clone());
-                println!("🎬 Viewport: Cached USDSceneData for node {} with {} meshes", node.id, usd_scene_data.meshes.len());
+                // println!("🎬 Viewport: Cached USDSceneData for node {} with {} meshes", node.id, usd_scene_data.meshes.len()); // Removed: called every frame
             }
             
             outputs.push(NodeData::String(format!("USD Viewport: {} (from input)", usd_scene_data.stage_path)));
             outputs.push(NodeData::Boolean(true)); // Scene loaded indicator
             
-            println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path);
+            // println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path); // Removed: called every frame
         } else {
             // Fall back to stage path (input or parameter)
             let active_stage = stage_from_input.unwrap_or(current_stage.clone());
@@ -1044,7 +1046,7 @@ impl ViewportNode {
             if !active_stage.is_empty() {
                 outputs.push(NodeData::String(format!("USD Viewport: {}", active_stage)));
                 outputs.push(NodeData::Boolean(true)); // Stage loaded indicator
-                println!("🎬 Viewport: Using file path: {}", active_stage);
+                // println!("🎬 Viewport: Using file path: {}", active_stage); // Removed: called every frame
             } else {
                 outputs.push(NodeData::String("No USD stage loaded".to_string()));
                 outputs.push(NodeData::Boolean(false)); // No stage loaded
@@ -1057,12 +1059,12 @@ impl ViewportNode {
     /// Get viewport data for 3D rendering - uses cached data when possible
     /// This is called by the viewport panel system to get scene data
     pub fn get_viewport_data(node: &Node) -> Option<ViewportData> {
-        println!("🔍 ViewportNode::get_viewport_data called");
+        // println!("🔍 ViewportNode::get_viewport_data called"); // Removed: called every frame
         
         // First check if we have input USDSceneData cached
         if let Ok(input_cache) = VIEWPORT_INPUT_CACHE.lock() {
             if let Some(usd_scene_data) = input_cache.get(&node.id) {
-                println!("🎬 Using cached USDSceneData input with {} meshes", usd_scene_data.meshes.len());
+                // println!("🎬 Using cached USDSceneData input with {} meshes", usd_scene_data.meshes.len()); // Removed: called every frame
                 return Some(Self::convert_usd_scene_to_viewport_data(usd_scene_data, node));
             }
         }
@@ -1074,7 +1076,7 @@ impl ViewportNode {
         // Only fall back to file loading if user has explicitly set a stage path
         if let Some(stage_path) = current_stage {
             if !stage_path.is_empty() {
-                println!("🎬 Loading USD file from parameter: {}", stage_path);
+                // println!("🎬 Loading USD file from parameter: {}", stage_path); // Removed: called every frame
                 // Use the cached renderer if available
                 let mut cache = USD_RENDERER_CACHE.lock().unwrap();
                 let cached_viewport_data = cache.get_or_load(&stage_path);
@@ -1089,7 +1091,7 @@ impl ViewportNode {
         }
         
         // No input data and no file parameter - return empty scene
-        println!("🎬 No USD input data or file parameter - showing empty viewport");
+        // println!("🎬 No USD input data or file parameter - showing empty viewport"); // Removed: called every frame
         Some(Self::create_empty_viewport_data(node))
     }
     

@@ -118,31 +118,25 @@ impl NodeEditor {
     /// Get the nodes to render based on current view
     fn get_viewed_nodes(&self) -> HashMap<NodeId, Node> {
         let nodes = self.navigation.get_viewed_nodes(&self.graph);
-        println!("🔍 get_viewed_nodes: Current view = {:?}", self.navigation.current_view());
-        println!("🔍 get_viewed_nodes: Root graph has {} nodes", self.graph.nodes.len());
-        println!("🔍 get_viewed_nodes: Returning {} nodes from viewed context", nodes.len());
+        // Debug prints removed for performance
         
         // Also check workspace internal graphs
         if let crate::editor::navigation::GraphView::WorkspaceNode(workspace_id) = self.navigation.current_view() {
             if let Some(workspace_node) = self.graph.nodes.get(workspace_id) {
                 if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                    println!("🔍 get_viewed_nodes: Workspace {} internal graph has {} nodes", workspace_id, internal_graph.nodes.len());
+                    // Debug print removed for performance
                 }
             }
         }
         
-        for (id, node) in &nodes {
-            println!("  - Node {}: '{}' at {:?}", id, node.title, node.position);
-        }
+        // Node listing removed for performance
         nodes
     }
     
     /// Get the connections to render based on current view
     fn get_viewed_connections(&self) -> Vec<Connection> {
         let connections = self.navigation.get_viewed_connections(&self.graph);
-        println!("🔗 GET CONNECTIONS: Current view = {:?}", self.navigation.current_view());
-        println!("🔗 GET CONNECTIONS: Found {} connections in viewed connections", connections.len());
-        println!("🔗 GET CONNECTIONS: Root graph has {} connections", self.graph.connections.len());
+        // Debug prints removed for performance
         connections
     }
     
@@ -167,13 +161,11 @@ impl NodeEditor {
     
     /// Add a connection to the appropriate graph based on current view
     fn add_connection_to_active_graph(&mut self, connection: Connection) -> Result<(), &'static str> {
-        println!("🔗 ADD CONNECTION: Current view = {:?}", self.navigation.current_view());
-        println!("🔗 ADD CONNECTION: Connection = {} port {} -> {} port {}", 
-                 connection.from_node, connection.from_port, connection.to_node, connection.to_port);
+        // Debug prints removed for performance
         
         let result = match self.navigation.current_view() {
             GraphView::Root => {
-                println!("🔗 ADD CONNECTION: Adding to root graph");
+                // Debug print removed
                 let result = self.graph.add_connection(connection.clone());
                 
                 // Notify execution engine about the new connection
@@ -181,11 +173,11 @@ impl NodeEditor {
                     self.execution_engine.on_connection_added(&connection, &self.graph);
                 }
                 
-                println!("🔗 ADD CONNECTION: Root graph now has {} connections", self.graph.connections.len());
+                // Debug print removed
                 result
             }
             GraphView::WorkspaceNode(workspace_node_id) => {
-                println!("🔗 ADD CONNECTION: Adding to workspace node {}", workspace_node_id);
+                // Debug print removed
                 if let Some(workspace_node) = self.graph.nodes.get_mut(workspace_node_id) {
                     if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
                         let result = internal_graph.add_connection(connection.clone());
@@ -195,7 +187,7 @@ impl NodeEditor {
                             self.execution_engine.on_connection_added(&connection, internal_graph);
                         }
                         
-                        println!("🔗 ADD CONNECTION: Workspace graph now has {} connections", internal_graph.connections.len());
+                        // Debug print removed
                         result
                     } else {
                         Err("Workspace node has no internal graph")
@@ -303,7 +295,7 @@ impl NodeEditor {
     }
 
     fn create_node(&mut self, node_type: &str, position: Pos2) {
-        println!("🏗️ NODE CREATION: Creating node type '{}' at position {:?}", node_type, position);
+        // Debug print removed
         // Delegate to WorkspaceBuilder for all node creation logic
         if let Some(node_id) = WorkspaceBuilder::create_node(
             node_type,
@@ -312,8 +304,7 @@ impl NodeEditor {
             &self.workspace_manager,
             &mut self.graph,
         ) {
-            println!("🏗️ NODE CREATION: Successfully created node with ID {}", node_id);
-            println!("🏗️ NODE CREATION: Graph now has {} nodes", self.graph.nodes.len());
+            // Debug prints removed
             // Use the actual NodeId returned from create_node instead of unreliable HashMap iteration
             let viewed_nodes = self.get_viewed_nodes();
             if let Some(node) = viewed_nodes.get(&node_id) {
@@ -556,10 +547,7 @@ impl NodeEditor {
             .filter(|(_, node)| node.get_panel_type() == Some(crate::nodes::interface::PanelType::Viewport))
             .collect();
         if !viewport_nodes.is_empty() {
-            info!("render_interface_panels found {} viewport nodes", viewport_nodes.len());
-            for (&id, node) in viewport_nodes {
-                info!("  - Viewport node {} '{}' visible={}", id, node.title, node.visible);
-            }
+            // Found viewport nodes - details logged at debug level
         }
         
         // Delegate to the panel manager - use the correct graph based on current view
@@ -571,7 +559,8 @@ impl NodeEditor {
                     viewed_nodes, 
                     menu_bar_height, 
                     self.navigation.current_view(), 
-                    &mut self.graph
+                    &mut self.graph,
+                    &mut self.execution_engine,
                 );
             }
             crate::editor::navigation::GraphView::WorkspaceNode(workspace_node_id) => {
@@ -583,7 +572,8 @@ impl NodeEditor {
                             viewed_nodes, 
                             menu_bar_height, 
                             self.navigation.current_view(), 
-                            internal_graph
+                            internal_graph,
+                            &mut self.execution_engine,
                         );
                     } else {
                         // Fallback to main graph if workspace has no internal graph
@@ -592,7 +582,8 @@ impl NodeEditor {
                             viewed_nodes, 
                             menu_bar_height, 
                             self.navigation.current_view(), 
-                            &mut self.graph
+                            &mut self.graph,
+                            &mut self.execution_engine,
                         );
                     }
                 } else {
@@ -602,7 +593,8 @@ impl NodeEditor {
                         viewed_nodes, 
                         menu_bar_height, 
                         self.navigation.current_view(), 
-                        &mut self.graph
+                        &mut self.graph,
+                        &mut self.execution_engine,
                     );
                 }
             }
@@ -611,7 +603,7 @@ impl NodeEditor {
 
     /// Check for node connections and execute automatic data flow
     fn check_and_execute_connections(&mut self, _viewed_nodes: &HashMap<NodeId, Node>) {
-        println!("🔗 MAIN LOOP: About to execute connections using new execution engine");
+        // Debug print removed - executing connections
         
         // Get the current graph based on view context
         let graph = match self.navigation.current_view() {
@@ -628,18 +620,17 @@ impl NodeEditor {
         // Execute all dirty nodes using the new execution engine
         match self.execution_engine.execute_dirty_nodes(graph) {
             Ok(_) => {
-                println!("✅ All connections executed successfully");
+                // Success - no print needed
             }
             Err(e) => {
-                println!("❌ Connection execution failed: {}", e);
+                error!("Connection execution failed: {}", e);
             }
         }
         
         // Print execution engine statistics
         let stats = self.execution_engine.get_stats();
         if stats.dirty_nodes > 0 || stats.error_nodes > 0 {
-            println!("📊 Execution stats: {} clean, {} dirty, {} errors, {} cached", 
-                     stats.clean_nodes, stats.dirty_nodes, stats.error_nodes, stats.cached_outputs);
+            // Stats logging removed from main loop
         }
     }
 
@@ -658,10 +649,10 @@ impl NodeEditor {
 
 impl eframe::App for NodeEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        println!("🚀 UPDATE: Starting frame update");
+        // Frame update started
         // Initialize frame
         self.initialize_frame(ctx);
-        println!("🚀 UPDATE: Frame initialized");
+        // Frame initialized
 
         // Render top menu bar as TopBottomPanel to ensure it's always on top with solid background
         let menu_bar_height = egui::TopBottomPanel::top("top_menu_bar")
@@ -841,21 +832,19 @@ impl eframe::App for NodeEditor {
                 if !self.input_state.is_panning {
                     // Handle clicks (not just drags)
                     if self.input_state.clicked_this_frame {
-                        println!("🖱️ CLICK DETECTED! Mouse world pos: {:?}", self.input_state.mouse_world_pos);
+                        // Click detected
                         // Check if we clicked on a port first - use active graph for consistency
                         let active_graph = self.navigation.get_active_graph(&self.graph);
-                        println!("🖱️ Active graph has {} nodes", active_graph.nodes.len());
+                        // Active graph checked
                         // Use smaller radius for precise clicks when not in connecting mode
                         let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
                         if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
-                            println!("🎯 PORT CLICK: Found port! Node: {}, Port: {}, IsInput: {}", node_id, port_idx, is_input);
+                            // Port click found
                             // Handle connection logic
                             if self.input_state.is_connecting_active() {
                                 // Try to complete connection
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
-                                    println!("🔗 CONNECTION CREATED: Node {} port {} -> Node {} port {}", 
-                                             connection.from_node, connection.from_port, 
-                                             connection.to_node, connection.to_port);
+                                    // Connection created
                                     // Check if target is an input port and already has a connection
                                     if is_input {
                                         if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
@@ -865,13 +854,13 @@ impl eframe::App for NodeEditor {
                                         }
                                     }
                                     match self.add_connection_to_active_graph(connection) {
-                                        Ok(_) => println!("✅ Connection added successfully"),
-                                        Err(e) => println!("❌ Failed to add connection: {}", e),
+                                        Ok(_) => {},
+                                        Err(e) => error!("Failed to add connection: {}", e),
                                     }
                                     self.mark_modified();
                                 } else {
                                     // Start new connection from this port
-                                    println!("🔗 Starting new connection from node {} port {} (is_input: {})", node_id, port_idx, is_input);
+                                    // Starting new connection
                                     self.input_state.start_connection(node_id, port_idx, is_input);
                                 }
                             } else {
@@ -1141,12 +1130,10 @@ impl eframe::App for NodeEditor {
                             let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
                             if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(active_graph, click_radius) {
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
-                                    println!("🔗 CONNECTION CREATED (drag release): Node {} port {} -> Node {} port {}", 
-                                             connection.from_node, connection.from_port, 
-                                             connection.to_node, connection.to_port);
+                                    // Connection created on drag release
                                     match self.add_connection_to_active_graph(connection) {
-                                        Ok(_) => println!("✅ Connection added successfully"),
-                                        Err(e) => println!("❌ Failed to add connection: {}", e),
+                                        Ok(_) => {},
+                                        Err(e) => error!("Failed to add connection: {}", e),
                                     }
                                     self.mark_modified();
                                 }
@@ -1749,22 +1736,21 @@ impl eframe::App for NodeEditor {
             }
 
             // Interface panel rendering - render panels for nodes that have them
-            println!("🎨 MAIN LOOP: About to render interface panels");
+            // Rendering interface panels
             self.render_interface_panels(ui, &viewed_nodes, menu_bar_height);
-            println!("🎨 MAIN LOOP: Finished rendering interface panels");
+            // Interface panels rendered
 
             // Connection-based execution - check for USD LoadStage to Viewport connections
-            println!("🔗 MAIN LOOP: About to check and execute connections");
+            // Checking and executing connections
             self.check_and_execute_connections(&viewed_nodes);
-            println!("🔗 MAIN LOOP: Finished checking connections");
+            // Connections checked
 
             // Performance info overlay
-            println!("📊 MAIN LOOP: About to render performance info");
+            // Rendering performance info
             self.debug_tools.render_performance_info(ui, self.use_gpu_rendering, self.graph.nodes.len(), self.current_menu_bar_height);
-            println!("📊 MAIN LOOP: Finished rendering performance info");
+            // Performance info rendered
         });
-        println!("🏁 UPDATE: Frame update completed successfully");
-        println!("🔄 UPDATE: About to return to eframe");
+        // Frame update completed
     }
 
 }

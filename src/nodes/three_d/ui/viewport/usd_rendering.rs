@@ -241,10 +241,11 @@ impl USDRenderer {
         
         self.upload_geometry_buffers()?;
         
-        println!("✓ Loaded USD stage: {} geometries, {} lights, {} materials", 
-                 self.current_scene.geometries.len(),
-                 self.current_scene.lights.len(),
-                 self.current_scene.materials.len());
+        // println!("✓ Loaded USD stage: {} geometries, {} lights, {} materials", 
+        //          self.current_scene.geometries.len(),
+        //          self.current_scene.lights.len(),
+        //          self.current_scene.materials.len());
+        // Removed: called during stage loading
         
         Ok(())
     }
@@ -313,10 +314,11 @@ impl USDRenderer {
             self.current_scene.materials.insert(usd_material.prim_path.clone(), material);
         }
         
-        println!("Converted USD scene: {} geometries, {} lights, {} materials",
-                 self.current_scene.geometries.len(),
-                 self.current_scene.lights.len(),
-                 self.current_scene.materials.len());
+        // println!("Converted USD scene: {} geometries, {} lights, {} materials",
+        //          self.current_scene.geometries.len(),
+        //          self.current_scene.lights.len(),
+        //          self.current_scene.materials.len());
+        // Removed: called during conversion
     }
     
     pub fn create_mock_scene(&mut self, stage_id: &str) {

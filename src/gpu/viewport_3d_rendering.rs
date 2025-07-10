@@ -124,7 +124,7 @@ impl Camera3D {
     /// Update scene size for adaptive sensitivity
     pub fn set_scene_size(&mut self, scene_size: f32) {
         self.scene_size = scene_size;
-        println!("📏 Camera scene size updated to: {:.1}", scene_size);
+        // Scene size updated
     }
     
     /// Calculate adaptive sensitivity based on scene size and camera distance
@@ -1250,12 +1250,12 @@ impl Renderer3D {
         
         // Upload and render USD meshes
         if !viewport_data.scene.meshes.is_empty() {
-            println!("🎬 Rendering {} USD meshes", viewport_data.scene.meshes.len());
+            // Rendering USD meshes
             
             for mesh in &viewport_data.scene.meshes {
                 // Upload mesh to GPU if not already uploaded
                 if let Err(e) = self.upload_mesh_to_gpu(mesh.id.clone(), mesh) {
-                    println!("❌ Failed to upload mesh {}: {}", mesh.id, e);
+                    // Failed to upload mesh - continuing
                     continue;
                 }
                 
@@ -1273,7 +1273,7 @@ impl Renderer3D {
                 }
             }
             
-            println!("✅ Rendered {} GPU meshes", self.gpu_meshes.len());
+            // GPU meshes rendered
         }
     }
     

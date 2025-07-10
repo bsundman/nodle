@@ -31,6 +31,7 @@ impl ParameterPanel {
         menu_bar_height: f32,
         viewed_nodes: &std::collections::HashMap<NodeId, Node>,
         graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> PanelAction {
         // Check if this panel should be stacked
         if panel_manager.is_panel_stacked(node_id) {
@@ -47,7 +48,7 @@ impl ParameterPanel {
                 
                 if node_id == first_node_id {
                     // This is the designated renderer, render the shared window
-                    self.render_stacked_panels(ctx, &stacked_parameter_nodes, panel_manager, menu_bar_height, viewed_nodes, graph)
+                    self.render_stacked_panels(ctx, &stacked_parameter_nodes, panel_manager, menu_bar_height, viewed_nodes, graph, execution_engine)
                 } else {
                     // This is not the designated renderer, but if the designated renderer
                     // is not visible or the first node's panel is closed, allow this node to render
@@ -57,7 +58,7 @@ impl ParameterPanel {
                     
                     if !first_node_visible || !panel_manager.is_panel_open(first_node_id) {
                         // First node can't render the window, so this node should do it
-                        self.render_stacked_panels(ctx, &stacked_parameter_nodes, panel_manager, menu_bar_height, viewed_nodes, graph)
+                        self.render_stacked_panels(ctx, &stacked_parameter_nodes, panel_manager, menu_bar_height, viewed_nodes, graph, execution_engine)
                     } else {
                         // First node is handling the window
                         PanelAction::None
@@ -67,7 +68,7 @@ impl ParameterPanel {
                 PanelAction::None
             }
         } else {
-            self.render_individual_panel(ctx, node_id, node, panel_manager, menu_bar_height, graph)
+            self.render_individual_panel(ctx, node_id, node, panel_manager, menu_bar_height, graph, execution_engine)
         }
     }
 
@@ -80,6 +81,7 @@ impl ParameterPanel {
         panel_manager: &mut InterfacePanelManager,
         menu_bar_height: f32,
         graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> PanelAction {
         // Check if panel is marked as visible
         if !panel_manager.is_panel_visible(node_id) {
@@ -128,7 +130,7 @@ impl ParameterPanel {
                     .fill(Color32::from_gray(40))
                     .corner_radius(4.0)
                     .show(ui, |ui| {
-                        self.render_parameter_content(ui, node_id, node, panel_manager, graph);
+                        self.render_parameter_content(ui, node_id, node, panel_manager, graph, execution_engine);
                     });
             });
         
@@ -152,6 +154,7 @@ impl ParameterPanel {
         menu_bar_height: f32,
         viewed_nodes: &std::collections::HashMap<NodeId, Node>,
         graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> PanelAction {
         let mut panel_action = PanelAction::None;
         
@@ -234,7 +237,7 @@ impl ParameterPanel {
                                             .corner_radius(4.0)
                                             .stroke(egui::Stroke::new(1.0, Color32::from_gray(80)))
                                             .show(ui, |ui| {
-                                                self.render_parameter_content(ui, node_id, node, panel_manager, graph);
+                                                self.render_parameter_content(ui, node_id, node, panel_manager, graph, execution_engine);
                                             });
                                     });
                                 
@@ -315,20 +318,18 @@ impl ParameterPanel {
         node: &Node,
         panel_manager: &mut InterfacePanelManager,
         graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) {
-        println!("📋 PANEL START: Node '{}' (ID: {}) - Title in passed node: '{}'", node.title, node_id, node.title);
+        // Panel rendering started
         
         // Check what the title is in the graph vs the passed node
         if let Some(graph_node) = graph.nodes.get(&node_id) {
-            println!("📋 PANEL START: Title in graph: '{}'", graph_node.title);
-            if graph_node.title != node.title {
-                println!("⚠️  MISMATCH: Graph title '{}' != passed node title '{}'", graph_node.title, node.title);
-            }
+            // Title check removed for performance
         }
         
         // Get the actual node's title for editing
         let mut name_buffer = node.title.clone();
-        println!("📋 PANEL START: name_buffer initialized to: '{}'", name_buffer);
+        // Name buffer initialized
         
         // Get current fit name flag
         let mut fit_name = panel_manager.get_fit_name(node_id);
@@ -336,20 +337,19 @@ impl ParameterPanel {
         ui.horizontal(|ui| {
             ui.label("Name:");
             
-            println!("📝 NAME EDIT: About to render text field with buffer: '{}'", name_buffer);
+            // Rendering name text field
             
             // Name text field - directly edit the node's title
             let name_response = ui.text_edit_singleline(&mut name_buffer);
             
-            println!("📝 NAME EDIT: After text field, buffer is now: '{}'", name_buffer);
-            println!("📝 NAME EDIT: Text field changed: {}", name_response.changed());
+            // Name field rendered
             
             if name_response.changed() {
-                println!("🔄 NAME CHANGE: User changed name from '{}' to '{}'", node.title, name_buffer);
+                // Name changed by user
                 
                 // Update the actual node's title in the graph
                 if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
-                    println!("🔄 NAME CHANGE: Updating graph node title to '{}'", name_buffer);
+                    // Updating graph node title
                     node_mut.title = name_buffer.clone();
                     
                     // If fit name is enabled, resize the node to fit the new title
@@ -462,8 +462,8 @@ impl ParameterPanel {
         ui.separator();
         
         // Use proper parameter interface for all nodes that have build_interface methods
-        let handled = if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
-            self.render_node_interface(node_mut, ui, node_id)
+        let handled = if graph.nodes.contains_key(&node_id) {
+            self.render_node_interface_safe(ui, node_id, execution_engine, graph)
         } else {
             false
         };
@@ -503,13 +503,203 @@ impl ParameterPanel {
     }
     
     /// Render the proper parameter interface using Pattern A: build_interface method
-    fn render_node_interface(&mut self, node: &mut crate::nodes::Node, ui: &mut egui::Ui, node_id: NodeId) -> bool {
+    fn render_node_interface(
+        &mut self, 
+        node: &mut crate::nodes::Node, 
+        ui: &mut egui::Ui, 
+        node_id: NodeId,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
+        graph: &crate::nodes::NodeGraph,
+    ) -> bool {
         // ONLY Pattern A: build_interface(node, ui) method for ALL nodes
-        self.render_build_interface_pattern(node, ui, node_id)
+        self.render_build_interface_pattern(node, ui, node_id, execution_engine, graph)
+    }
+    
+    /// Safe version that handles borrowing conflicts
+    fn render_node_interface_safe(
+        &mut self,
+        ui: &mut egui::Ui, 
+        node_id: NodeId,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
+        graph: &mut crate::nodes::NodeGraph,
+    ) -> bool {
+        // Extended approach: handle all node types with parameter change detection
+        // This avoids the borrowing conflict while still enabling parameter change notifications
+        let mut changes_applied = false;
+        let mut handled = false;
+        
+        if let Some(node) = graph.nodes.get_mut(&node_id) {
+            let title = node.title.clone();
+            // Rendering node interface
+            
+            // Try to handle all known node types with build_interface methods
+            let changes = match title.as_str() {
+                // Data nodes
+                "USD File Reader" => {
+                    // Using USD File Reader interface
+                    crate::nodes::data::usd_file_reader::parameters::UsdFileReaderParameters::build_interface(node, ui)
+                },
+                
+                // Test nodes
+                title if title.contains("Test") => {
+                    // Using Test node interface
+                    crate::nodes::utility::test::parameters::TestNode::build_interface(node, ui)
+                },
+                
+                // 3D Transform nodes
+                "Translate" | "3D_Translate" => {
+                    // Using Translate interface
+                    crate::nodes::three_d::transform::translate::parameters::TranslateNode::build_interface(node, ui)
+                },
+                "Rotate" | "3D_Rotate" => {
+                    // Using Rotate interface
+                    crate::nodes::three_d::transform::rotate::parameters::RotateNode::build_interface(node, ui)
+                },
+                "Scale" | "3D_Scale" => {
+                    // Using Scale interface
+                    crate::nodes::three_d::transform::scale::parameters::ScaleNode::build_interface(node, ui)
+                },
+                
+                // 3D Geometry nodes
+                "Cube" => {
+                    // Using Cube interface
+                    crate::nodes::three_d::geometry::cube::parameters::CubeNode::build_interface(node, ui)
+                },
+                "Sphere" => {
+                    // Using Sphere interface
+                    crate::nodes::three_d::geometry::sphere::parameters::SphereNode::build_interface(node, ui)
+                },
+                "Plane" => {
+                    // Using Plane interface
+                    crate::nodes::three_d::geometry::plane::parameters::PlaneNode::build_interface(node, ui)
+                },
+                
+                // 3D Lighting nodes
+                "Point Light" => {
+                    // Using Point Light interface
+                    crate::nodes::three_d::lighting::point_light::parameters::PointLightNode::build_interface(node, ui)
+                },
+                "Directional Light" => {
+                    // Using Directional Light interface
+                    crate::nodes::three_d::lighting::directional_light::parameters::DirectionalLightNode::build_interface(node, ui)
+                },
+                "Spot Light" => {
+                    // Using Spot Light interface
+                    crate::nodes::three_d::lighting::spot_light::parameters::SpotLightNode::build_interface(node, ui)
+                },
+                
+                // Other node types - use generic parameter interface if available
+                _ => {
+                    // Using generic parameter interface
+                    // Fall back to basic parameter editing for unknown types
+                    // This creates a simple interface for any parameters the node has
+                    self.build_generic_parameter_interface(node, ui)
+                }
+            };
+            
+            // Apply changes if any were detected
+            if !changes.is_empty() {
+                info!("Applied {} parameter changes for {} node {}", changes.len(), title, node_id);
+                // Applying parameter changes
+                for change in changes {
+                    node.parameters.insert(change.parameter, change.value);
+                }
+                changes_applied = true;
+                
+                // Notify execution engine immediately after changes are applied
+                // Notifying execution engine
+            } else {
+                // No parameter changes
+            }
+            handled = true;
+        }
+        
+        // Notify execution engine outside the mutable borrow scope if changes were made
+        if changes_applied {
+            // Notifying execution engine about parameter changes
+            execution_engine.on_node_parameter_changed(node_id, graph);
+        }
+        
+        handled
+    }
+    
+    /// Build a generic parameter interface for nodes without specialized interfaces
+    fn build_generic_parameter_interface(
+        &mut self, 
+        node: &mut crate::nodes::Node, 
+        ui: &mut egui::Ui
+    ) -> Vec<crate::nodes::interface::ParameterChange> {
+        let mut changes = Vec::new();
+        
+        if node.parameters.is_empty() {
+            ui.label("No parameters available");
+            return changes;
+        }
+        
+        ui.label("Parameters:");
+        ui.separator();
+        
+        // Clone the parameters to avoid borrowing issues during iteration
+        let parameters: Vec<(String, crate::nodes::interface::NodeData)> = node.parameters.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        
+        for (param_name, param_value) in parameters {
+            ui.horizontal(|ui| {
+                ui.label(format!("{}:", param_name));
+                
+                match param_value {
+                    crate::nodes::interface::NodeData::String(mut s) => {
+                        if ui.text_edit_singleline(&mut s).changed() {
+                            changes.push(crate::nodes::interface::ParameterChange {
+                                parameter: param_name,
+                                value: crate::nodes::interface::NodeData::String(s),
+                            });
+                        }
+                    }
+                    crate::nodes::interface::NodeData::Boolean(mut b) => {
+                        if ui.checkbox(&mut b, "").changed() {
+                            changes.push(crate::nodes::interface::ParameterChange {
+                                parameter: param_name,
+                                value: crate::nodes::interface::NodeData::Boolean(b),
+                            });
+                        }
+                    }
+                    crate::nodes::interface::NodeData::Float(mut f) => {
+                        if ui.add(egui::DragValue::new(&mut f).speed(0.1)).changed() {
+                            changes.push(crate::nodes::interface::ParameterChange {
+                                parameter: param_name,
+                                value: crate::nodes::interface::NodeData::Float(f),
+                            });
+                        }
+                    }
+                    crate::nodes::interface::NodeData::Integer(mut i) => {
+                        if ui.add(egui::DragValue::new(&mut i)).changed() {
+                            changes.push(crate::nodes::interface::ParameterChange {
+                                parameter: param_name,
+                                value: crate::nodes::interface::NodeData::Integer(i),
+                            });
+                        }
+                    }
+                    _ => {
+                        ui.label(format!("{:?}", param_value));
+                    }
+                }
+            });
+        }
+        
+        changes
     }
     
     /// Pattern A: build_interface(node, ui) method for ALL nodes
-    fn render_build_interface_pattern(&mut self, node: &mut crate::nodes::Node, ui: &mut egui::Ui, node_id: NodeId) -> bool {
+    fn render_build_interface_pattern(
+        &mut self, 
+        node: &mut crate::nodes::Node, 
+        ui: &mut egui::Ui, 
+        node_id: NodeId,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
+        graph: &crate::nodes::NodeGraph,
+    ) -> bool {
         let title = node.title.clone();
         
         // Debug output for every individual node (not workspace)
@@ -632,136 +822,136 @@ impl ParameterPanel {
         // Math nodes using Pattern A
         if title.contains("Add") || title.contains("Addition") {
             let changes = crate::nodes::math::add::parameters::AddNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Math nodes using Pattern A
         if title.contains("Subtract") || title.contains("Subtraction") {
             let changes = crate::nodes::math::subtract::parameters::SubtractNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Multiply") || title.contains("Multiplication") {
             let changes = crate::nodes::math::multiply::parameters::MultiplyNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Divide") || title.contains("Division") {
             let changes = crate::nodes::math::divide::parameters::DivideNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Geometry nodes using Pattern A
         if title.contains("Sphere") && !title.contains("USD") {
             let changes = crate::nodes::three_d::geometry::sphere::parameters::SphereNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Cube") && !title.contains("USD") {
             let changes = crate::nodes::three_d::geometry::cube::parameters::CubeNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Data nodes using Pattern A
         if title.contains("Constant") {
             let changes = crate::nodes::data::constant::parameters::ConstantNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Variable") {
             let changes = crate::nodes::data::variable::parameters::VariableNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Output nodes using Pattern A
         if title.contains("Debug") {
             let changes = crate::nodes::output::debug::parameters::DebugNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Print") {
             let changes = crate::nodes::output::print::parameters::PrintNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Logic nodes using Pattern A
         if title.contains("And") && !title.contains("USD") {
             let changes = crate::nodes::logic::and::parameters::AndNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Or") && !title.contains("USD") {
             let changes = crate::nodes::logic::or::parameters::OrNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Not") && !title.contains("USD") {
             let changes = crate::nodes::logic::not::parameters::NotNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Transform nodes using Pattern A
         if title.contains("Translate") && !title.contains("USD") {
             let changes = crate::nodes::three_d::transform::translate::parameters::TranslateNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Scale") && !title.contains("USD") {
             let changes = crate::nodes::three_d::transform::scale::parameters::ScaleNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Rotate") && !title.contains("USD") {
             let changes = crate::nodes::three_d::transform::rotate::parameters::RotateNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Lighting nodes using Pattern A
         if title.contains("Spot Light") || (title.contains("Spot") && title.contains("Light")) {
             let changes = crate::nodes::three_d::lighting::spot_light::parameters::SpotLightNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Directional Light") || (title.contains("Directional") && title.contains("Light")) {
             let changes = crate::nodes::three_d::lighting::directional_light::parameters::DirectionalLightNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if title.contains("Point Light") || (title.contains("Point") && title.contains("Light")) {
             let changes = crate::nodes::three_d::lighting::point_light::parameters::PointLightNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Geometry nodes using Pattern A
         if title.contains("Plane") && !title.contains("USD") {
             let changes = crate::nodes::three_d::geometry::plane::parameters::PlaneNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Utility nodes using Pattern A
         if title.contains("Null") {
             let changes = crate::nodes::utility::null::parameters::NullNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
@@ -770,7 +960,7 @@ impl ParameterPanel {
             println!("🧪 TEST NODE: Node has {} parameters", node.parameters.len());
             let changes = crate::nodes::utility::test::parameters::TestNode::build_interface(node, ui);
             println!("🧪 TEST NODE: build_interface returned {} parameter changes", changes.len());
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             println!("🧪 TEST NODE: Applied parameter changes successfully");
             return true;
         }
@@ -778,7 +968,7 @@ impl ParameterPanel {
         // Data nodes using Pattern A
         if title.contains("USD File Reader") {
             let changes = crate::nodes::data::usd_file_reader::UsdFileReaderNode::build_interface(node, ui);
-            self.apply_parameter_changes(node, changes, &title, node_id);
+            self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
@@ -793,13 +983,19 @@ impl ParameterPanel {
         node: &mut crate::nodes::Node, 
         changes: Vec<crate::nodes::interface::ParameterChange>, 
         title: &str, 
-        node_id: NodeId
+        node_id: NodeId,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
+        graph: &crate::nodes::NodeGraph,
     ) {
         if !changes.is_empty() {
             info!("Applied {} parameter changes for {} node {}", changes.len(), title, node_id);
             for change in changes {
                 node.parameters.insert(change.parameter, change.value);
             }
+            
+            // Notify execution engine that parameters changed
+            println!("🔧 PANEL: Parameter changes applied to node {} - notifying execution engine", node_id);
+            execution_engine.on_node_parameter_changed(node_id, graph);
         }
     }
     
