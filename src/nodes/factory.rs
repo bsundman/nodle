@@ -1109,6 +1109,7 @@ impl Default for NodeRegistry {
         // Register modular data nodes
         registry.register::<crate::nodes::data::constant::ConstantNodeFactory>();
         registry.register::<crate::nodes::data::variable::VariableNodeFactory>();
+        registry.register::<crate::nodes::data::usd_file_reader::UsdFileReaderNodeFactory>();
         
         // Register modular output nodes
         registry.register::<crate::nodes::output::PrintNodeFactory>();

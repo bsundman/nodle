@@ -725,6 +725,13 @@ impl ParameterPanel {
             return true;
         }
         
+        // Data nodes using Pattern A
+        if title.contains("USD File Reader") {
+            let changes = crate::nodes::data::usd_file_reader::UsdFileReaderNode::build_interface(node, ui);
+            self.apply_parameter_changes(node, changes, &title, node_id);
+            return true;
+        }
+        
         false
     }
     

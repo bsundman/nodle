@@ -40,6 +40,9 @@ impl Workspace3D {
         // Register 3D UI nodes
         node_registry.register::<crate::nodes::three_d::ui::viewport::ViewportNode>();
         
+        // Register USD data input nodes
+        node_registry.register::<crate::nodes::data::usd_file_reader::UsdFileReaderNodeFactory>();
+        
         // USD nodes now provided by USD plugin
         
         // Try to register plugin nodes using the global plugin manager
