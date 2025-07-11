@@ -15,12 +15,12 @@ use super::usd_rendering::USDRenderer;
 use glam::{Mat4, Vec3};
 
 /// Global cache for viewport input data to bridge process_node and get_viewport_data
-static VIEWPORT_INPUT_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, crate::workspaces::three_d::usd::usd_engine::USDSceneData>>>> = Lazy::new(|| {
+pub static VIEWPORT_INPUT_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, crate::workspaces::three_d::usd::usd_engine::USDSceneData>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
 });
 
 /// Cache for converted viewport data to avoid expensive conversion every frame
-static VIEWPORT_DATA_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, (ViewportData, u64)>>>> = Lazy::new(|| {
+pub static VIEWPORT_DATA_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, (ViewportData, u64)>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
 });
 
@@ -46,9 +46,9 @@ fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::us
 }
 
 /// Cache for USD renderers to avoid reloading stages every frame
-struct USDRendererCache {
-    renderers: HashMap<String, (USDRenderer, ViewportData)>,
-    scene_bounds: HashMap<String, Option<(Vec3, Vec3)>>,  // Cache for scene bounds
+pub struct USDRendererCache {
+    pub renderers: HashMap<String, (USDRenderer, ViewportData)>,
+    pub scene_bounds: HashMap<String, Option<(Vec3, Vec3)>>,  // Cache for scene bounds
 }
 
 impl USDRendererCache {
@@ -181,6 +181,7 @@ impl USDRendererCache {
                 normals: usd_geometry.vertices.iter().flat_map(|v| v.normal.iter().cloned()).collect(),
                 uvs: usd_geometry.vertices.iter().flat_map(|v| v.uv.iter().cloned()).collect(),
                 indices: usd_geometry.indices.clone(),
+                vertex_colors: Some(usd_geometry.vertices.iter().flat_map(|v| v.color.iter().cloned()).collect()),
                 material_id: usd_geometry.material_path.clone(),
                 transform: final_transform.to_cols_array_2d(),
             };
@@ -267,7 +268,7 @@ impl USDRendererCache {
 }
 
 // Global cache for USD renderers
-static USD_RENDERER_CACHE: Lazy<Arc<Mutex<USDRendererCache>>> = Lazy::new(|| {
+pub static USD_RENDERER_CACHE: Lazy<Arc<Mutex<USDRendererCache>>> = Lazy::new(|| {
     Arc::new(Mutex::new(USDRendererCache::new()))
 });
 
@@ -481,6 +482,12 @@ impl ViewportNode {
                 // Left face
                 4, 0, 3,   3, 5, 4,
             ],
+            vertex_colors: Some(vec![
+                // Front face
+                1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 1.0, 0.0,
+                // Back face
+                0.0, 1.0, 1.0,  1.0, 0.0, 1.0,  0.5, 0.5, 0.5,  1.0, 0.5, 0.0,
+            ]),
             material_id: Some("usd_material".to_string()),
             transform: [
                 [1.0, 0.0, 0.0, 0.0],
@@ -563,7 +570,7 @@ impl ViewportNode {
                         // Alt + Middle Mouse = Pan (invert for natural feel)
                         Some(CameraManipulation::Pan {
                             delta_x: -delta.x * 0.01,
-                            delta_y: -delta.y * 0.01,
+                            delta_y: delta.y * 0.01,
                         })
                     }
                     Some(egui::PointerButton::Secondary) => {
@@ -676,7 +683,7 @@ impl ViewportNode {
                         // Alt + Middle Mouse = Pan (invert for natural feel)
                         Some(CameraManipulation::Pan {
                             delta_x: -delta.x * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
-                            delta_y: -delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
+                            delta_y: delta.y * crate::constants::camera::DEFAULT_DRAG_SENSITIVITY,
                         })
                     }
                     Some(egui::PointerButton::Secondary) => {
@@ -1167,12 +1174,20 @@ impl ViewportNode {
                 .flat_map(|uv| [uv.x, uv.y])
                 .collect();
             
+            // Extract vertex colors if available
+            let vertex_colors = if let Some(ref colors) = usd_mesh.vertex_colors {
+                Some(colors.iter().flat_map(|c| [c.x, c.y, c.z]).collect())
+            } else {
+                None
+            };
+            
             let mesh = MeshData {
                 id: format!("mesh_{}", mesh_idx),
                 vertices,
                 normals,
                 uvs,
                 indices: usd_mesh.indices.clone(),
+                vertex_colors,
                 material_id: None, // USD mesh doesn't have material_id in this structure
                 transform: [
                     [usd_mesh.transform.x_axis.x, usd_mesh.transform.x_axis.y, usd_mesh.transform.x_axis.z, usd_mesh.transform.x_axis.w],

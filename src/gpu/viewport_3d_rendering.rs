@@ -27,10 +27,11 @@ pub struct Vertex3D {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    pub color: [f32; 3],  // Vertex color (RGB)
 }
 
 impl Vertex3D {
-    const ATTRIBUTES: [VertexAttribute; 3] = [
+    const ATTRIBUTES: [VertexAttribute; 4] = [
         VertexAttribute {
             offset: 0,
             shader_location: 0,
@@ -45,6 +46,11 @@ impl Vertex3D {
             offset: mem::size_of::<[f32; 6]>() as eframe::wgpu::BufferAddress,
             shader_location: 2,
             format: VertexFormat::Float32x2,
+        },
+        VertexAttribute {
+            offset: mem::size_of::<[f32; 8]>() as eframe::wgpu::BufferAddress,
+            shader_location: 3,
+            format: VertexFormat::Float32x3,
         },
     ];
 
@@ -452,40 +458,40 @@ impl Mesh3D {
     pub fn cube() -> Self {
         let vertices = vec![
             // Front face
-            Vertex3D { position: [-1.0, -1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 0.0] },
-            Vertex3D { position: [ 1.0, -1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 0.0] },
-            Vertex3D { position: [ 1.0,  1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 1.0] },
-            Vertex3D { position: [-1.0,  1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 1.0] },
+            Vertex3D { position: [-1.0, -1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0, -1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0,  1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [1.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0,  1.0,  1.0], normal: [ 0.0,  0.0,  1.0], uv: [0.0, 1.0], color: [0.8, 0.8, 0.8] },
             
             // Back face
-            Vertex3D { position: [-1.0, -1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 0.0] },
-            Vertex3D { position: [-1.0,  1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 1.0] },
-            Vertex3D { position: [ 1.0,  1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 1.0] },
-            Vertex3D { position: [ 1.0, -1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 0.0] },
+            Vertex3D { position: [-1.0, -1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0,  1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [1.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0,  1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0, -1.0, -1.0], normal: [ 0.0,  0.0, -1.0], uv: [0.0, 0.0], color: [0.8, 0.8, 0.8] },
             
             // Top face
-            Vertex3D { position: [-1.0,  1.0, -1.0], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 1.0] },
-            Vertex3D { position: [-1.0,  1.0,  1.0], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 0.0] },
-            Vertex3D { position: [ 1.0,  1.0,  1.0], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 0.0] },
-            Vertex3D { position: [ 1.0,  1.0, -1.0], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 1.0] },
+            Vertex3D { position: [-1.0,  1.0, -1.0], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0,  1.0,  1.0], normal: [ 0.0,  1.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0,  1.0,  1.0], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0,  1.0, -1.0], normal: [ 0.0,  1.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.8, 0.8] },
             
             // Bottom face
-            Vertex3D { position: [-1.0, -1.0, -1.0], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 1.0] },
-            Vertex3D { position: [ 1.0, -1.0, -1.0], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 1.0] },
-            Vertex3D { position: [ 1.0, -1.0,  1.0], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 0.0] },
-            Vertex3D { position: [-1.0, -1.0,  1.0], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 0.0] },
+            Vertex3D { position: [-1.0, -1.0, -1.0], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0, -1.0, -1.0], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0, -1.0,  1.0], normal: [ 0.0, -1.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0, -1.0,  1.0], normal: [ 0.0, -1.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.8, 0.8] },
             
             // Right face
-            Vertex3D { position: [ 1.0, -1.0, -1.0], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 0.0] },
-            Vertex3D { position: [ 1.0,  1.0, -1.0], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 1.0] },
-            Vertex3D { position: [ 1.0,  1.0,  1.0], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 1.0] },
-            Vertex3D { position: [ 1.0, -1.0,  1.0], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 0.0] },
+            Vertex3D { position: [ 1.0, -1.0, -1.0], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0,  1.0, -1.0], normal: [ 1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0,  1.0,  1.0], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [ 1.0, -1.0,  1.0], normal: [ 1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.8, 0.8] },
             
             // Left face
-            Vertex3D { position: [-1.0, -1.0, -1.0], normal: [-1.0,  0.0,  0.0], uv: [0.0, 0.0] },
-            Vertex3D { position: [-1.0, -1.0,  1.0], normal: [-1.0,  0.0,  0.0], uv: [1.0, 0.0] },
-            Vertex3D { position: [-1.0,  1.0,  1.0], normal: [-1.0,  0.0,  0.0], uv: [1.0, 1.0] },
-            Vertex3D { position: [-1.0,  1.0, -1.0], normal: [-1.0,  0.0,  0.0], uv: [0.0, 1.0] },
+            Vertex3D { position: [-1.0, -1.0, -1.0], normal: [-1.0,  0.0,  0.0], uv: [0.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0, -1.0,  1.0], normal: [-1.0,  0.0,  0.0], uv: [1.0, 0.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0,  1.0,  1.0], normal: [-1.0,  0.0,  0.0], uv: [1.0, 1.0], color: [0.8, 0.8, 0.8] },
+            Vertex3D { position: [-1.0,  1.0, -1.0], normal: [-1.0,  0.0,  0.0], uv: [0.0, 1.0], color: [0.8, 0.8, 0.8] },
         ];
         
         let indices = vec![
@@ -503,10 +509,10 @@ impl Mesh3D {
     /// Create a ground plane for the grid
     pub fn grid_plane(size: f32) -> Self {
         let vertices = vec![
-            Vertex3D { position: [-size, 0.0, -size], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
-            Vertex3D { position: [ size, 0.0, -size], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
-            Vertex3D { position: [ size, 0.0,  size], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
-            Vertex3D { position: [-size, 0.0,  size], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
+            Vertex3D { position: [-size, 0.0, -size], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0], color: [0.5, 0.5, 0.5] },
+            Vertex3D { position: [ size, 0.0, -size], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0], color: [0.5, 0.5, 0.5] },
+            Vertex3D { position: [ size, 0.0,  size], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0], color: [0.5, 0.5, 0.5] },
+            Vertex3D { position: [-size, 0.0,  size], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0], color: [0.5, 0.5, 0.5] },
         ];
         
         let indices = vec![0, 1, 2, 0, 2, 3];
@@ -1233,10 +1239,14 @@ impl Renderer3D {
                 [0.0, 0.0] // Default UV
             };
             
+            // Default color is light gray
+            let color = [0.8, 0.8, 0.8];
+            
             vertices.push(Vertex3D {
                 position,
                 normal,
                 uv,
+                color,
             });
         }
         

@@ -518,6 +518,38 @@ impl NodeGraphEngine {
         
         // Mark the target node as dirty
         self.mark_dirty(connection.to_node, graph);
+        
+        // Clear cached outputs from the source node to prevent stale data
+        self.output_cache.retain(|(node_id, _), _| *node_id != connection.from_node);
+        
+        // Clear viewport-specific caches if the target is a viewport node
+        if let Some(node) = graph.nodes.get(&connection.to_node) {
+            if node.title == "Viewport" {
+                self.clear_viewport_caches(connection.to_node);
+            }
+        }
+    }
+    
+    /// Clear viewport-specific caches for a node
+    fn clear_viewport_caches(&self, node_id: NodeId) {
+        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE};
+        
+        // Clear viewport input cache
+        if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
+            cache.remove(&node_id);
+        }
+        
+        // Clear viewport data cache
+        if let Ok(mut cache) = VIEWPORT_DATA_CACHE.lock() {
+            cache.remove(&node_id);
+        }
+        
+        // Clear USD renderer cache for this node
+        if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
+            cache.renderers.remove(&node_id.to_string());
+        }
+        
+        println!("🧹 Cleared viewport caches for node: {}", node_id);
     }
 
     /// Handle a node parameter change

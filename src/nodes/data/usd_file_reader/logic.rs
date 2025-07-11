@@ -8,6 +8,7 @@ use crate::nodes::interface::NodeData;
 use crate::nodes::Node;
 use crate::workspaces::three_d::usd::usd_engine::{USDEngine, USDSceneData};
 use std::path::Path;
+use glam::Mat4;
 
 /// USD File Reader processing logic
 pub struct UsdFileReaderLogic {
@@ -17,6 +18,7 @@ pub struct UsdFileReaderLogic {
     pub extract_materials: bool,
     pub extract_lights: bool,
     pub extract_cameras: bool,
+    pub convert_coordinate_system: bool,
     last_modified: Option<std::time::SystemTime>,
     usd_engine: USDEngine,
     cached_scene_data: Option<USDSceneData>,
@@ -48,6 +50,10 @@ impl UsdFileReaderLogic {
         let extract_cameras = node.parameters.get("extract_cameras")
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
             .unwrap_or(false);
+        
+        let convert_coordinate_system = node.parameters.get("convert_coordinate_system")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(true);
 
         Self {
             file_path,
@@ -56,6 +62,7 @@ impl UsdFileReaderLogic {
             extract_materials,
             extract_lights,
             extract_cameras,
+            convert_coordinate_system,
             last_modified: None,
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
@@ -122,8 +129,15 @@ impl UsdFileReaderLogic {
                 // Cache the scene data for reuse
                 self.cached_scene_data = Some(usd_scene_data.clone());
                 
+                // Apply coordinate system conversion if enabled
+                let converted_scene_data = if self.convert_coordinate_system {
+                    self.convert_coordinate_system(usd_scene_data)?
+                } else {
+                    usd_scene_data
+                };
+                
                 // Apply user extraction filters to the full scene data
-                let filtered_scene_data = self.apply_extraction_filters(usd_scene_data)?;
+                let filtered_scene_data = self.apply_extraction_filters(converted_scene_data)?;
                 
                 // Return the full USDSceneData directly - no more metadata conversion
                 Ok(crate::nodes::interface::NodeData::USDSceneData(filtered_scene_data))
@@ -169,6 +183,88 @@ impl UsdFileReaderLogic {
         
         Ok(usd_scene_data)
     }
+    
+    /// Convert coordinate system from USD to Nodle viewport (Y-up, right-handed)
+    fn convert_coordinate_system(&self, mut usd_scene_data: USDSceneData) -> Result<USDSceneData, String> {
+        println!("📁 USD File Reader: Converting coordinate system from {}-up to Y-up", usd_scene_data.up_axis);
+        
+        // Determine the transformation matrix based on the USD up axis
+        let coordinate_transform = match usd_scene_data.up_axis.as_str() {
+            "Y" => {
+                // USD is already Y-up, no transformation needed
+                println!("📁 USD File Reader: USD file is already Y-up, no coordinate conversion needed");
+                return Ok(usd_scene_data);
+            }
+            "Z" => {
+                // USD Z-up to Nodle Y-up: rotate -90 degrees around X-axis
+                // This converts:
+                // - USD Z-up (0,0,1) -> Nodle Y-up (0,1,0)
+                // - USD Y-forward (0,1,0) -> Nodle Z-forward (0,0,1)
+                // - USD X-right (1,0,0) -> Nodle X-right (1,0,0) [unchanged]
+                Mat4::from_rotation_x(-std::f32::consts::PI / 2.0)
+            }
+            "X" => {
+                // USD X-up to Nodle Y-up: rotate 90 degrees around Z-axis
+                // This converts:
+                // - USD X-up (1,0,0) -> Nodle Y-up (0,1,0)
+                // - USD Y-forward (0,1,0) -> Nodle X-right (1,0,0)
+                // - USD Z-forward (0,0,1) -> Nodle Z-forward (0,0,1) [unchanged]
+                Mat4::from_rotation_z(std::f32::consts::PI / 2.0)
+            }
+            _ => {
+                println!("⚠️  USD File Reader: Unknown up axis '{}', defaulting to Z-up conversion", usd_scene_data.up_axis);
+                // Default to Z-up conversion
+                Mat4::from_rotation_x(-std::f32::consts::PI / 2.0)
+            }
+        };
+        
+        // Convert meshes
+        for mesh in &mut usd_scene_data.meshes {
+            // Transform vertices
+            for vertex in &mut mesh.vertices {
+                let transformed = coordinate_transform.transform_point3(*vertex);
+                *vertex = transformed;
+            }
+            
+            // Transform normals (use normal matrix to handle non-uniform scaling)
+            for normal in &mut mesh.normals {
+                let transformed = coordinate_transform.transform_vector3(*normal);
+                *normal = transformed.normalize();
+            }
+            
+            // Transform vertex colors if present (no spatial transformation needed)
+            // Vertex colors remain unchanged as they are material properties
+            
+            // Flip winding order for proper face culling
+            // When transforming from Z-up to Y-up with a -90° X rotation,
+            // the handedness changes, so we need to reverse triangle winding
+            // to maintain correct face normals and culling
+            for triangle in mesh.indices.chunks_mut(3) {
+                if triangle.len() == 3 {
+                    triangle.swap(1, 2); // Reverse winding: ABC -> ACB
+                }
+            }
+            
+            // Transform mesh transform matrix
+            mesh.transform = coordinate_transform * mesh.transform;
+        }
+        
+        // Convert lights
+        for light in &mut usd_scene_data.lights {
+            // Transform light transform matrix
+            light.transform = coordinate_transform * light.transform;
+        }
+        
+        // Convert materials (no spatial transformation needed)
+        // Materials don't have spatial components that need transformation
+        
+        println!("✅ USD File Reader: Coordinate system conversion complete");
+        println!("   - Transformed {} meshes from {}-up to Y-up", usd_scene_data.meshes.len(), usd_scene_data.up_axis);
+        println!("   - Transformed {} lights", usd_scene_data.lights.len());
+        println!("   - Reversed triangle winding order for proper culling");
+        
+        Ok(usd_scene_data)
+    }
 }
 
 
@@ -182,6 +278,7 @@ impl Default for UsdFileReaderLogic {
             extract_materials: true,
             extract_lights: true,
             extract_cameras: false,
+            convert_coordinate_system: true,
             last_modified: None,
             usd_engine: USDEngine::new(),
             cached_scene_data: None,

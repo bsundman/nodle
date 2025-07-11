@@ -25,6 +25,7 @@ pub struct USDMeshGeometry {
     pub indices: Vec<u32>,
     pub normals: Vec<Vec3>,
     pub uvs: Vec<Vec2>,
+    pub vertex_colors: Option<Vec<Vec3>>,  // Optional vertex colors from displayColor
     pub transform: Mat4,
 }
 
@@ -54,6 +55,7 @@ pub struct USDSceneData {
     pub meshes: Vec<USDMeshGeometry>,
     pub lights: Vec<USDLightData>,
     pub materials: Vec<USDMaterialData>,
+    pub up_axis: String, // USD up axis: "Y", "Z", etc.
 }
 
 /// USD Engine for 3D workspace - manages USD operations through Python API
@@ -221,6 +223,13 @@ def extract_all_meshes(stage_path):
     if not stage:
         return None
     
+    # Get the up axis from the stage
+    up_axis = 'Z'  # Default to Z-up
+    if hasattr(stage, 'GetMetadata'):
+        metadata = stage.GetMetadata('upAxis')
+        if metadata:
+            up_axis = metadata
+    
     meshes = []
     
     # Traverse once and collect all mesh data
@@ -233,6 +242,7 @@ def extract_all_meshes(stage_path):
             points_attr = mesh.GetPointsAttr()
             indices_attr = mesh.GetFaceVertexIndicesAttr() 
             counts_attr = mesh.GetFaceVertexCountsAttr()
+            display_color_attr = mesh.GetDisplayColorAttr()  # Get vertex colors
             
             if not (points_attr and indices_attr and counts_attr):
                 continue
@@ -241,6 +251,13 @@ def extract_all_meshes(stage_path):
             points = points_attr.Get()
             face_indices = indices_attr.Get()
             face_counts = counts_attr.Get()
+            
+            # Extract vertex colors if available
+            vertex_colors = None
+            if display_color_attr and display_color_attr.HasValue():
+                colors = display_color_attr.Get()
+                if colors:
+                    vertex_colors = [[float(c[0]), float(c[1]), float(c[2])] for c in colors]
             
             if not (points and face_indices and face_counts):
                 continue
@@ -340,9 +357,14 @@ def extract_all_meshes(stage_path):
                 'uvs': uvs_array
             }
             
+            # Add vertex colors if available
+            if vertex_colors:
+                vertex_colors_array = np.array(vertex_colors, dtype=np.float32)
+                mesh_data['vertex_colors'] = vertex_colors_array
+            
             meshes.append(mesh_data)
     
-    return meshes", None, None)
+    return {'meshes': meshes, 'up_axis': up_axis}", None, None)
                     .map_err(|e| format!("Failed to define extract function: {}", e))?;
                 
                 let locals = PyDict::new(py);
@@ -358,9 +380,21 @@ def extract_all_meshes(stage_path):
                     meshes: Vec::new(),
                     lights: Vec::new(),
                     materials: Vec::new(),
+                    up_axis: "Z".to_string(), // Default to Z-up
                 };
                 
-                if let Ok(mesh_list) = result.extract::<Vec<HashMap<String, pyo3::PyObject>>>() {
+                // Extract the dictionary with meshes and up_axis
+                if let Ok(result_dict) = result.extract::<HashMap<String, pyo3::PyObject>>() {
+                    // Extract up axis
+                    if let Some(up_axis_obj) = result_dict.get("up_axis") {
+                        if let Ok(up_axis) = up_axis_obj.extract::<String>(py) {
+                            scene_data.up_axis = up_axis;
+                        }
+                    }
+                    
+                    // Extract meshes
+                    if let Some(meshes_obj) = result_dict.get("meshes") {
+                        if let Ok(mesh_list) = meshes_obj.extract::<Vec<HashMap<String, pyo3::PyObject>>>(py) {
                     for mesh_dict in mesh_list {
                         if let (Ok(prim_path), Ok(vertices_array), Ok(indices_array), Ok(normals_array), Ok(uvs_array)) = (
                             mesh_dict.get("prim_path").unwrap().extract::<String>(py),
@@ -394,15 +428,34 @@ def extract_all_meshes(stage_path):
                                 .map(|chunk| Vec2::new(chunk[0], chunk[1]))
                                 .collect();
                             
+                            // Extract vertex colors if available
+                            let vertex_colors = if let Some(colors_obj) = mesh_dict.get("vertex_colors") {
+                                if let Ok(colors_array) = colors_obj.downcast_bound::<PyArray2<f32>>(py) {
+                                    let colors_readonly = colors_array.readonly();
+                                    let colors_slice = colors_readonly.as_slice().unwrap();
+                                    let colors: Vec<Vec3> = colors_slice.chunks_exact(3)
+                                        .map(|chunk| Vec3::new(chunk[0], chunk[1], chunk[2]))
+                                        .collect();
+                                    Some(colors)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+                            
                             let mesh_geom = USDMeshGeometry {
                                 prim_path,
                                 vertices,
                                 indices,
                                 normals,
                                 uvs,
+                                vertex_colors,
                                 transform: Mat4::IDENTITY,
                             };
                             scene_data.meshes.push(mesh_geom);
+                        }
+                    }
                         }
                     }
                 }
@@ -448,6 +501,7 @@ def extract_all_meshes(stage_path):
                 meshes: Vec::new(),
                 lights: Vec::new(),
                 materials: Vec::new(),
+                up_axis: "Z".to_string(), // Mock data uses Z-up
             };
             
             // Add mock geometry
@@ -472,6 +526,12 @@ def extract_all_meshes(stage_path):
                     Vec2::new(1.0, 1.0),
                     Vec2::new(0.0, 1.0),
                 ],
+                vertex_colors: Some(vec![
+                    Vec3::new(1.0, 0.0, 0.0),  // Red
+                    Vec3::new(0.0, 1.0, 0.0),  // Green
+                    Vec3::new(0.0, 0.0, 1.0),  // Blue
+                    Vec3::new(1.0, 1.0, 0.0),  // Yellow
+                ]),
                 transform: Mat4::IDENTITY,
             });
             
@@ -512,6 +572,7 @@ def extract_all_meshes(stage_path):
                 Vec2::new(1.0, 1.0),
                 Vec2::new(0.0, 1.0),
             ],
+            vertex_colors: None,
             transform: Mat4::IDENTITY,
         };
         

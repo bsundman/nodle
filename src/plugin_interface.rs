@@ -164,6 +164,7 @@ impl From<nodle_plugin_sdk::viewport::MeshData> for crate::viewport::MeshData {
             normals: sdk_mesh.normals,
             uvs: sdk_mesh.uvs,
             indices: sdk_mesh.indices,
+            vertex_colors: sdk_mesh.vertex_colors,
             material_id: sdk_mesh.material_id,
             transform: sdk_mesh.transform,
         }
@@ -179,6 +180,7 @@ impl From<crate::viewport::MeshData> for nodle_plugin_sdk::viewport::MeshData {
             normals: core_mesh.normals,
             uvs: core_mesh.uvs,
             indices: core_mesh.indices,
+            vertex_colors: core_mesh.vertex_colors,
             material_id: core_mesh.material_id,
             transform: core_mesh.transform,
         }

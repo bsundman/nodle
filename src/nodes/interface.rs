@@ -152,13 +152,13 @@ impl InterfaceParameter {
             InterfaceParameter::Float { value, min, max, step } => {
                 ui.add(DragValue::new(value)
                     .speed(*step)
-                    .clamp_range(*min..=*max)
+                    .range(*min..=*max)
                     .prefix(format!("{}: ", label)))
                     .changed()
             }
             InterfaceParameter::Integer { value, min, max } => {
                 ui.add(DragValue::new(value)
-                    .clamp_range(*min..=*max)
+                    .range(*min..=*max)
                     .prefix(format!("{}: ", label)))
                     .changed()
             }

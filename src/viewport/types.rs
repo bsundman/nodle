@@ -51,6 +51,8 @@ pub struct MeshData {
     pub uvs: Vec<f32>,
     /// Triangle indices
     pub indices: Vec<u32>,
+    /// Vertex colors (r,g,b triplets) - optional
+    pub vertex_colors: Option<Vec<f32>>,
     /// Material ID for this mesh
     pub material_id: Option<String>,
     /// Transformation matrix for this mesh

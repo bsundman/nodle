@@ -245,7 +245,7 @@ impl CubeNode {
             let pivot_names = ["Center", "Corner", "Bottom"];
             let mut selected = current_pivot as usize;
             
-            egui::ComboBox::from_id_source("pivot")
+            egui::ComboBox::from_id_source(egui::Id::new("pivot"))
                 .selected_text(*pivot_names.get(selected).unwrap_or(&"Center"))
                 .show_ui(ui, |ui| {
                     for (i, name) in pivot_names.iter().enumerate() {

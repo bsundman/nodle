@@ -148,6 +148,29 @@ impl UsdFileReaderParameters {
 
         ui.add_space(8.0);
 
+        // Coordinate system conversion section
+        ui.group(|ui| {
+            ui.label("🔄 Coordinate System");
+            ui.separator();
+            
+            // Convert coordinate system toggle
+            let mut convert_coords = node.parameters.get("convert_coordinate_system")
+                .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+                .unwrap_or(true);
+            
+            if ui.checkbox(&mut convert_coords, "Convert Z-up to Y-up").changed() {
+                changes.push(ParameterChange {
+                    parameter: "convert_coordinate_system".to_string(),
+                    value: NodeData::Boolean(convert_coords),
+                });
+            }
+            
+            ui.label("🔧 Transforms USD's Z-up coordinate system to viewport's Y-up");
+            ui.label("   Also reverses triangle winding order for proper rendering");
+        });
+
+        ui.add_space(8.0);
+
         // Status section
         ui.group(|ui| {
             ui.label("📊 Status");
