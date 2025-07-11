@@ -87,6 +87,9 @@ pub struct Camera3D {
     pub base_orbit_sensitivity: f32,  // Base sensitivity values
     pub base_pan_sensitivity: f32,
     pub base_zoom_sensitivity: f32,
+    
+    // Dirty flag for optimization
+    pub dirty: bool,
 }
 
 impl Default for Camera3D {
@@ -106,6 +109,7 @@ impl Default for Camera3D {
             base_orbit_sensitivity: 0.5,   // Base sensitivity values
             base_pan_sensitivity: 1.0,
             base_zoom_sensitivity: 1.0,
+            dirty: true,              // Start as dirty to ensure first update
         }
     }
 }
@@ -113,6 +117,21 @@ impl Default for Camera3D {
 impl Camera3D {
     pub fn new() -> Self {
         Self::default()
+    }
+    
+    /// Mark camera as dirty (needs uniform update)
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+    
+    /// Mark camera as clean (uniforms updated)
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
+    }
+    
+    /// Check if camera is dirty
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
     }
     
     pub fn build_view_projection_matrix(&self) -> Mat4 {
@@ -174,6 +193,7 @@ impl Camera3D {
         );
         
         self.position = self.target + new_offset;
+        self.mark_dirty();
     }
     
     /// Maya-style pan (move target and position together)
@@ -190,6 +210,7 @@ impl Camera3D {
         
         self.position += pan_vector;
         self.target += pan_vector;
+        self.mark_dirty();
     }
     
     /// Maya-style zoom (move camera closer/farther from target)
@@ -203,10 +224,12 @@ impl Camera3D {
         let new_distance = (distance + delta * adaptive_zoom).max(0.1);
         
         self.position = self.target - direction * new_distance;
+        self.mark_dirty();
     }
     
     pub fn set_aspect(&mut self, aspect: f32) {
         self.aspect = aspect;
+        self.mark_dirty();
     }
     
     /// Frame the camera to view the specified bounds
@@ -243,6 +266,9 @@ impl Camera3D {
                 
                 // Update scene size for adaptive sensitivity
                 self.set_scene_size(max_dimension);
+                
+                // Mark camera as dirty since we changed position and target
+                self.mark_dirty();
                 
                 if selected_bounds.is_some() {
                     println!("🎯 Framed selected geometry: center={:?}, size={:.1}", center, max_dimension);
@@ -894,8 +920,13 @@ impl Renderer3D {
         }
     }
     
-    /// Update camera uniforms
-    pub fn update_camera_uniforms(&self, queue: &Queue) {
+    /// Update camera uniforms (only if camera is dirty)
+    pub fn update_camera_uniforms(&mut self, queue: &Queue) {
+        // Only update if camera is dirty
+        if !self.camera.is_dirty() {
+            return;
+        }
+        
         if let Some(uniform_buffer) = &self.uniform_buffer {
             let view_proj_matrix = self.camera.build_view_projection_matrix();
             let uniforms = Uniforms3D {
@@ -906,7 +937,14 @@ impl Renderer3D {
             };
             
             queue.write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+            self.camera.mark_clean();
         }
+    }
+    
+    /// Set camera for rendering
+    pub fn set_camera(&mut self, camera: &Camera3D) {
+        self.camera = camera.clone();
+        self.camera.mark_dirty();
     }
     
     /// Render mesh geometry
@@ -1143,11 +1181,6 @@ impl Renderer3D {
                 PRINTED = true;
             }
         }
-    }
-    
-    /// Set camera for rendering
-    pub fn set_camera(&mut self, camera: &Camera3D) {
-        self.camera = camera.clone();
     }
     
     /// Upload mesh data to GPU and store in gpu_meshes map

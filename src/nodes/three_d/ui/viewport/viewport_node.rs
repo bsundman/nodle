@@ -7,6 +7,8 @@ use egui::Ui;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use crate::viewport::*;
 use super::logic::USDViewportLogic;
 use super::usd_rendering::USDRenderer;
@@ -17,21 +19,55 @@ static VIEWPORT_INPUT_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, crate:
     Arc::new(Mutex::new(HashMap::new()))
 });
 
+/// Cache for converted viewport data to avoid expensive conversion every frame
+static VIEWPORT_DATA_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, (ViewportData, u64)>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
+/// Calculate hash for USD scene data to detect changes
+fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    usd_scene_data.stage_path.hash(&mut hasher);
+    usd_scene_data.meshes.len().hash(&mut hasher);
+    
+    // Hash first few vertices for more detailed change detection
+    for (i, mesh) in usd_scene_data.meshes.iter().enumerate().take(5) {
+        mesh.prim_path.hash(&mut hasher);
+        mesh.vertices.len().hash(&mut hasher);
+        for vertex in mesh.vertices.iter().take(10) {
+            vertex.x.to_bits().hash(&mut hasher);
+            vertex.y.to_bits().hash(&mut hasher);
+            vertex.z.to_bits().hash(&mut hasher);
+        }
+        if i >= 5 { break; }
+    }
+    
+    hasher.finish()
+}
+
 /// Cache for USD renderers to avoid reloading stages every frame
 struct USDRendererCache {
     renderers: HashMap<String, (USDRenderer, ViewportData)>,
+    scene_bounds: HashMap<String, Option<(Vec3, Vec3)>>,  // Cache for scene bounds
 }
 
 impl USDRendererCache {
     fn new() -> Self {
         Self {
             renderers: HashMap::new(),
+            scene_bounds: HashMap::new(),
         }
     }
     
-    /// Calculate scene bounds from USD geometries - no transforms
-    fn calculate_scene_bounds(usd_renderer: &USDRenderer) -> Option<(Vec3, Vec3)> {
+    /// Calculate scene bounds from USD geometries - no transforms, with caching
+    fn calculate_scene_bounds(&mut self, usd_renderer: &USDRenderer, stage_path: &str) -> Option<(Vec3, Vec3)> {
+        // Check if bounds are already cached
+        if let Some(cached_bounds) = self.scene_bounds.get(stage_path) {
+            return *cached_bounds;
+        }
+        
         if usd_renderer.current_scene.geometries.is_empty() {
+            self.scene_bounds.insert(stage_path.to_string(), None);
             return None;
         }
         
@@ -48,8 +84,9 @@ impl USDRendererCache {
             }
         }
         
-        // println!("📐 RAW USD Scene bounds: min={:?}, max={:?}", min, max); // Removed: called every frame
-        Some((min, max))
+        let bounds = Some((min, max));
+        self.scene_bounds.insert(stage_path.to_string(), bounds);
+        bounds
     }
     
     
@@ -66,7 +103,7 @@ impl USDRendererCache {
             }
             
             // Convert to viewport data
-            let viewport_data = Self::convert_to_viewport_data(&usd_renderer, stage_path);
+            let viewport_data = self.convert_to_viewport_data(&usd_renderer, stage_path);
             
             self.renderers.insert(stage_path.to_string(), (usd_renderer, viewport_data));
         } else {
@@ -100,13 +137,13 @@ impl USDRendererCache {
         (camera_position, center, far_plane)
     }
 
-    fn convert_to_viewport_data(usd_renderer: &USDRenderer, stage_path: &str) -> ViewportData {
+    fn convert_to_viewport_data(&mut self, usd_renderer: &USDRenderer, stage_path: &str) -> ViewportData {
         // Convert USD scene to SDK ViewportData format
         let mut scene = SceneData::default();
         scene.name = format!("USD Stage: {}", stage_path);
         
-        // Calculate scene bounds - no transforms
-        let scene_bounds = Self::calculate_scene_bounds(usd_renderer);
+        // Calculate scene bounds - no transforms, with caching
+        let scene_bounds = self.calculate_scene_bounds(usd_renderer, stage_path);
         
         // Calculate camera position based on scene bounds
         let (camera_position, camera_target, far_plane) = if let Some(bounds) = scene_bounds {
@@ -1064,8 +1101,23 @@ impl ViewportNode {
         // First check if we have input USDSceneData cached
         if let Ok(input_cache) = VIEWPORT_INPUT_CACHE.lock() {
             if let Some(usd_scene_data) = input_cache.get(&node.id) {
-                // println!("🎬 Using cached USDSceneData input with {} meshes", usd_scene_data.meshes.len()); // Removed: called every frame
-                return Some(Self::convert_usd_scene_to_viewport_data(usd_scene_data, node));
+                // Check if we have a cached converted viewport data
+                let scene_hash = calculate_usd_scene_hash(usd_scene_data);
+                if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
+                    if let Some((cached_viewport_data, cached_hash)) = viewport_cache.get(&node.id) {
+                        if *cached_hash == scene_hash {
+                            // Cache hit - return cached viewport data with updated settings
+                            let mut viewport_data = cached_viewport_data.clone();
+                            Self::apply_viewport_settings(&mut viewport_data, node);
+                            return Some(viewport_data);
+                        }
+                    }
+                    
+                    // Cache miss - need to convert and cache the result
+                    let viewport_data = Self::convert_usd_scene_to_viewport_data(usd_scene_data, node);
+                    viewport_cache.insert(node.id, (viewport_data.clone(), scene_hash));
+                    return Some(viewport_data);
+                }
             }
         }
         
