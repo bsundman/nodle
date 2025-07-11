@@ -204,12 +204,22 @@ impl NodeEditor {
     fn remove_connection_from_active_graph(&mut self, idx: usize) {
         match self.navigation.current_view() {
             GraphView::Root => {
-                self.graph.remove_connection(idx);
+                if let Some(connection) = self.graph.connections.get(idx) {
+                    let connection_copy = connection.clone();
+                    self.graph.remove_connection(idx);
+                    // Notify execution engine about the removed connection
+                    self.execution_engine.on_connection_removed(&connection_copy, &self.graph);
+                }
             }
             GraphView::WorkspaceNode(workspace_node_id) => {
                 if let Some(workspace_node) = self.graph.nodes.get_mut(workspace_node_id) {
                     if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
-                        internal_graph.remove_connection(idx);
+                        if let Some(connection) = internal_graph.connections.get(idx) {
+                            let connection_copy = connection.clone();
+                            internal_graph.remove_connection(idx);
+                            // Notify execution engine about the removed connection
+                            self.execution_engine.on_connection_removed(&connection_copy, internal_graph);
+                        }
                     }
                 }
             }
