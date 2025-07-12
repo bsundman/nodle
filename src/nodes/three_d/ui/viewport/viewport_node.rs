@@ -4,7 +4,7 @@
 use crate::nodes::interface::{NodeData, ParameterChange, PanelType};
 use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory};
 use egui::Ui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
 use std::collections::hash_map::DefaultHasher;
@@ -22,6 +22,11 @@ pub static VIEWPORT_INPUT_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, cr
 /// Cache for converted viewport data to avoid expensive conversion every frame
 pub static VIEWPORT_DATA_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, (ViewportData, u64)>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
+});
+
+/// Global flag to force viewport cache bypass when parameters change
+pub static FORCE_VIEWPORT_REFRESH: Lazy<Arc<Mutex<HashSet<crate::nodes::NodeId>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashSet::new()))
 });
 
 /// Calculate hash for USD scene data to detect changes
@@ -1039,7 +1044,7 @@ impl ViewportNode {
     
     /// Process the viewport node's logic (called during graph execution)
     pub fn process_node(node: &Node, inputs: &[NodeData]) -> Vec<NodeData> {
-        // println!("🎬 ViewportNode::process_node called for node '{}' with {} inputs", node.title, inputs.len()); // Removed: called every frame
+        println!("🎬 ViewportNode::process_node called for node '{}' with {} inputs", node.title, inputs.len());
         let mut outputs = Vec::new();
         
         // Check for USDSceneData input (first priority)
@@ -1076,13 +1081,14 @@ impl ViewportNode {
             // Store the USDSceneData in the global cache for get_viewport_data to access
             if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
                 cache.insert(node.id, usd_scene_data.clone());
-                // println!("🎬 Viewport: Cached USDSceneData for node {} with {} meshes", node.id, usd_scene_data.meshes.len()); // Removed: called every frame
+                println!("🎬 Viewport: Cached USDSceneData for node {} with {} meshes from stage: {}", 
+                         node.id, usd_scene_data.meshes.len(), usd_scene_data.stage_path);
             }
             
             outputs.push(NodeData::String(format!("USD Viewport: {} (from input)", usd_scene_data.stage_path)));
             outputs.push(NodeData::Boolean(true)); // Scene loaded indicator
             
-            // println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path); // Removed: called every frame
+            println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path);
         } else {
             // Fall back to stage path (input or parameter)
             let active_stage = stage_from_input.unwrap_or(current_stage.clone());
@@ -1103,28 +1109,44 @@ impl ViewportNode {
     /// Get viewport data for 3D rendering - uses cached data when possible
     /// This is called by the viewport panel system to get scene data
     pub fn get_viewport_data(node: &Node) -> Option<ViewportData> {
-        // println!("🔍 ViewportNode::get_viewport_data called"); // Removed: called every frame
+        // Check if we need to force refresh for this node (parameter changes)
+        let force_refresh = if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+            let should_force = force_set.contains(&node.id);
+            if should_force {
+                force_set.remove(&node.id);
+                println!("🔄 ViewportNode::get_viewport_data: FORCING refresh for node {} due to parameter change", node.id);
+            }
+            should_force
+        } else {
+            false
+        };
         
         // First check if we have input USDSceneData cached
         if let Ok(input_cache) = VIEWPORT_INPUT_CACHE.lock() {
             if let Some(usd_scene_data) = input_cache.get(&node.id) {
-                // Check if we have a cached converted viewport data
+                println!("🎬 ViewportNode::get_viewport_data: Found cached USD data for node {} with {} meshes", node.id, usd_scene_data.meshes.len());
+                // Check if we have a cached converted viewport data (but bypass if force refresh)
                 let scene_hash = calculate_usd_scene_hash(usd_scene_data);
                 if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
-                    if let Some((cached_viewport_data, cached_hash)) = viewport_cache.get(&node.id) {
-                        if *cached_hash == scene_hash {
-                            // Cache hit - return cached viewport data with updated settings
-                            let mut viewport_data = cached_viewport_data.clone();
-                            Self::apply_viewport_settings(&mut viewport_data, node);
-                            return Some(viewport_data);
+                    if !force_refresh {
+                        if let Some((cached_viewport_data, cached_hash)) = viewport_cache.get(&node.id) {
+                            if *cached_hash == scene_hash {
+                                // Cache hit - return cached viewport data with updated settings
+                                let mut viewport_data = cached_viewport_data.clone();
+                                Self::apply_viewport_settings(&mut viewport_data, node);
+                                return Some(viewport_data);
+                            }
                         }
                     }
                     
-                    // Cache miss - need to convert and cache the result
+                    // Cache miss or force refresh - need to convert and cache the result
+                    println!("🔄 ViewportNode::get_viewport_data: Converting fresh USD data for node {}", node.id);
                     let viewport_data = Self::convert_usd_scene_to_viewport_data(usd_scene_data, node);
                     viewport_cache.insert(node.id, (viewport_data.clone(), scene_hash));
                     return Some(viewport_data);
                 }
+            } else {
+                println!("🚫 ViewportNode::get_viewport_data: No cached USD data found for node {}", node.id);
             }
         }
         
@@ -1135,6 +1157,7 @@ impl ViewportNode {
         // Only fall back to file loading if user has explicitly set a stage path
         if let Some(stage_path) = current_stage {
             if !stage_path.is_empty() {
+                println!("🎬 ViewportNode::get_viewport_data: Falling back to stage path: {}", stage_path);
                 // println!("🎬 Loading USD file from parameter: {}", stage_path); // Removed: called every frame
                 // Use the cached renderer if available
                 let mut cache = USD_RENDERER_CACHE.lock().unwrap();
@@ -1150,7 +1173,7 @@ impl ViewportNode {
         }
         
         // No input data and no file parameter - return empty scene
-        // println!("🎬 No USD input data or file parameter - showing empty viewport"); // Removed: called every frame
+        println!("🚫 ViewportNode::get_viewport_data: No USD input data or file parameter - showing empty viewport for node {}", node.id);
         Some(Self::create_empty_viewport_data(node))
     }
     

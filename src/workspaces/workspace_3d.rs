@@ -37,6 +37,9 @@ impl Workspace3D {
         node_registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
         node_registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
         
+        // Register 3D modify nodes
+        node_registry.register::<crate::nodes::three_d::modify::ReverseNode>();
+        
         // Register 3D UI nodes
         node_registry.register::<crate::nodes::three_d::ui::viewport::ViewportNode>();
         

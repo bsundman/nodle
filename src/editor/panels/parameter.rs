@@ -588,6 +588,12 @@ impl ParameterPanel {
                     crate::nodes::three_d::lighting::spot_light::parameters::SpotLightNode::build_interface(node, ui)
                 },
                 
+                // 3D Modify nodes
+                "Reverse" | "3D_Reverse" => {
+                    // Using Reverse interface
+                    crate::nodes::three_d::modify::reverse::parameters::ReverseNode::build_interface(node, ui)
+                },
+                
                 // Other node types - use generic parameter interface if available
                 _ => {
                     // Using generic parameter interface

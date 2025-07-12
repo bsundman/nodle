@@ -94,6 +94,38 @@ impl NodeGraphEngine {
         
         downstream
     }
+    
+    /// Find all nodes upstream from the given node
+    fn find_upstream_nodes(&self, node_id: NodeId, graph: &NodeGraph) -> Vec<NodeId> {
+        let mut upstream = Vec::new();
+        
+        for connection in &graph.connections {
+            if connection.to_node == node_id {
+                upstream.push(connection.from_node);
+            }
+        }
+        
+        upstream
+    }
+    
+    /// Propagate dirty state to all upstream nodes (dependencies)
+    fn propagate_dirty_upstream(&mut self, node_id: NodeId, graph: &NodeGraph) {
+        let upstream_nodes = self.find_upstream_nodes(node_id, graph);
+        
+        for upstream_id in upstream_nodes {
+            if self.node_states.get(&upstream_id) != Some(&NodeState::Dirty) {
+                println!("🔄 Marking upstream dependency as dirty: node {}", upstream_id);
+                self.node_states.insert(upstream_id, NodeState::Dirty);
+                self.dirty_nodes.insert(upstream_id);
+                
+                // Clear cached outputs
+                self.output_cache.retain(|(id, _), _| *id != upstream_id);
+                
+                // Recursively propagate upstream
+                self.propagate_dirty_upstream(upstream_id, graph);
+            }
+        }
+    }
 
     /// Get the execution order using topological sort
     pub fn get_execution_order(&mut self, graph: &NodeGraph) -> Result<Vec<NodeId>, String> {
@@ -284,7 +316,7 @@ impl NodeGraphEngine {
             // Data nodes
             "USD File Reader" => {
                 // Executing USD File Reader
-                Ok(crate::nodes::data::usd_file_reader::UsdFileReaderNode::process_node(node))
+                Ok(crate::nodes::data::usd_file_reader::UsdFileReaderNode::process_node(node, inputs))
             }
             
             // Viewport/UI nodes
@@ -447,6 +479,12 @@ impl NodeGraphEngine {
                 Ok(vec![NodeData::None])
             }
             
+            // 3D Modify nodes
+            "Reverse" | "3D_Reverse" => {
+                // Executing Reverse node
+                Ok(crate::nodes::three_d::modify::reverse::parameters::ReverseNode::process_node(node, inputs))
+            }
+            
             // Data nodes
             "Constant" => {
                 // Executing Constant node
@@ -497,27 +535,44 @@ impl NodeGraphEngine {
 
     /// Handle a new connection being created
     pub fn on_connection_added(&mut self, connection: &Connection, graph: &NodeGraph) {
-        // Connection added
+        let source_title = graph.nodes.get(&connection.from_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
+        let target_title = graph.nodes.get(&connection.to_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
+        println!("🔗 Connection added: {} (node {}) → {} (node {})", 
+                 source_title, connection.from_node, target_title, connection.to_node);
         
-        // Mark BOTH source and target nodes as dirty to ensure data flow
-        // Marking source node as dirty
-        self.mark_dirty(connection.from_node, graph);
-        
-        // Marking target node as dirty
+        // Mark the target node as dirty (this will also propagate downstream)
         self.mark_dirty(connection.to_node, graph);
         
-        // Debug: List all connections in the graph
-        for (i, conn) in graph.connections.iter().enumerate() {
-            // Connection details logged
+        // CRITICAL: Mark the entire upstream dependency chain as dirty
+        // This ensures USD File Reader → Reverse → Viewport all get executed in correct order
+        println!("🔄 Marking entire upstream dependency chain as dirty for target node {}", connection.to_node);
+        self.propagate_dirty_upstream(connection.to_node, graph);
+        
+        // Also mark the source node to ensure it gets executed if it wasn't already
+        self.mark_dirty(connection.from_node, graph);
+        
+        // Clear viewport-specific caches if the target is a viewport node
+        if let Some(node) = graph.nodes.get(&connection.to_node) {
+            if node.title == "Viewport" {
+                println!("🔄 New connection to viewport: clearing all caches for regeneration");
+                self.clear_viewport_caches(connection.to_node);
+            }
         }
     }
 
     /// Handle a connection being removed
     pub fn on_connection_removed(&mut self, connection: &Connection, graph: &NodeGraph) {
-        // Connection removed
+        let source_title = graph.nodes.get(&connection.from_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
+        let target_title = graph.nodes.get(&connection.to_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
+        println!("🔗 Connection removed: {} (node {}) → {} (node {})", 
+                 source_title, connection.from_node, target_title, connection.to_node);
         
-        // Mark the target node as dirty
+        // Mark the target node as dirty (this will also propagate downstream)
         self.mark_dirty(connection.to_node, graph);
+        
+        // Mark upstream dependency chain as dirty to ensure fresh execution
+        println!("🔄 Marking upstream dependency chain as dirty for target node {}", connection.to_node);
+        self.propagate_dirty_upstream(connection.to_node, graph);
         
         // Clear cached outputs from the source node to prevent stale data
         self.output_cache.retain(|(node_id, _), _| *node_id != connection.from_node);
@@ -525,31 +580,53 @@ impl NodeGraphEngine {
         // Clear viewport-specific caches if the target is a viewport node
         if let Some(node) = graph.nodes.get(&connection.to_node) {
             if node.title == "Viewport" {
+                println!("🔄 Connection removed from viewport: clearing all caches for regeneration");
                 self.clear_viewport_caches(connection.to_node);
             }
         }
     }
     
     /// Clear viewport-specific caches for a node
-    fn clear_viewport_caches(&self, node_id: NodeId) {
+    fn clear_viewport_caches(&mut self, node_id: NodeId) {
         use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE};
         
         // Clear viewport input cache
         if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
             cache.remove(&node_id);
+            println!("🧹 Cleared viewport input cache for node: {}", node_id);
         }
         
         // Clear viewport data cache
         if let Ok(mut cache) = VIEWPORT_DATA_CACHE.lock() {
             cache.remove(&node_id);
+            println!("🧹 Cleared viewport data cache for node: {}", node_id);
         }
         
-        // Clear USD renderer cache for this node
+        // Clear USD renderer cache - IMPORTANT: This cache uses file paths as keys, not node IDs
+        // We need to clear ALL entries since we don't know which file path was used
         if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
-            cache.renderers.remove(&node_id.to_string());
+            let renderer_count = cache.renderers.len();
+            let bounds_count = cache.scene_bounds.len();
+            cache.renderers.clear();
+            cache.scene_bounds.clear();
+            println!("🧹 Cleared ALL USD renderer cache entries (was {} renderers, {} bounds) for node: {}", 
+                     renderer_count, bounds_count, node_id);
         }
         
-        println!("🧹 Cleared viewport caches for node: {}", node_id);
+        // Clear ALL GPU mesh caches to force regeneration
+        crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
+        println!("🧹 Cleared all GPU mesh caches");
+        
+        // Clear execution engine output cache for this node to force data reprocessing  
+        self.output_cache.retain(|(cached_node_id, _), _| *cached_node_id != node_id);
+        println!("🧹 Cleared execution engine output cache for node: {}", node_id);
+        
+        // CRITICAL: Mark the viewport node as dirty so it gets re-executed
+        self.dirty_nodes.insert(node_id);
+        self.node_states.insert(node_id, NodeState::Dirty);
+        println!("🔄 Marked viewport node {} as dirty for re-execution", node_id);
+        
+        println!("✅ All viewport caches cleared for node: {} - ready for regeneration", node_id);
     }
 
     /// Handle a node parameter change
@@ -562,8 +639,8 @@ impl NodeGraphEngine {
             
             // If this is a USD File Reader node, clear GPU mesh cache to force re-upload
             if node.title == "USD File Reader" {
-                println!("🔄 USD File Reader parameters changed - clearing GPU mesh cache");
-                self.clear_gpu_mesh_cache_for_usd_changes(node_id);
+                println!("🔄 USD File Reader parameters changed - clearing GPU mesh cache and marking downstream dirty");
+                self.clear_gpu_mesh_cache_for_usd_changes(node_id, graph);
             }
         }
         
@@ -574,7 +651,7 @@ impl NodeGraphEngine {
     }
 
     /// Clear GPU mesh cache when USD parameters change
-    fn clear_gpu_mesh_cache_for_usd_changes(&mut self, usd_node_id: NodeId) {
+    fn clear_gpu_mesh_cache_for_usd_changes(&mut self, usd_node_id: NodeId, graph: &NodeGraph) {
         // Clear GPU mesh cache to force re-uploading with new data
         crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
         
@@ -583,15 +660,41 @@ impl NodeGraphEngine {
         println!("🧹 Cleared execution engine output cache for USD node: {}", usd_node_id);
         
         // Also clear viewport caches to ensure fresh data flow
-        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE};
+        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE, FORCE_VIEWPORT_REFRESH};
         
         if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
             cache.clear();
+            println!("🧹 Cleared all viewport input cache entries");
         }
         
         if let Ok(mut cache) = VIEWPORT_DATA_CACHE.lock() {
             cache.clear();
+            println!("🧹 Cleared all viewport data cache entries");
         }
+        
+        if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
+            cache.renderers.clear();
+            cache.scene_bounds.clear();
+            println!("🧹 Cleared all USD renderer cache entries");
+        }
+        
+        // CRITICAL: Find all downstream viewport nodes and force them to refresh immediately
+        let downstream_nodes = self.find_downstream_nodes(usd_node_id, graph);
+        for downstream_id in &downstream_nodes {
+            if let Some(node) = graph.nodes.get(downstream_id) {
+                if node.title == "Viewport" {
+                    if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+                        force_set.insert(*downstream_id);
+                        println!("🔄 Added viewport node {} to FORCE_VIEWPORT_REFRESH set", downstream_id);
+                    }
+                }
+            }
+        }
+        
+        // CRITICAL: Mark all downstream nodes as dirty so they re-execute with fresh USD data
+        // This ensures viewport nodes get the updated coordinate conversion immediately
+        println!("🔄 Marking all downstream nodes as dirty for USD parameter change");
+        self.propagate_dirty_downstream(usd_node_id, graph);
     }
 
     /// Get execution statistics

@@ -76,10 +76,10 @@ impl UsdFileReaderNode {
     }
     
     /// Process the USD File Reader node's logic (called during graph execution)
-    pub fn process_node(node: &Node) -> Vec<NodeData> {
+    pub fn process_node(node: &Node, inputs: Vec<NodeData>) -> Vec<NodeData> {
         println!("📁 UsdFileReaderNode::process_node called for node '{}'", node.title);
         let mut logic = logic::UsdFileReaderLogic::from_node(node);
-        let outputs = logic.process(vec![]);
+        let outputs = logic.process(inputs);
         println!("📁 UsdFileReaderNode::process_node returning {} outputs", outputs.len());
         outputs
     }

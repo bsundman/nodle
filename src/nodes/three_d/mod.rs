@@ -3,6 +3,7 @@
 pub mod transform;
 pub mod geometry;
 pub mod lighting;
+pub mod modify;
 pub mod ui;
 
 // Re-exports removed - these were unused wildcard imports
