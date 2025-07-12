@@ -559,12 +559,39 @@ impl NodeGraphEngine {
         // Show node title for better debugging
         if let Some(node) = graph.nodes.get(&node_id) {
             // Node parameters changed
+            
+            // If this is a USD File Reader node, clear GPU mesh cache to force re-upload
+            if node.title == "USD File Reader" {
+                println!("🔄 USD File Reader parameters changed - clearing GPU mesh cache");
+                self.clear_gpu_mesh_cache_for_usd_changes(node_id);
+            }
         }
         
         // Mark the node as dirty
         self.mark_dirty(node_id, graph);
         
         // Node marked as dirty
+    }
+
+    /// Clear GPU mesh cache when USD parameters change
+    fn clear_gpu_mesh_cache_for_usd_changes(&mut self, usd_node_id: NodeId) {
+        // Clear GPU mesh cache to force re-uploading with new data
+        crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
+        
+        // CRITICAL: Clear the USD node's output cache so it regenerates data
+        self.output_cache.retain(|(node_id, _), _| *node_id != usd_node_id);
+        println!("🧹 Cleared execution engine output cache for USD node: {}", usd_node_id);
+        
+        // Also clear viewport caches to ensure fresh data flow
+        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE};
+        
+        if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
+            cache.clear();
+        }
+        
+        if let Ok(mut cache) = VIEWPORT_DATA_CACHE.lock() {
+            cache.clear();
+        }
     }
 
     /// Get execution statistics

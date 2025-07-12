@@ -1275,6 +1275,12 @@ impl Renderer3D {
         
         Ok(())
     }
+
+    /// Clear all GPU mesh cache (call when USD parameters change)
+    pub fn clear_gpu_mesh_cache(&mut self) {
+        self.gpu_meshes.clear();
+        println!("🧹 Cleared GPU mesh cache");
+    }
     
     /// Render a complete scene with plugin viewport data
     pub fn render_scene(&mut self, render_pass: &mut eframe::wgpu::RenderPass, viewport_data: &crate::viewport::ViewportData, _viewport_size: (u32, u32)) {
@@ -1296,7 +1302,7 @@ impl Renderer3D {
             // Rendering USD meshes
             
             for mesh in &viewport_data.scene.meshes {
-                // Upload mesh to GPU if not already uploaded
+                // Upload mesh to GPU if not already uploaded (uses content-based caching)
                 if let Err(e) = self.upload_mesh_to_gpu(mesh.id.clone(), mesh) {
                     // Failed to upload mesh - continuing
                     continue;

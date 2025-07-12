@@ -139,6 +139,21 @@ impl ViewportRenderCallback {
             aspect: self.camera.aspect,
         }
     }
+    
+    /// Clear GPU mesh cache (call when USD parameters change)
+    pub fn clear_gpu_mesh_cache(&mut self) {
+        if let Ok(mut renderer) = self.renderer.lock() {
+            renderer.clear_gpu_mesh_cache();
+        }
+    }
+}
+
+/// Clear GPU mesh cache for all viewport callbacks (call when USD parameters change)
+pub fn clear_all_gpu_mesh_caches() {
+    // Clear the shared renderer cache
+    if let Ok(mut renderer) = SHARED_RENDERER.lock() {
+        renderer.clear_gpu_mesh_cache();
+    }
 }
 
 pub enum CameraManipulationType {
