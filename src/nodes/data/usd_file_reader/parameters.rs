@@ -43,6 +43,11 @@ impl UsdFileReaderParameters {
                         parameter: "file_path".to_string(),
                         value: NodeData::String(file_path_input.clone()),
                     });
+                    // Trigger reload by updating a reload flag
+                    changes.push(ParameterChange {
+                        parameter: "needs_reload".to_string(),
+                        value: NodeData::Boolean(true),
+                    });
                 }
                 
                 // Browse button with file dialog
@@ -57,6 +62,11 @@ impl UsdFileReaderParameters {
                         changes.push(ParameterChange {
                             parameter: "file_path".to_string(),
                             value: NodeData::String(path_str),
+                        });
+                        // Trigger reload by updating a reload flag
+                        changes.push(ParameterChange {
+                            parameter: "needs_reload".to_string(),
+                            value: NodeData::Boolean(true),
                         });
                     }
                 }
@@ -82,18 +92,7 @@ impl UsdFileReaderParameters {
             ui.label("⚙️ Loading Options");
             ui.separator();
 
-            // Auto-reload option
-            let mut auto_reload = node.parameters.get("auto_reload")
-                .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                .unwrap_or(false);
-            
-            if ui.checkbox(&mut auto_reload, "Auto-reload on file change").changed() {
-                changes.push(ParameterChange {
-                    parameter: "auto_reload".to_string(),
-                    value: NodeData::Boolean(auto_reload),
-                });
-            }
-            
+            // Auto-reload is now automatic when file path changes
             ui.separator();
             ui.label("Extract Content:");
 
@@ -170,6 +169,17 @@ impl UsdFileReaderParameters {
         });
 
         ui.add_space(8.0);
+
+        // Reset needs_reload flag after parameter changes have been processed
+        if node.parameters.get("needs_reload")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(false) 
+        {
+            changes.push(ParameterChange {
+                parameter: "needs_reload".to_string(),
+                value: NodeData::Boolean(false),
+            });
+        }
 
         // Status section
         ui.group(|ui| {

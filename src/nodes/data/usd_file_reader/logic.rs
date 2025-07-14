@@ -13,13 +13,13 @@ use glam::Mat4;
 /// USD File Reader processing logic
 pub struct UsdFileReaderLogic {
     pub file_path: String,
-    pub auto_reload: bool,
+    pub needs_reload: bool,
     pub extract_geometry: bool,
     pub extract_materials: bool,
     pub extract_lights: bool,
     pub extract_cameras: bool,
     pub convert_coordinate_system: bool,
-    last_modified: Option<std::time::SystemTime>,
+    last_file_path: String,
     usd_engine: USDEngine,
     cached_scene_data: Option<USDSceneData>,
 }
@@ -31,7 +31,7 @@ impl UsdFileReaderLogic {
             .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
             .unwrap_or_default();
         
-        let auto_reload = node.parameters.get("auto_reload")
+        let needs_reload = node.parameters.get("needs_reload")
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
             .unwrap_or(false);
         
@@ -57,13 +57,13 @@ impl UsdFileReaderLogic {
 
         Self {
             file_path,
-            auto_reload,
+            needs_reload,
             extract_geometry,
             extract_materials,
             extract_lights,
             extract_cameras,
             convert_coordinate_system,
-            last_modified: None,
+            last_file_path: String::new(),
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
         }
@@ -84,20 +84,18 @@ impl UsdFileReaderLogic {
             return vec![NodeData::None];
         }
 
-        // Check if file has been modified (for auto-reload)
-        if self.auto_reload {
-            if let Ok(metadata) = file_path.metadata() {
-                if let Ok(modified) = metadata.modified() {
-                    if let Some(last_mod) = self.last_modified {
-                        if modified <= last_mod {
-                            // File hasn't changed, return cached data if available
-                            // For now, we'll reload every time, but this could be optimized
-                        }
-                    }
-                    self.last_modified = Some(modified);
-                }
-            }
+        // Check if file path has changed or reload is explicitly requested
+        let file_path_changed = self.file_path != self.last_file_path;
+        let should_reload = file_path_changed || self.needs_reload;
+        
+        // If file path hasn't changed and we don't need to reload, return cached data
+        if !should_reload && self.cached_scene_data.is_some() {
+            println!("📁 USD File Reader: Using cached scene data");
+            return vec![crate::nodes::interface::NodeData::USDSceneData(self.cached_scene_data.clone().unwrap())];
         }
+        
+        // Update the last file path
+        self.last_file_path = self.file_path.clone();
 
         println!("📁 USD File Reader: Loading USD file: {}", self.file_path);
 
@@ -273,13 +271,13 @@ impl Default for UsdFileReaderLogic {
     fn default() -> Self {
         Self {
             file_path: String::new(),
-            auto_reload: false,
+            needs_reload: false,
             extract_geometry: true,
             extract_materials: true,
             extract_lights: true,
             extract_cameras: false,
             convert_coordinate_system: true,
-            last_modified: None,
+            last_file_path: String::new(),
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
         }

@@ -53,7 +53,7 @@ impl NodeFactory for UsdFileReaderNodeFactory {
         
         // Initialize default parameters
         node.parameters.insert("file_path".to_string(), NodeData::String(String::new()));
-        node.parameters.insert("auto_reload".to_string(), NodeData::Boolean(false));
+        node.parameters.insert("needs_reload".to_string(), NodeData::Boolean(false));
         node.parameters.insert("extract_geometry".to_string(), NodeData::Boolean(true));
         node.parameters.insert("extract_materials".to_string(), NodeData::Boolean(true));
         node.parameters.insert("extract_lights".to_string(), NodeData::Boolean(true));

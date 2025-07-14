@@ -92,126 +92,6 @@ impl USDEngine {
             let scene_data = Python::with_gil(|py| -> Result<USDSceneData, String> {
                 println!("🎬 USDEngine: Opening USD stage with Python...");
                 
-                // Create Python script for batched processing
-                let extract_script = r#"
-def extract_all_meshes(stage_path):
-    import numpy as np
-    from pxr import Usd, UsdGeom
-    
-    # Open stage once
-    stage = Usd.Stage.Open(stage_path)
-    if not stage:
-        return None
-    
-    meshes = []
-    
-    # Traverse once and collect all mesh data
-    for prim in stage.Traverse():
-        if prim.GetTypeName() == 'Mesh':
-            mesh = UsdGeom.Mesh(prim)
-            prim_path = str(prim.GetPath())
-            
-            # Get all attributes at once
-            points_attr = mesh.GetPointsAttr()
-            indices_attr = mesh.GetFaceVertexIndicesAttr() 
-            counts_attr = mesh.GetFaceVertexCountsAttr()
-            
-            if not (points_attr and indices_attr and counts_attr):
-                continue
-                
-            # Extract raw data (USD native types)
-            points = points_attr.Get()  # Gf.Vec3fArray
-            face_indices = indices_attr.Get()  # IntArray
-            face_counts = counts_attr.Get()  # IntArray
-            
-            if not (points and face_indices and face_counts):
-                continue
-            
-            # OPTIMIZED: Convert USD types to Python lists first (fast)
-            # This avoids slow per-element USD type -> NumPy conversion
-            vertices_list = [(float(v[0]), float(v[1]), float(v[2])) for v in points]
-            indices_list = [int(i) for i in face_indices]
-            counts_list = [int(c) for c in face_counts]
-            
-            # Only call NumPy once at the end (fast)
-            vertices = np.array(vertices_list, dtype=np.float32)
-            indices = np.array(indices_list, dtype=np.uint32)
-            counts = np.array(counts_list, dtype=np.uint32)
-            
-            # Fast triangulation in Python
-            triangles = []
-            face_start = 0
-            
-            for face_count in counts:
-                face_verts = indices[face_start:face_start + face_count]
-                
-                # Fan triangulation
-                if face_count == 3:
-                    triangles.extend(face_verts)
-                elif face_count == 4:
-                    # Quad -> 2 triangles
-                    triangles.extend([face_verts[0], face_verts[1], face_verts[2]])
-                    triangles.extend([face_verts[0], face_verts[2], face_verts[3]])
-                elif face_count > 4:
-                    # N-gon fan
-                    for i in range(1, face_count - 1):
-                        triangles.extend([face_verts[0], face_verts[i], face_verts[i + 1]])
-                        
-                face_start += face_count
-            
-            triangulated_indices = np.array(triangles, dtype=np.uint32)
-            
-            # Fast normal calculation
-            normals = np.zeros_like(vertices)
-            normal_counts = np.zeros(len(vertices), dtype=np.uint32)
-            
-            # Vectorized normal calculation
-            for i in range(0, len(triangulated_indices), 3):
-                if i + 2 < len(triangulated_indices):
-                    i0, i1, i2 = triangulated_indices[i:i+3]
-                    if i0 < len(vertices) and i1 < len(vertices) and i2 < len(vertices):
-                        v0, v1, v2 = vertices[i0], vertices[i1], vertices[i2]
-                        edge1 = v1 - v0
-                        edge2 = v2 - v0
-                        normal = np.cross(edge1, edge2)
-                        normal_len = np.linalg.norm(normal)
-                        if normal_len > 0:
-                            normal = normal / normal_len
-                            normals[i0] += normal
-                            normals[i1] += normal
-                            normals[i2] += normal
-                            normal_counts[i0] += 1
-                            normal_counts[i1] += 1
-                            normal_counts[i2] += 1
-            
-            # Normalize accumulated normals
-            for i in range(len(normals)):
-                if normal_counts[i] > 0:
-                    normals[i] = normals[i] / normal_counts[i]
-                    norm_len = np.linalg.norm(normals[i])
-                    if norm_len > 0:
-                        normals[i] = normals[i] / norm_len
-                else:
-                    normals[i] = [0, 1, 0]  # Default up
-            
-            # Simple UV mapping
-            uvs = np.zeros((len(vertices), 2), dtype=np.float32)
-            uvs[:, 0] = (vertices[:, 0] + 1.0) * 0.5  # X -> U
-            uvs[:, 1] = (vertices[:, 2] + 1.0) * 0.5  # Z -> V
-            
-            # Pack mesh data
-            mesh_data = {
-                'prim_path': prim_path,
-                'vertices': vertices.tolist(),
-                'indices': triangulated_indices.tolist(),
-                'normals': normals.tolist(),
-                'uvs': uvs.tolist()
-            }
-            
-            meshes.append(mesh_data)
-    
-    return meshes
-"#;
                 
                 // Execute the Python function with optimized pure Python
                 py.run(c"def extract_all_meshes(stage_path):
@@ -234,7 +114,9 @@ def extract_all_meshes(stage_path):
     
     # Traverse once and collect all mesh data
     for prim in stage.Traverse():
-        if prim.GetTypeName() == 'Mesh':
+        prim_type = prim.GetTypeName()
+        
+        if prim_type == 'Mesh':
             mesh = UsdGeom.Mesh(prim)
             prim_path = str(prim.GetPath())
             
@@ -362,6 +244,504 @@ def extract_all_meshes(stage_path):
                 vertex_colors_array = np.array(vertex_colors, dtype=np.float32)
                 mesh_data['vertex_colors'] = vertex_colors_array
             
+            meshes.append(mesh_data)
+            
+        elif prim_type == 'Cube':
+            cube = UsdGeom.Cube(prim)
+            prim_path = str(prim.GetPath())
+            
+            # Get cube size
+            size = 2.0  # Default size
+            if cube.GetSizeAttr() and cube.GetSizeAttr().HasValue():
+                size = float(cube.GetSizeAttr().Get())
+            half_size = size / 2.0
+            
+            # Generate cube vertices
+            vertices = [
+                [-half_size, -half_size, -half_size], [half_size, -half_size, -half_size],
+                [half_size, half_size, -half_size], [-half_size, half_size, -half_size],
+                [-half_size, -half_size, half_size], [half_size, -half_size, half_size],
+                [half_size, half_size, half_size], [-half_size, half_size, half_size]
+            ]
+            
+            # Cube face indices (6 faces, 4 vertices each)
+            face_indices = [
+                0, 1, 2, 3,  # Front
+                4, 7, 6, 5,  # Back
+                0, 4, 5, 1,  # Bottom
+                3, 2, 6, 7,  # Top
+                0, 3, 7, 4,  # Left
+                1, 5, 6, 2   # Right
+            ]
+            face_counts = [4, 4, 4, 4, 4, 4]
+            
+            # Triangulate faces
+            triangles = []
+            face_start = 0
+            for face_count in face_counts:
+                face_verts = face_indices[face_start:face_start + face_count]
+                # Quad to triangles
+                triangles.extend([face_verts[0], face_verts[1], face_verts[2]])
+                triangles.extend([face_verts[0], face_verts[2], face_verts[3]])
+                face_start += face_count
+                
+            # Calculate normals
+            normals = [[0.0, 0.0, 0.0] for _ in vertices]
+            normal_counts = [0 for _ in vertices]
+            
+            for i in range(0, len(triangles), 3):
+                i0, i1, i2 = triangles[i:i+3]
+                v0, v1, v2 = vertices[i0], vertices[i1], vertices[i2]
+                
+                # Calculate face normal
+                edge1 = [v1[j] - v0[j] for j in range(3)]
+                edge2 = [v2[j] - v0[j] for j in range(3)]
+                normal = [
+                    edge1[1] * edge2[2] - edge1[2] * edge2[1],
+                    edge1[2] * edge2[0] - edge1[0] * edge2[2],
+                    edge1[0] * edge2[1] - edge1[1] * edge2[0]
+                ]
+                length = math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
+                if length > 0:
+                    normal = [normal[j]/length for j in range(3)]
+                    
+                    # Accumulate at vertices
+                    for idx in [i0, i1, i2]:
+                        normals[idx][0] += normal[0]
+                        normals[idx][1] += normal[1]
+                        normals[idx][2] += normal[2]
+                        normal_counts[idx] += 1
+            
+            # Normalize
+            for i in range(len(normals)):
+                if normal_counts[i] > 0:
+                    normals[i] = [normals[i][j]/normal_counts[i] for j in range(3)]
+                    length = math.sqrt(sum(n**2 for n in normals[i]))
+                    if length > 0:
+                        normals[i] = [normals[i][j]/length for j in range(3)]
+                else:
+                    normals[i] = [0.0, 1.0, 0.0]
+            
+            # UV mapping
+            uvs = []
+            for vertex in vertices:
+                u = (vertex[0] + half_size) / size
+                v = (vertex[2] + half_size) / size
+                uvs.append([u, v])
+            
+            # Convert to numpy arrays
+            import numpy as np
+            mesh_data = {
+                'prim_path': prim_path,
+                'vertices': np.array(vertices, dtype=np.float32),
+                'indices': np.array(triangles, dtype=np.uint32),
+                'normals': np.array(normals, dtype=np.float32),
+                'uvs': np.array(uvs, dtype=np.float32)
+            }
+            meshes.append(mesh_data)
+            
+        elif prim_type == 'Sphere':
+            sphere = UsdGeom.Sphere(prim)
+            prim_path = str(prim.GetPath())
+            
+            # Get sphere radius
+            radius = 1.0  # Default radius
+            if sphere.GetRadiusAttr() and sphere.GetRadiusAttr().HasValue():
+                radius = float(sphere.GetRadiusAttr().Get())
+            
+            # Generate sphere geometry
+            u_res = 20  # longitude resolution
+            v_res = 16  # latitude resolution
+            
+            vertices = []
+            indices = []
+            
+            # Generate vertices
+            for v in range(v_res + 1):
+                theta = math.pi * v / v_res  # 0 to pi
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res  # 0 to 2pi
+                    
+                    x = radius * math.sin(theta) * math.cos(phi)
+                    y = radius * math.cos(theta)
+                    z = radius * math.sin(theta) * math.sin(phi)
+                    
+                    vertices.append([x, y, z])
+            
+            # Generate triangulated indices
+            triangles = []
+            for v in range(v_res):
+                for u in range(u_res):
+                    # Current quad vertices
+                    v0 = v * u_res + u
+                    v1 = v * u_res + (u + 1) % u_res
+                    v2 = (v + 1) * u_res + (u + 1) % u_res
+                    v3 = (v + 1) * u_res + u
+                    
+                    # Add quad as two triangles
+                    triangles.extend([v0, v1, v2])
+                    triangles.extend([v0, v2, v3])
+            
+            # Calculate normals (for sphere, normals are just normalized positions)
+            normals = []
+            for vertex in vertices:
+                length = math.sqrt(vertex[0]**2 + vertex[1]**2 + vertex[2]**2)
+                if length > 0:
+                    normals.append([vertex[0]/length, vertex[1]/length, vertex[2]/length])
+                else:
+                    normals.append([0.0, 1.0, 0.0])
+            
+            # UV mapping
+            uvs = []
+            for vertex in vertices:
+                u = 0.5 + math.atan2(vertex[2], vertex[0]) / (2 * math.pi)
+                v = 0.5 - math.asin(vertex[1] / radius) / math.pi
+                uvs.append([u, v])
+            
+            # Convert to numpy arrays
+            import numpy as np
+            mesh_data = {
+                'prim_path': prim_path,
+                'vertices': np.array(vertices, dtype=np.float32),
+                'indices': np.array(triangles, dtype=np.uint32),
+                'normals': np.array(normals, dtype=np.float32),
+                'uvs': np.array(uvs, dtype=np.float32)
+            }
+            meshes.append(mesh_data)
+            
+        elif prim_type == 'Cylinder':
+            cylinder = UsdGeom.Cylinder(prim)
+            prim_path = str(prim.GetPath())
+            
+            # Get cylinder properties
+            radius = 1.0
+            height = 2.0
+            
+            if cylinder.GetRadiusAttr() and cylinder.GetRadiusAttr().HasValue():
+                radius = float(cylinder.GetRadiusAttr().Get())
+            if cylinder.GetHeightAttr() and cylinder.GetHeightAttr().HasValue():
+                height = float(cylinder.GetHeightAttr().Get())
+            
+            # Generate cylinder geometry
+            u_res = 20  # circumference resolution
+            v_res = 2   # height segments
+            
+            vertices = []
+            
+            # Generate side vertices
+            for v in range(v_res + 1):
+                y = height * (v / v_res - 0.5)  # -height/2 to height/2
+                for u in range(u_res):
+                    angle = 2 * math.pi * u / u_res
+                    x = radius * math.cos(angle)
+                    z = radius * math.sin(angle)
+                    vertices.append([x, y, z])
+            
+            # Add center vertices for caps
+            cap_bottom_center = len(vertices)
+            vertices.append([0.0, -height/2, 0.0])
+            cap_top_center = len(vertices)
+            vertices.append([0.0, height/2, 0.0])
+            
+            # Generate side triangles
+            triangles = []
+            for v in range(v_res):
+                for u in range(u_res):
+                    v0 = v * u_res + u
+                    v1 = v * u_res + (u + 1) % u_res
+                    v2 = (v + 1) * u_res + (u + 1) % u_res
+                    v3 = (v + 1) * u_res + u
+                    
+                    triangles.extend([v0, v1, v2])
+                    triangles.extend([v0, v2, v3])
+            
+            # Add bottom cap triangles
+            for u in range(u_res):
+                u1 = (u + 1) % u_res
+                triangles.extend([cap_bottom_center, u1, u])
+            
+            # Add top cap triangles
+            top_ring_start = v_res * u_res
+            for u in range(u_res):
+                u1 = (u + 1) % u_res
+                triangles.extend([cap_top_center, top_ring_start + u, top_ring_start + u1])
+            
+            # Calculate normals
+            normals = []
+            for i, vertex in enumerate(vertices):
+                if i < len(vertices) - 2:  # Side vertices
+                    # For cylinder sides, normal is just normalized XZ position
+                    normal = [vertex[0], 0.0, vertex[2]]
+                    length = math.sqrt(normal[0]**2 + normal[2]**2)
+                    if length > 0:
+                        normals.append([normal[0]/length, 0.0, normal[2]/length])
+                    else:
+                        normals.append([1.0, 0.0, 0.0])
+                elif i == cap_bottom_center:  # Bottom cap center
+                    normals.append([0.0, -1.0, 0.0])
+                else:  # Top cap center
+                    normals.append([0.0, 1.0, 0.0])
+            
+            # UV mapping
+            uvs = []
+            for i, vertex in enumerate(vertices):
+                if i < len(vertices) - 2:  # Side vertices
+                    v_idx = i // u_res
+                    u_idx = i % u_res
+                    u = u_idx / u_res
+                    v = v_idx / v_res
+                else:  # Cap centers
+                    u, v = 0.5, 0.5
+                uvs.append([u, v])
+            
+            # Convert to numpy arrays
+            import numpy as np
+            mesh_data = {
+                'prim_path': prim_path,
+                'vertices': np.array(vertices, dtype=np.float32),
+                'indices': np.array(triangles, dtype=np.uint32),
+                'normals': np.array(normals, dtype=np.float32),
+                'uvs': np.array(uvs, dtype=np.float32)
+            }
+            meshes.append(mesh_data)
+        
+        elif prim_type == 'Cone':
+            cone = UsdGeom.Cone(prim)
+            prim_path = str(prim.GetPath())
+            
+            # Get cone properties
+            radius = 1.0
+            height = 2.0
+            
+            if cone.GetRadiusAttr() and cone.GetRadiusAttr().HasValue():
+                radius = float(cone.GetRadiusAttr().Get())
+            if cone.GetHeightAttr() and cone.GetHeightAttr().HasValue():
+                height = float(cone.GetHeightAttr().Get())
+            
+            # Generate cone geometry
+            u_res = 20  # circumference resolution
+            
+            vertices = []
+            
+            # Add apex vertex
+            vertices.append([0.0, height/2, 0.0])
+            
+            # Add base circle vertices
+            for u in range(u_res):
+                angle = 2 * math.pi * u / u_res
+                x = radius * math.cos(angle)
+                z = radius * math.sin(angle)
+                vertices.append([x, -height/2, z])
+            
+            # Add base center
+            base_center = len(vertices)
+            vertices.append([0.0, -height/2, 0.0])
+            
+            # Generate triangles
+            triangles = []
+            
+            # Side triangles (apex to base)
+            for u in range(u_res):
+                u1 = (u + 1) % u_res
+                triangles.extend([0, u + 1, u1 + 1])
+            
+            # Base triangles
+            for u in range(u_res):
+                u1 = (u + 1) % u_res
+                triangles.extend([base_center, u1 + 1, u + 1])
+            
+            # Calculate normals
+            normals = []
+            # Apex normal (average of side face normals)
+            normals.append([0.0, 0.8, 0.0])  # Pointing mostly up
+            
+            # Base circle normals (side faces)
+            for u in range(u_res):
+                angle = 2 * math.pi * u / u_res
+                # Cone side normal points outward and slightly up
+                nx = math.cos(angle) * 0.8
+                nz = math.sin(angle) * 0.8
+                ny = 0.6  # Upward component
+                length = math.sqrt(nx**2 + ny**2 + nz**2)
+                normals.append([nx/length, ny/length, nz/length])
+            
+            # Base center normal
+            normals.append([0.0, -1.0, 0.0])
+            
+            # UV mapping
+            uvs = []
+            # Apex UV
+            uvs.append([0.5, 1.0])
+            
+            # Base circle UVs
+            for u in range(u_res):
+                angle = 2 * math.pi * u / u_res
+                u_coord = 0.5 + 0.4 * math.cos(angle)
+                v_coord = 0.5 + 0.4 * math.sin(angle)
+                uvs.append([u_coord, 0.0])
+            
+            # Base center UV
+            uvs.append([0.5, 0.0])
+            
+            # Convert to numpy arrays
+            import numpy as np
+            mesh_data = {
+                'prim_path': prim_path,
+                'vertices': np.array(vertices, dtype=np.float32),
+                'indices': np.array(triangles, dtype=np.uint32),
+                'normals': np.array(normals, dtype=np.float32),
+                'uvs': np.array(uvs, dtype=np.float32)
+            }
+            meshes.append(mesh_data)
+        
+        elif prim_type == 'Capsule':
+            capsule = UsdGeom.Capsule(prim)
+            prim_path = str(prim.GetPath())
+            
+            # Get capsule properties
+            radius = 1.0
+            height = 2.0
+            
+            if capsule.GetRadiusAttr() and capsule.GetRadiusAttr().HasValue():
+                radius = float(capsule.GetRadiusAttr().Get())
+            if capsule.GetHeightAttr() and capsule.GetHeightAttr().HasValue():
+                height = float(capsule.GetHeightAttr().Get())
+            
+            # Generate capsule geometry (cylinder with hemisphere caps)
+            u_res = 20  # circumference resolution
+            v_res = 8   # vertical resolution for hemispheres
+            
+            vertices = []
+            
+            # Cylinder height (excluding hemispheres)
+            cylinder_height = max(0, height - 2 * radius)
+            
+            # Generate cylinder body (if any)
+            if cylinder_height > 0:
+                for v in range(2):  # Just top and bottom rings
+                    y = cylinder_height * (v - 0.5)
+                    for u in range(u_res):
+                        angle = 2 * math.pi * u / u_res
+                        x = radius * math.cos(angle)
+                        z = radius * math.sin(angle)
+                        vertices.append([x, y, z])
+            
+            # Generate top hemisphere
+            for v in range(1, v_res//2 + 1):
+                theta = math.pi * v / v_res  # 0 to pi/2
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res
+                    x = radius * math.sin(theta) * math.cos(phi)
+                    y = cylinder_height/2 + radius * math.cos(theta)
+                    z = radius * math.sin(theta) * math.sin(phi)
+                    vertices.append([x, y, z])
+            
+            # Generate bottom hemisphere
+            for v in range(v_res//2, v_res):
+                theta = math.pi * v / v_res  # pi/2 to pi
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res
+                    x = radius * math.sin(theta) * math.cos(phi)
+                    y = -cylinder_height/2 + radius * math.cos(theta)
+                    z = radius * math.sin(theta) * math.sin(phi)
+                    vertices.append([x, y, z])
+            
+            # Generate triangles (simplified - just create a basic capsule shape)
+            triangles = []
+            
+            # For simplicity, create triangles by connecting adjacent vertices
+            # This is a simplified tessellation - a full implementation would be more complex
+            vertex_count = len(vertices)
+            for i in range(vertex_count - u_res):
+                for j in range(u_res):
+                    v0 = i * u_res + j
+                    v1 = i * u_res + (j + 1) % u_res
+                    v2 = (i + 1) * u_res + (j + 1) % u_res
+                    v3 = (i + 1) * u_res + j
+                    
+                    if v2 < vertex_count and v3 < vertex_count:
+                        triangles.extend([v0, v1, v2])
+                        triangles.extend([v0, v2, v3])
+            
+            # Calculate normals (simplified - use normalized position for sphere-like surfaces)
+            normals = []
+            for vertex in vertices:
+                length = math.sqrt(vertex[0]**2 + vertex[1]**2 + vertex[2]**2)
+                if length > 0:
+                    normals.append([vertex[0]/length, vertex[1]/length, vertex[2]/length])
+                else:
+                    normals.append([0.0, 1.0, 0.0])
+            
+            # UV mapping (simplified)
+            uvs = []
+            for vertex in vertices:
+                u = 0.5 + math.atan2(vertex[2], vertex[0]) / (2 * math.pi)
+                v = 0.5 + vertex[1] / height
+                uvs.append([u, v])
+            
+            # Convert to numpy arrays
+            import numpy as np
+            mesh_data = {
+                'prim_path': prim_path,
+                'vertices': np.array(vertices, dtype=np.float32),
+                'indices': np.array(triangles, dtype=np.uint32),
+                'normals': np.array(normals, dtype=np.float32),
+                'uvs': np.array(uvs, dtype=np.float32)
+            }
+            meshes.append(mesh_data)
+        
+        elif prim_type == 'Plane':
+            plane = UsdGeom.Plane(prim)
+            prim_path = str(prim.GetPath())
+            
+            # Get plane properties
+            width = 2.0
+            length = 2.0
+            
+            if plane.GetWidthAttr() and plane.GetWidthAttr().HasValue():
+                width = float(plane.GetWidthAttr().Get())
+            if plane.GetLengthAttr() and plane.GetLengthAttr().HasValue():
+                length = float(plane.GetLengthAttr().Get())
+            
+            # Generate plane vertices (simple quad)
+            half_width = width / 2.0
+            half_length = length / 2.0
+            
+            vertices = [
+                [-half_width, 0.0, -half_length],
+                [half_width, 0.0, -half_length],
+                [half_width, 0.0, half_length],
+                [-half_width, 0.0, half_length]
+            ]
+            
+            # Two triangles for the quad
+            triangles = [0, 1, 2, 0, 2, 3]
+            
+            # Normals (all pointing up)
+            normals = [
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0]
+            ]
+            
+            # UV coordinates
+            uvs = [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [1.0, 1.0],
+                [0.0, 1.0]
+            ]
+            
+            # Convert to numpy arrays
+            import numpy as np
+            mesh_data = {
+                'prim_path': prim_path,
+                'vertices': np.array(vertices, dtype=np.float32),
+                'indices': np.array(triangles, dtype=np.uint32),
+                'normals': np.array(normals, dtype=np.float32),
+                'uvs': np.array(uvs, dtype=np.float32)
+            }
             meshes.append(mesh_data)
     
     return {'meshes': meshes, 'up_axis': up_axis}", None, None)
