@@ -352,34 +352,11 @@ impl Default for ViewportNode {
 }
 
 impl ViewportNode {
-    /// Update scene size in camera settings based on current USD stage
+    /// Update scene size in camera settings based on current USD input data
     pub fn update_scene_size(&mut self, node: &Node) {
-        // Get current stage - only use if explicitly set
-        let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None });
-        
-        // If no stage is set, don't load anything
-        if current_stage.is_none() || current_stage.as_ref().unwrap().is_empty() {
-            return;
-        }
-        
-        let current_stage = current_stage.unwrap();
-        
-        // Get scene size from cached data if available
-        let mut cache = USD_RENDERER_CACHE.lock().unwrap();
-        let cached_viewport_data = cache.get_or_load(&current_stage);
-        
-        // Extract scene size from scene name (encoded during creation)
-        let scene_size = if let Some(size_start) = cached_viewport_data.scene.name.rfind("(size: ") {
-            let size_part = &cached_viewport_data.scene.name[size_start + 7..];
-            if let Some(size_end) = size_part.find(')') {
-                size_part[..size_end].parse::<f32>().unwrap_or(10.0)
-            } else { 10.0 }
-        } else { 10.0 };
-        
-        // Update camera settings with scene size
-        self.camera_settings.scene_size = scene_size;
-        // println!("📐 Updated scene size to: {:.1}", scene_size); // Removed: called every frame
+        // Scene size is now calculated from input data only
+        // This method is kept for compatibility but does nothing
+        // Scene size is automatically calculated during USD data conversion
     }
     
     /// Calculate adaptive sensitivity based on scene scale and camera distance
@@ -872,19 +849,9 @@ impl ViewportNode {
         ui.heading("USD Viewport Settings");
         ui.separator();
         
-        // Stage Information
-        ui.label("📁 Stage Information");
-        
-        let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
-            .unwrap_or_default();
-        
-        if current_stage.is_empty() {
-            ui.label("No USD stage loaded");
-        } else {
-            ui.label(format!("Current Stage: {}", current_stage));
-        }
-        
+        // Connection Status
+        ui.label("🔗 Connection Status");
+        ui.label("Connect USD File Reader to input port");
         ui.separator();
         
         // Camera Settings - Collapsible
@@ -1017,8 +984,7 @@ impl ViewportNode {
     pub fn initialize_parameters() -> HashMap<String, NodeData> {
         let mut params = HashMap::new();
         
-        // USD stage parameters - no default stage, wait for input connection
-        params.insert("current_stage".to_string(), NodeData::String("".to_string()));
+        // Remove stage-related parameters - only use input connections
         params.insert("stage_loaded".to_string(), NodeData::Boolean(true));
         params.insert("stage_dirty".to_string(), NodeData::Boolean(true));
         
@@ -1049,34 +1015,15 @@ impl ViewportNode {
         
         // Check for USDSceneData input (first priority)
         let mut usd_scene_input = None;
-        let mut stage_from_input = None;
         
-        // Process inputs in order: USD Scene, Stage, Camera
+        // Process USD Scene input only
         if inputs.len() > 0 {
             if let NodeData::USDSceneData(usd_scene_data) = &inputs[0] {
                 usd_scene_input = Some(usd_scene_data.clone());
-                // println!("🎬 Viewport: Received USDSceneData input with {} meshes, {} lights, {} materials",
-                //          usd_scene_data.meshes.len(), 
-                //          usd_scene_data.lights.len(), 
-                //          usd_scene_data.materials.len());
-                // Removed: called every frame when USD input is present
             }
         }
         
-        if inputs.len() > 1 {
-            if let NodeData::String(stage_path) = &inputs[1] {
-                if !stage_path.is_empty() {
-                    stage_from_input = Some(stage_path.clone());
-                }
-            }
-        }
-        
-        // Get current stage from parameters as fallback
-        let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
-            .unwrap_or_default();
-        
-        // Determine active data source and prepare outputs
+        // Handle USD Scene input or show empty scene
         if let Some(usd_scene_data) = usd_scene_input {
             // Store the USDSceneData in the global cache for get_viewport_data to access
             if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
@@ -1090,17 +1037,9 @@ impl ViewportNode {
             
             println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path);
         } else {
-            // Fall back to stage path (input or parameter)
-            let active_stage = stage_from_input.unwrap_or(current_stage.clone());
-            
-            if !active_stage.is_empty() {
-                outputs.push(NodeData::String(format!("USD Viewport: {}", active_stage)));
-                outputs.push(NodeData::Boolean(true)); // Stage loaded indicator
-                // println!("🎬 Viewport: Using file path: {}", active_stage); // Removed: called every frame
-            } else {
-                outputs.push(NodeData::String("No USD stage loaded".to_string()));
-                outputs.push(NodeData::Boolean(false)); // No stage loaded
-            }
+            // No input data - show empty scene
+            outputs.push(NodeData::String("Empty Viewport - Connect USD File Reader".to_string()));
+            outputs.push(NodeData::Boolean(false)); // No scene loaded
         }
         
         outputs
@@ -1150,30 +1089,9 @@ impl ViewportNode {
             }
         }
         
-        // Check if we have a stage path from parameters (user explicitly set a file)
-        let current_stage = node.parameters.get("current_stage")
-            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None });
         
-        // Only fall back to file loading if user has explicitly set a stage path
-        if let Some(stage_path) = current_stage {
-            if !stage_path.is_empty() {
-                println!("🎬 ViewportNode::get_viewport_data: Falling back to stage path: {}", stage_path);
-                // println!("🎬 Loading USD file from parameter: {}", stage_path); // Removed: called every frame
-                // Use the cached renderer if available
-                let mut cache = USD_RENDERER_CACHE.lock().unwrap();
-                let cached_viewport_data = cache.get_or_load(&stage_path);
-                
-                // Clone the viewport data but update settings from node parameters
-                let mut viewport_data = cached_viewport_data.clone();
-                
-                // Apply parameter settings and return
-                Self::apply_viewport_settings(&mut viewport_data, node);
-                return Some(viewport_data);
-            }
-        }
-        
-        // No input data and no file parameter - return empty scene
-        println!("🚫 ViewportNode::get_viewport_data: No USD input data or file parameter - showing empty viewport for node {}", node.id);
+        // No input data - return empty scene
+        println!("🚫 ViewportNode::get_viewport_data: No USD input data - showing empty viewport for node {}", node.id);
         Some(Self::create_empty_viewport_data(node))
     }
     
@@ -1360,10 +1278,6 @@ impl NodeFactory for ViewportNode {
         .with_inputs(vec![
             crate::nodes::PortDefinition::optional("USD Scene", crate::nodes::DataType::Any)
                 .with_description("USD scene data from USD File Reader"),
-            crate::nodes::PortDefinition::optional("Stage", crate::nodes::DataType::String)
-                .with_description("USD Stage file path (fallback)"),
-            crate::nodes::PortDefinition::optional("Camera", crate::nodes::DataType::String)
-                .with_description("Camera prim for viewport (optional)"),
         ])
         .with_outputs(vec![
             crate::nodes::PortDefinition::optional("Rendered Image", crate::nodes::DataType::String)

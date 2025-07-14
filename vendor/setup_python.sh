@@ -217,9 +217,13 @@ install_packages() {
         return 1
     fi
     
-    # Upgrade pip first
-    log_info "Upgrading pip..."
-    "$python_cmd" -m pip install --upgrade pip
+    # Upgrade pip first - force latest version
+    log_info "Upgrading pip to latest version..."
+    if ! "$python_cmd" -m pip install --upgrade pip --force-reinstall; then
+        log_info "Pip upgrade failed, trying to reinstall pip from bootstrap..."
+        # Download and install pip from bootstrap as fallback
+        curl -sSL https://bootstrap.pypa.io/get-pip.py | "$python_cmd"
+    fi
     
     # Install required packages
     log_info "Installing setuptools..."
@@ -249,40 +253,44 @@ update_cargo_config() {
     # Create .cargo directory if it doesn't exist
     mkdir -p "$(dirname "$CARGO_CONFIG")"
     
-    # Determine Python executable path
+    # Get absolute paths for portable configuration
+    local project_root
+    project_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+    
+    # Determine Python executable path (absolute)
     local python_exec
     if [ "$PLATFORM" = "windows" ]; then
-        python_exec="./vendor/python-runtime/python/python.exe"
+        python_exec="$project_root/vendor/python-runtime/python/python.exe"
     else
-        python_exec="./vendor/python-runtime/python/bin/python3"
+        python_exec="$project_root/vendor/python-runtime/python/bin/python3"
     fi
     
-    # Create new cargo config
+    # Create new cargo config with absolute paths
     cat > "$CARGO_CONFIG" << EOF
 # Cargo configuration for embedded Python and USD
 [env]
-# Point PyO3 to our embedded Python
+# Point PyO3 to our embedded Python (absolute paths for cross-platform compatibility)
 PYO3_PYTHON = "${python_exec}"
 PYO3_PYTHON_VERSION = "3.9"
-PYTHONPATH = "./vendor/python-runtime/python/lib/python3.9/site-packages"
+PYTHONPATH = "${project_root}/vendor/python-runtime/python/lib/python3.9/site-packages"
 
 # USD paths
-NODLE_USD_ROOT = "./vendor/python-runtime/python"
-USD_INSTALL_ROOT = "./vendor/python-runtime/python"
+NODLE_USD_ROOT = "${project_root}/vendor/python-runtime/python"
+USD_INSTALL_ROOT = "${project_root}/vendor/python-runtime/python"
 
 # Library path for embedded Python
-DYLD_LIBRARY_PATH = "./vendor/python-runtime/python/lib"
-LD_LIBRARY_PATH = "./vendor/python-runtime/python/lib"
+DYLD_LIBRARY_PATH = "${project_root}/vendor/python-runtime/python/lib"
+LD_LIBRARY_PATH = "${project_root}/vendor/python-runtime/python/lib"
 
 [build]
 # Link against our embedded Python library
 rustflags = [
-    "-L", "./vendor/python-runtime/python/lib",
-    "-Wl,-rpath,./vendor/python-runtime/python/lib"
+    "-L", "${project_root}/vendor/python-runtime/python/lib",
+    "-Wl,-rpath,${project_root}/vendor/python-runtime/python/lib"
 ]
 EOF
     
-    log_success "Cargo configuration updated"
+    log_success "Cargo configuration updated with absolute paths"
 }
 
 # Update gitignore

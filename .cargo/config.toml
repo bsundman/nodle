@@ -1,22 +1,21 @@
 # Cargo configuration for embedded Python and USD
 [env]
-# Point PyO3 to our embedded Python
+# Point PyO3 to our embedded Python (absolute paths for cross-platform compatibility)
 PYO3_PYTHON = "/Users/brian/nodle/nodle/vendor/python-runtime/python/bin/python3"
 PYO3_PYTHON_VERSION = "3.9"
-PYTHONPATH = "./vendor/python-runtime/python/lib/python3.9/site-packages:./vendor/python-runtime/python/lib/python3.9"
-PYTHONHOME = "./vendor/python-runtime/python"
+PYTHONPATH = "/Users/brian/nodle/nodle/vendor/python-runtime/python/lib/python3.9/site-packages"
 
 # USD paths
-NODLE_USD_ROOT = "./vendor/python-runtime/python"
-USD_INSTALL_ROOT = "./vendor/python-runtime/python"
+NODLE_USD_ROOT = "/Users/brian/nodle/nodle/vendor/python-runtime/python"
+USD_INSTALL_ROOT = "/Users/brian/nodle/nodle/vendor/python-runtime/python"
 
 # Library path for embedded Python
-DYLD_LIBRARY_PATH = "./vendor/python-runtime/python/lib"
-LD_LIBRARY_PATH = "./vendor/python-runtime/python/lib"
+DYLD_LIBRARY_PATH = "/Users/brian/nodle/nodle/vendor/python-runtime/python/lib"
+LD_LIBRARY_PATH = "/Users/brian/nodle/nodle/vendor/python-runtime/python/lib"
 
 [build]
 # Link against our embedded Python library
 rustflags = [
-    "-L", "./vendor/python-runtime/python/lib",
-    "-Wl,-rpath,./vendor/python-runtime/python/lib"
+    "-L", "/Users/brian/nodle/nodle/vendor/python-runtime/python/lib",
+    "-Wl,-rpath,/Users/brian/nodle/nodle/vendor/python-runtime/python/lib"
 ]
