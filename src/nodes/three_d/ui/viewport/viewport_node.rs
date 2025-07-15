@@ -1085,13 +1085,11 @@ impl ViewportNode {
                     return Some(viewport_data);
                 }
             } else {
-                println!("🚫 ViewportNode::get_viewport_data: No cached USD data found for node {}", node.id);
             }
         }
         
         
         // No input data - return empty scene
-        println!("🚫 ViewportNode::get_viewport_data: No USD input data - showing empty viewport for node {}", node.id);
         Some(Self::create_empty_viewport_data(node))
     }
     
