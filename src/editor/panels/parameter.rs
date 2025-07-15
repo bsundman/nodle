@@ -130,7 +130,7 @@ impl ParameterPanel {
                     .fill(Color32::from_gray(40))
                     .corner_radius(4.0)
                     .show(ui, |ui| {
-                        self.render_parameter_content(ui, node_id, node, panel_manager, graph, execution_engine);
+                        self.render_parameter_content(ui, node_id, panel_manager, graph, execution_engine);
                     });
             });
         
@@ -237,7 +237,7 @@ impl ParameterPanel {
                                             .corner_radius(4.0)
                                             .stroke(egui::Stroke::new(1.0, Color32::from_gray(80)))
                                             .show(ui, |ui| {
-                                                self.render_parameter_content(ui, node_id, node, panel_manager, graph, execution_engine);
+                                                self.render_parameter_content(ui, node_id, panel_manager, graph, execution_engine);
                                             });
                                     });
                                 
@@ -315,20 +315,27 @@ impl ParameterPanel {
         &mut self,
         ui: &mut egui::Ui,
         node_id: NodeId,
-        node: &Node,
         panel_manager: &mut InterfacePanelManager,
         graph: &mut crate::nodes::NodeGraph,
         execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) {
-        // Panel rendering started
-        
-        // Check what the title is in the graph vs the passed node
-        if let Some(graph_node) = graph.nodes.get(&node_id) {
-            // Title check removed for performance
-        }
-        
-        // Get the actual node's title for editing
-        let mut name_buffer = node.title.clone();
+        // ALWAYS get fresh node data from graph - never use stale viewed_nodes
+        let (mut name_buffer, node_type, node_position, node_inputs, node_outputs, node_parameters) = {
+            let Some(fresh_node) = graph.nodes.get(&node_id) else {
+                ui.label("Node not found in graph");
+                return;
+            };
+            
+            // Clone the data we need to avoid borrow checker issues
+            (
+                fresh_node.title.clone(),
+                fresh_node.node_type.clone(),
+                fresh_node.position,
+                fresh_node.inputs.clone(),
+                fresh_node.outputs.clone(),
+                fresh_node.parameters.clone()
+            )
+        };
         // Name buffer initialized
         
         // Get current fit name flag
@@ -408,10 +415,10 @@ impl ParameterPanel {
         
         ui.separator();
         
-        // Show node info
-        ui.label(format!("Node: {}", node.title));
-        ui.label(format!("Type: {:?}", node.node_type));
-        ui.label(format!("Position: ({:.1}, {:.1})", node.position.x, node.position.y));
+        // Show node info - using fresh graph data
+        ui.label(format!("Node: {}", name_buffer));
+        ui.label(format!("Type: {:?}", node_type));
+        ui.label(format!("Position: ({:.1}, {:.1})", node_position.x, node_position.y));
         
         ui.separator();
         
@@ -432,9 +439,9 @@ impl ParameterPanel {
         
         ui.separator();
         
-        // Show ports with connection information
+        // Show ports with connection information - using fresh graph data
         ui.label("Input Ports:");
-        for (i, input) in node.inputs.iter().enumerate() {
+        for (i, input) in node_inputs.iter().enumerate() {
             // Find connections to this input port
             let connected_from = graph.connections.iter()
                 .find(|conn| conn.to_node == node_id && conn.to_port == i)
@@ -455,7 +462,7 @@ impl ParameterPanel {
         }
         
         ui.label("Output Ports:");
-        for (i, output) in node.outputs.iter().enumerate() {
+        for (i, output) in node_outputs.iter().enumerate() {
             // Find connections from this output port
             let connected_to: Vec<String> = graph.connections.iter()
                 .filter(|conn| conn.from_node == node_id && conn.from_port == i)
@@ -486,10 +493,10 @@ impl ParameterPanel {
         };
         
         // Fallback: render basic parameter display for nodes without proper interfaces
-        if !handled && !node.parameters.is_empty() {
+        if !handled && !node_parameters.is_empty() {
             ui.label("Parameters:");
             
-            for (param_name, param_value) in &node.parameters {
+            for (param_name, param_value) in &node_parameters {
                 ui.horizontal(|ui| {
                     ui.label(format!("{}:", param_name));
                     match param_value {
@@ -550,15 +557,15 @@ impl ParameterPanel {
             // Rendering node interface
             
             // Try to handle all known node types with build_interface methods
-            let changes = match title.as_str() {
+            let changes = match node.type_id.as_str() {
                 // Data nodes
-                "USD File Reader" => {
+                "Data_UsdFileReader" => {
                     // Using USD File Reader interface
                     crate::nodes::data::usd_file_reader::parameters::UsdFileReaderParameters::build_interface(node, ui)
                 },
                 
                 // Test nodes
-                title if title.contains("Test") => {
+                "Test" => {
                     // Using Test node interface
                     crate::nodes::utility::test::parameters::TestNode::build_interface(node, ui)
                 },
@@ -843,39 +850,39 @@ impl ParameterPanel {
         // USD nodes are now handled by plugins - no core implementation needed
         
         // Math nodes using Pattern A
-        if title.contains("Add") || title.contains("Addition") {
+        if node.type_id.contains("Add") || node.type_id.contains("Addition") {
             let changes = crate::nodes::math::add::parameters::AddNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Math nodes using Pattern A
-        if title.contains("Subtract") || title.contains("Subtraction") {
+        if node.type_id.contains("Subtract") || node.type_id.contains("Subtraction") {
             let changes = crate::nodes::math::subtract::parameters::SubtractNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
-        if title.contains("Multiply") || title.contains("Multiplication") {
+        if node.type_id.contains("Multiply") || node.type_id.contains("Multiplication") {
             let changes = crate::nodes::math::multiply::parameters::MultiplyNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
-        if title.contains("Divide") || title.contains("Division") {
+        if node.type_id.contains("Divide") || node.type_id.contains("Division") {
             let changes = crate::nodes::math::divide::parameters::DivideNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         // Geometry nodes using Pattern A
-        if title.contains("Sphere") && !title.contains("USD") {
+        if node.type_id.contains("Sphere") && !node.type_id.contains("USD") {
             let changes = crate::nodes::three_d::geometry::sphere::parameters::SphereNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
-        if title.contains("Cube") && !title.contains("USD") {
+        if node.type_id.contains("Cube") && !node.type_id.contains("USD") {
             let changes = crate::nodes::three_d::geometry::cube::parameters::CubeNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
@@ -978,7 +985,7 @@ impl ParameterPanel {
             return true;
         }
         
-        if title.contains("Test") {
+        if node.type_id.contains("Test") {
             println!("🧪 FOUND TEST NODE! Rendering custom interface for: '{}'", title);
             println!("🧪 TEST NODE: Node has {} parameters", node.parameters.len());
             let changes = crate::nodes::utility::test::parameters::TestNode::build_interface(node, ui);
@@ -989,7 +996,7 @@ impl ParameterPanel {
         }
         
         // Data nodes using Pattern A
-        if title.contains("USD File Reader") {
+        if node.type_id.contains("Data_UsdFileReader") {
             let changes = crate::nodes::data::usd_file_reader::UsdFileReaderNode::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;

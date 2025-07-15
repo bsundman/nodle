@@ -35,6 +35,7 @@ impl NodeFactory for parameters::TestNode {
     fn create(position: egui::Pos2) -> crate::nodes::Node {
         let meta = Self::metadata();
         let mut node = crate::nodes::Node::new(0, meta.display_name, position);
+        node.set_type_id(meta.node_type);
         node.color = meta.color;
         
         // Add inputs

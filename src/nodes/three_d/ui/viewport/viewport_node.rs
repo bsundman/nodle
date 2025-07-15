@@ -1010,8 +1010,23 @@ impl ViewportNode {
     
     /// Process the viewport node's logic (called during graph execution)
     pub fn process_node(node: &Node, inputs: &[NodeData]) -> Vec<NodeData> {
-        println!("🎬 ViewportNode::process_node called for node '{}' with {} inputs", node.title, inputs.len());
+        println!("🎬 ViewportNode::process_node called for node '{}' (type_id: {}) with {} inputs", node.title, node.type_id, inputs.len());
         let mut outputs = Vec::new();
+        
+        // Debug input contents
+        for (i, input) in inputs.iter().enumerate() {
+            match input {
+                NodeData::USDSceneData(scene) => {
+                    println!("  🎬 Input {}: USDSceneData with {} meshes from '{}'", i, scene.meshes.len(), scene.stage_path);
+                }
+                NodeData::String(s) => {
+                    println!("  🎬 Input {}: String('{}')", i, s);
+                }
+                _ => {
+                    println!("  🎬 Input {}: {:?}", i, input);
+                }
+            }
+        }
         
         // Check for USDSceneData input (first priority)
         let mut usd_scene_input = None;
@@ -1291,7 +1306,8 @@ impl NodeFactory for ViewportNode {
     
     fn create(position: egui::Pos2) -> Node {
         let meta = Self::metadata();
-        let mut node = Node::new(0, meta.node_type, position);
+        let mut node = Node::new(0, meta.display_name, position);
+        node.set_type_id(meta.node_type); // Set the type_id correctly
         node.color = meta.color;
         
         // Add inputs

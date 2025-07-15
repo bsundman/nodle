@@ -282,39 +282,29 @@ impl NodeGraphEngine {
 
         let mut inputs = vec![NodeData::None; node.inputs.len()];
         
-        // Collecting inputs for node
-        
         // Find all connections feeding into this node
         let mut found_connections = 0;
         for connection in &graph.connections {
             if connection.to_node == node_id {
                 found_connections += 1;
-                // Found connection
                 
                 // Get the output from the source node
                 if let Some(output_data) = self.output_cache.get(&(connection.from_node, connection.from_port)) {
                     if connection.to_port < inputs.len() {
                         inputs[connection.to_port] = output_data.clone();
-                        // Found cached data
-                    } else {
-                        // Target port out of range
                     }
-                } else {
-                    // No cached output found
                 }
             }
         }
-        
-        // Inputs collected
         inputs
     }
 
-    /// Dispatch node execution based on node title
+    /// Dispatch node execution based on node type_id
     fn dispatch_node_execution(&self, node: &Node, inputs: Vec<NodeData>) -> Result<Vec<NodeData>, String> {
-        // Use the node title to dispatch execution (this matches the current system)
-        match node.title.as_str() {
+        // Use the node type_id to dispatch execution (independent of user-editable title)
+        match node.type_id.as_str() {
             // Data nodes
-            "USD File Reader" => {
+            "Data_UsdFileReader" => {
                 // Executing USD File Reader
                 Ok(crate::nodes::data::usd_file_reader::UsdFileReaderNode::process_node(node, inputs))
             }
@@ -421,12 +411,12 @@ impl NodeGraphEngine {
             }
             
             // 3D Transform nodes
-            "Translate" | "3D_Translate" => {
+            "3D_Translate" => {
                 // Executing Translate node
                 let logic = crate::nodes::three_d::transform::translate::logic::TranslateLogic::default();
                 Ok(logic.process(inputs))
             }
-            "Rotate" | "3D_Rotate" => {
+            "3D_Rotate" => {
                 // Executing Rotate node
                 // For now, just pass through - implement rotation logic later
                 if !inputs.is_empty() {
@@ -435,7 +425,7 @@ impl NodeGraphEngine {
                     Ok(vec![NodeData::None])
                 }
             }
-            "Scale" | "3D_Scale" => {
+            "3D_Scale" => {
                 // Executing Scale node
                 // For now, just pass through - implement scaling logic later
                 if !inputs.is_empty() {
@@ -480,7 +470,7 @@ impl NodeGraphEngine {
             }
             
             // 3D Modify nodes
-            "Reverse" | "3D_Reverse" => {
+            "3D_Reverse" => {
                 // Executing Reverse node
                 Ok(crate::nodes::three_d::modify::reverse::parameters::ReverseNode::process_node(node, inputs))
             }
@@ -553,7 +543,7 @@ impl NodeGraphEngine {
         
         // Clear viewport-specific caches if the target is a viewport node
         if let Some(node) = graph.nodes.get(&connection.to_node) {
-            if node.title == "Viewport" {
+            if node.type_id == "Viewport" {
                 println!("🔄 New connection to viewport: clearing all caches for regeneration");
                 self.clear_viewport_caches(connection.to_node);
             }
@@ -579,7 +569,7 @@ impl NodeGraphEngine {
         
         // Clear viewport-specific caches if the target is a viewport node
         if let Some(node) = graph.nodes.get(&connection.to_node) {
-            if node.title == "Viewport" {
+            if node.type_id == "Viewport" {
                 println!("🔄 Connection removed from viewport: clearing all caches for regeneration");
                 self.clear_viewport_caches(connection.to_node);
             }
@@ -638,7 +628,7 @@ impl NodeGraphEngine {
             // Node parameters changed
             
             // If this is a USD File Reader node, clear GPU mesh cache to force re-upload
-            if node.title == "USD File Reader" {
+            if node.type_id == "Data_UsdFileReader" {
                 println!("🔄 USD File Reader parameters changed - clearing GPU mesh cache and marking downstream dirty");
                 self.clear_gpu_mesh_cache_for_usd_changes(node_id, graph);
             }
@@ -682,7 +672,7 @@ impl NodeGraphEngine {
         let downstream_nodes = self.find_downstream_nodes(usd_node_id, graph);
         for downstream_id in &downstream_nodes {
             if let Some(node) = graph.nodes.get(downstream_id) {
-                if node.title == "Viewport" {
+                if node.type_id == "Viewport" {
                     if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                         force_set.insert(*downstream_id);
                         println!("🔄 Added viewport node {} to FORCE_VIEWPORT_REFRESH set", downstream_id);

@@ -44,6 +44,8 @@ pub enum NodeType {
 #[derive(Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
+    /// Immutable type identifier (e.g., "Data_UsdFileReader")
+    pub type_id: String,
     pub title: String,
     #[serde(with = "pos2_serde")]
     pub position: Pos2,
@@ -73,6 +75,7 @@ impl std::fmt::Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Node")
             .field("id", &self.id)
+            .field("type_id", &self.type_id)
             .field("title", &self.title)
             .field("position", &self.position)
             .field("size", &self.size)
@@ -93,6 +96,7 @@ impl Clone for Node {
     fn clone(&self) -> Self {
         Self {
             id: self.id,
+            type_id: self.type_id.clone(),
             title: self.title.clone(),
             position: self.position,
             size: self.size,
@@ -115,7 +119,8 @@ impl Node {
         let title_str = title.into();
         let new_node = Self {
             id,
-            title: title_str.clone(),
+            type_id: "Unknown".to_string(), // Default type_id, will be set by factory
+            title: title_str,
             position,
             size: theme::dimensions().default_node_size,
             inputs: vec![],
@@ -137,9 +142,11 @@ impl Node {
     pub fn new_workspace(id: NodeId, workspace_type: impl Into<String>, position: Pos2) -> Self {
         let workspace_type_str = workspace_type.into();
         let title = format!("{} Workspace", workspace_type_str);
+        let type_id = format!("Workspace_{}", workspace_type_str);
         let new_node = Self {
             id,
-            title: title.clone(),
+            type_id,
+            title,
             position,
             size: theme::dimensions().workspace_node_size,
             inputs: vec![],
@@ -229,6 +236,11 @@ impl Node {
     /// Sets the panel type for this node (mutable reference)
     pub fn set_panel_type(&mut self, panel_type: PanelType) {
         self.panel_type = Some(panel_type);
+    }
+    
+    /// Sets the type identifier for this node
+    pub fn set_type_id(&mut self, type_id: impl Into<String>) {
+        self.type_id = type_id.into();
     }
 
     /// Sets the size of the node

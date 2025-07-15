@@ -410,7 +410,8 @@ pub trait NodeFactory: Send + Sync {
     /// Create a node instance at the given position
     fn create(position: Pos2) -> Node where Self: Sized {
         let meta = Self::metadata();
-        let mut node = Node::new(0, meta.node_type, position);
+        let mut node = Node::new(0, meta.display_name, position);
+        node.set_type_id(meta.node_type);
         node.color = meta.color;
         
         // Add inputs
@@ -550,7 +551,11 @@ impl NodeRegistry {
             
             // Add error handling for core node creation
             let mut core_node = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                Node::new(node_id, node_type.to_string(), position)
+                {
+                    let mut node = Node::new(node_id, metadata_test.display_name.clone(), position);
+                    node.set_type_id(node_type.to_string());
+                    node
+                }
             })) {
                 Ok(node) => {
                     debug!("Created core node successfully");

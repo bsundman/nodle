@@ -41,6 +41,7 @@ impl NodeFactory for UsdFileReaderNodeFactory {
     fn create(position: egui::Pos2) -> Node {
         let meta = Self::metadata();
         let mut node = Node::new(0, meta.display_name, position);
+        node.set_type_id(meta.node_type);
         node.color = meta.color;
         
         // Add outputs
@@ -77,10 +78,26 @@ impl UsdFileReaderNode {
     
     /// Process the USD File Reader node's logic (called during graph execution)
     pub fn process_node(node: &Node, inputs: Vec<NodeData>) -> Vec<NodeData> {
-        println!("📁 UsdFileReaderNode::process_node called for node '{}'", node.title);
+        println!("📁 UsdFileReaderNode::process_node called for node '{}' (type_id: {})", node.title, node.type_id);
         let mut logic = logic::UsdFileReaderLogic::from_node(node);
         let outputs = logic.process(inputs);
         println!("📁 UsdFileReaderNode::process_node returning {} outputs", outputs.len());
+        
+        // Debug output contents
+        for (i, output) in outputs.iter().enumerate() {
+            match output {
+                NodeData::USDSceneData(scene) => {
+                    println!("  📁 Output {}: USDSceneData with {} meshes from '{}'", i, scene.meshes.len(), scene.stage_path);
+                }
+                NodeData::String(s) => {
+                    println!("  📁 Output {}: String('{}')", i, s);
+                }
+                _ => {
+                    println!("  📁 Output {}: {:?}", i, output);
+                }
+            }
+        }
+        
         outputs
     }
 }
