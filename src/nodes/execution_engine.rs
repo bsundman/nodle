@@ -546,6 +546,23 @@ impl NodeGraphEngine {
             if node.type_id == "Viewport" {
                 println!("🔄 New connection to viewport: clearing all caches for regeneration");
                 self.clear_viewport_caches(connection.to_node);
+                
+                // CRITICAL: Set force refresh flag for viewport
+                use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
+                if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+                    force_set.insert(connection.to_node);
+                }
+            }
+        }
+        
+        // CRITICAL: Execute dirty nodes immediately to prevent lag
+        // This ensures connection changes are reflected immediately
+        match self.execute_dirty_nodes(graph) {
+            Ok(_) => {
+                // Immediate execution successful
+            }
+            Err(e) => {
+                eprintln!("Connection addition execution failed: {}", e);
             }
         }
     }
@@ -572,6 +589,23 @@ impl NodeGraphEngine {
             if node.type_id == "Viewport" {
                 println!("🔄 Connection removed from viewport: clearing all caches for regeneration");
                 self.clear_viewport_caches(connection.to_node);
+                
+                // CRITICAL: Set force refresh flag for viewport
+                use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
+                if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+                    force_set.insert(connection.to_node);
+                }
+            }
+        }
+        
+        // CRITICAL: Execute dirty nodes immediately to prevent lag
+        // This ensures connection changes are reflected immediately
+        match self.execute_dirty_nodes(graph) {
+            Ok(_) => {
+                // Immediate execution successful
+            }
+            Err(e) => {
+                eprintln!("Connection removal execution failed: {}", e);
             }
         }
     }
@@ -592,20 +626,15 @@ impl NodeGraphEngine {
             println!("🧹 Cleared viewport data cache for node: {}", node_id);
         }
         
-        // Clear USD renderer cache - IMPORTANT: This cache uses file paths as keys, not node IDs
-        // We need to clear ALL entries since we don't know which file path was used
-        if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
-            let renderer_count = cache.renderers.len();
-            let bounds_count = cache.scene_bounds.len();
-            cache.renderers.clear();
-            cache.scene_bounds.clear();
-            println!("🧹 Cleared ALL USD renderer cache entries (was {} renderers, {} bounds) for node: {}", 
-                     renderer_count, bounds_count, node_id);
-        }
+        // Note: USD renderer cache uses file paths as keys, not node IDs
+        // We avoid clearing ALL entries since that would affect unrelated viewport nodes
+        // Instead, we let the viewport node handle its own USD renderer cache clearing
+        // when it detects input changes through the FORCE_VIEWPORT_REFRESH mechanism
         
-        // Clear ALL GPU mesh caches to force regeneration
+        // CRITICAL: Clear GPU mesh caches when viewport connections change
+        // This ensures viewport updates are visible immediately
         crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
-        println!("🧹 Cleared all GPU mesh caches");
+        println!("🧹 Cleared GPU mesh caches for connection change");
         
         // Clear execution engine output cache for this node to force data reprocessing  
         self.output_cache.retain(|(cached_node_id, _), _| *cached_node_id != node_id);
@@ -640,44 +669,72 @@ impl NodeGraphEngine {
         // Node marked as dirty
     }
 
-    /// Clear GPU mesh cache when USD parameters change
+    /// Clear GPU mesh cache when USD parameters change - only for connected viewport nodes
     fn clear_gpu_mesh_cache_for_usd_changes(&mut self, usd_node_id: NodeId, graph: &NodeGraph) {
-        // Clear GPU mesh cache to force re-uploading with new data
-        crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
-        
         // CRITICAL: Clear the USD node's output cache so it regenerates data
         self.output_cache.retain(|(node_id, _), _| *node_id != usd_node_id);
         println!("🧹 Cleared execution engine output cache for USD node: {}", usd_node_id);
         
-        // Also clear viewport caches to ensure fresh data flow
-        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE, FORCE_VIEWPORT_REFRESH};
-        
-        if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
-            cache.clear();
-            println!("🧹 Cleared all viewport input cache entries");
-        }
-        
-        if let Ok(mut cache) = VIEWPORT_DATA_CACHE.lock() {
-            cache.clear();
-            println!("🧹 Cleared all viewport data cache entries");
-        }
-        
-        if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
-            cache.renderers.clear();
-            cache.scene_bounds.clear();
-            println!("🧹 Cleared all USD renderer cache entries");
-        }
-        
-        // CRITICAL: Find all downstream viewport nodes and force them to refresh immediately
+        // Find all downstream viewport nodes that are actually connected
         let downstream_nodes = self.find_downstream_nodes(usd_node_id, graph);
+        let mut connected_viewport_nodes = Vec::new();
+        
         for downstream_id in &downstream_nodes {
             if let Some(node) = graph.nodes.get(downstream_id) {
                 if node.type_id == "Viewport" {
-                    if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
-                        force_set.insert(*downstream_id);
-                        println!("🔄 Added viewport node {} to FORCE_VIEWPORT_REFRESH set", downstream_id);
-                    }
+                    connected_viewport_nodes.push(*downstream_id);
                 }
+            }
+        }
+        
+        // Only clear caches for viewport nodes that are actually connected to this USD File Reader
+        if !connected_viewport_nodes.is_empty() {
+            println!("🧹 Clearing caches only for connected viewport nodes: {:?}", connected_viewport_nodes);
+            
+            use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE, FORCE_VIEWPORT_REFRESH};
+            
+            // Clear viewport input cache only for connected nodes
+            if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
+                for viewport_node_id in &connected_viewport_nodes {
+                    cache.remove(viewport_node_id);
+                    println!("🧹 Cleared viewport input cache for connected node: {}", viewport_node_id);
+                }
+            }
+            
+            // Clear viewport data cache only for connected nodes
+            if let Ok(mut cache) = VIEWPORT_DATA_CACHE.lock() {
+                for viewport_node_id in &connected_viewport_nodes {
+                    cache.remove(viewport_node_id);
+                    println!("🧹 Cleared viewport data cache for connected node: {}", viewport_node_id);
+                }
+            }
+            
+            // CRITICAL: Clear GPU mesh caches to force re-uploading with new data
+            // This ensures parameter changes are visible in the viewport
+            crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
+            println!("🧹 Cleared GPU mesh caches for USD parameter change");
+            
+            // Clear USD renderer cache - this is keyed by file path, so we need to clear all
+            // since we don't know which specific file path was affected
+            if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
+                let renderer_count = cache.renderers.len();
+                let bounds_count = cache.scene_bounds.len();
+                cache.renderers.clear();
+                cache.scene_bounds.clear();
+                println!("🧹 Cleared USD renderer cache ({} renderers, {} bounds) for parameter change", 
+                         renderer_count, bounds_count);
+            }
+            
+        } else {
+            println!("🧹 No connected viewport nodes found - no cache clearing needed");
+        }
+        
+        // CRITICAL: Force only the connected viewport nodes to refresh immediately
+        for viewport_node_id in &connected_viewport_nodes {
+            use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
+            if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+                force_set.insert(*viewport_node_id);
+                println!("🔄 Added connected viewport node {} to FORCE_VIEWPORT_REFRESH set", viewport_node_id);
             }
         }
         

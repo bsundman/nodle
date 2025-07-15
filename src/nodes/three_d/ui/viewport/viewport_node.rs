@@ -29,9 +29,13 @@ pub static FORCE_VIEWPORT_REFRESH: Lazy<Arc<Mutex<HashSet<crate::nodes::NodeId>>
     Arc::new(Mutex::new(HashSet::new()))
 });
 
-/// Calculate hash for USD scene data to detect changes
-fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData) -> u64 {
+/// Calculate hash for USD scene data to detect changes - includes source node ID
+fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData, source_node_id: crate::nodes::NodeId) -> u64 {
     let mut hasher = DefaultHasher::new();
+    
+    // CRITICAL: Include source node ID in hash so data from different nodes is always different
+    source_node_id.hash(&mut hasher);
+    
     usd_scene_data.stage_path.hash(&mut hasher);
     usd_scene_data.meshes.len().hash(&mut hasher);
     
@@ -1080,7 +1084,7 @@ impl ViewportNode {
             if let Some(usd_scene_data) = input_cache.get(&node.id) {
                 println!("🎬 ViewportNode::get_viewport_data: Found cached USD data for node {} with {} meshes", node.id, usd_scene_data.meshes.len());
                 // Check if we have a cached converted viewport data (but bypass if force refresh)
-                let scene_hash = calculate_usd_scene_hash(usd_scene_data);
+                let scene_hash = calculate_usd_scene_hash(usd_scene_data, node.id);
                 if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
                     if !force_refresh {
                         if let Some((cached_viewport_data, cached_hash)) = viewport_cache.get(&node.id) {

@@ -1024,40 +1024,44 @@ impl ParameterPanel {
             }
             
             // Notify execution engine that parameters changed
-            println!("🔧 PANEL: Parameter changes applied to node {} - notifying execution engine", node_id);
             execution_engine.on_node_parameter_changed(node_id, graph);
             
             // CRITICAL: For USD File Reader nodes, force viewport refresh immediately
             // This ensures viewport gets fresh data when parameters change
             if let Some(current_node) = graph.nodes.get(&node_id) {
                 if current_node.type_id == "Data_UsdFileReader" {
-                    println!("🔧 PANEL: USD File Reader parameter changed - forcing viewport refresh");
-                    
                     // Find all downstream viewport nodes and force them to refresh immediately
                     let downstream_nodes = self.find_downstream_nodes(node_id, graph);
+                    let mut connected_viewport_nodes = Vec::new();
+                    
                     for downstream_id in &downstream_nodes {
                         if let Some(node) = graph.nodes.get(downstream_id) {
                             if node.type_id == "Viewport" {
+                                connected_viewport_nodes.push(*downstream_id);
                                 use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
                                 if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                                     force_set.insert(*downstream_id);
-                                    println!("🔧 PANEL: Added viewport node {} to FORCE_VIEWPORT_REFRESH set", downstream_id);
                                 }
                             }
                         }
+                    }
+                    
+                    // CRITICAL: Clear GPU mesh caches only if there are connected viewport nodes
+                    if !connected_viewport_nodes.is_empty() {
+                        crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
+                        println!("🧹 PANEL: Cleared GPU mesh caches for connected viewport nodes: {:?}", connected_viewport_nodes);
                     }
                 }
             }
             
             // CRITICAL: Execute dirty nodes immediately to prevent lag
             // This ensures that parameter changes are reflected in viewport immediately
-            println!("🔧 PANEL: Executing dirty nodes immediately after parameter change");
             match execution_engine.execute_dirty_nodes(graph) {
                 Ok(_) => {
-                    println!("🔧 PANEL: Immediate execution successful");
+                    // Immediate execution successful
                 }
                 Err(e) => {
-                    println!("🔧 PANEL: Immediate execution failed: {}", e);
+                    eprintln!("Parameter change execution failed: {}", e);
                 }
             }
             
