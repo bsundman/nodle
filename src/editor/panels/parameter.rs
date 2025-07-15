@@ -1026,7 +1026,55 @@ impl ParameterPanel {
             // Notify execution engine that parameters changed
             println!("🔧 PANEL: Parameter changes applied to node {} - notifying execution engine", node_id);
             execution_engine.on_node_parameter_changed(node_id, graph);
+            
+            // CRITICAL: For USD File Reader nodes, force viewport refresh immediately
+            // This ensures viewport gets fresh data when parameters change
+            if let Some(current_node) = graph.nodes.get(&node_id) {
+                if current_node.type_id == "Data_UsdFileReader" {
+                    println!("🔧 PANEL: USD File Reader parameter changed - forcing viewport refresh");
+                    
+                    // Find all downstream viewport nodes and force them to refresh immediately
+                    let downstream_nodes = self.find_downstream_nodes(node_id, graph);
+                    for downstream_id in &downstream_nodes {
+                        if let Some(node) = graph.nodes.get(downstream_id) {
+                            if node.type_id == "Viewport" {
+                                use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
+                                if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+                                    force_set.insert(*downstream_id);
+                                    println!("🔧 PANEL: Added viewport node {} to FORCE_VIEWPORT_REFRESH set", downstream_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // CRITICAL: Execute dirty nodes immediately to prevent lag
+            // This ensures that parameter changes are reflected in viewport immediately
+            println!("🔧 PANEL: Executing dirty nodes immediately after parameter change");
+            match execution_engine.execute_dirty_nodes(graph) {
+                Ok(_) => {
+                    println!("🔧 PANEL: Immediate execution successful");
+                }
+                Err(e) => {
+                    println!("🔧 PANEL: Immediate execution failed: {}", e);
+                }
+            }
+            
         }
+    }
+    
+    /// Find all nodes downstream from the given node
+    fn find_downstream_nodes(&self, node_id: NodeId, graph: &crate::nodes::NodeGraph) -> Vec<NodeId> {
+        let mut downstream = Vec::new();
+        
+        for connection in &graph.connections {
+            if connection.from_node == node_id {
+                downstream.push(connection.to_node);
+            }
+        }
+        
+        downstream
     }
     
 
