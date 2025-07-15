@@ -43,6 +43,8 @@ impl ViewportPanel {
         panel_manager: &mut InterfacePanelManager,
         menu_bar_height: f32,
         viewed_nodes: &HashMap<NodeId, Node>,
+        graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> PanelAction {
         // Check if this panel should be stacked
         if panel_manager.is_panel_stacked(node_id) {
@@ -55,7 +57,7 @@ impl ViewportPanel {
             if let Some(&first_node_id) = stacked_viewport_nodes.first() {
                 if node_id == first_node_id {
                     // Render as tabbed stack (even if only one panel)
-                    self.render_viewport_window(ctx, first_node_id, node, panel_manager, menu_bar_height, viewed_nodes, true, &stacked_viewport_nodes)
+                    self.render_viewport_window(ctx, first_node_id, node, panel_manager, menu_bar_height, viewed_nodes, graph, execution_engine, true, &stacked_viewport_nodes)
                 } else {
                     // This is not the first node, don't render a window (already handled by first node)
                     PanelAction::None
@@ -65,7 +67,7 @@ impl ViewportPanel {
             }
         } else {
             // Render as individual floating window
-            self.render_viewport_window(ctx, node_id, node, panel_manager, menu_bar_height, viewed_nodes, false, &[node_id])
+            self.render_viewport_window(ctx, node_id, node, panel_manager, menu_bar_height, viewed_nodes, graph, execution_engine, false, &[node_id])
         }
     }
 
@@ -78,6 +80,8 @@ impl ViewportPanel {
         panel_manager: &mut InterfacePanelManager,
         menu_bar_height: f32,
         viewed_nodes: &HashMap<NodeId, Node>,
+        graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
         is_stacked: bool,
         node_ids: &[NodeId],
     ) -> PanelAction {
@@ -129,10 +133,10 @@ impl ViewportPanel {
         let window_response = window.show(ctx, |ui| {
             if is_stacked {
                 // Render stacked content with tabs
-                panel_action = self.render_stacked_content(ui, node_ids, panel_manager, viewed_nodes);
+                panel_action = self.render_stacked_content(ui, node_ids, panel_manager, viewed_nodes, graph, execution_engine);
             } else {
                 // Render individual content
-                panel_action = self.render_individual_content(ui, primary_node_id, primary_node, panel_manager, viewed_nodes);
+                panel_action = self.render_individual_content(ui, primary_node_id, primary_node, panel_manager, viewed_nodes, graph, execution_engine);
             }
         });
         
@@ -169,11 +173,13 @@ impl ViewportPanel {
         node: &Node,
         panel_manager: &mut InterfacePanelManager,
         viewed_nodes: &HashMap<NodeId, Node>,
+        graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> PanelAction {
         let mut panel_action = PanelAction::None;
         
         // Panel controls at the top
-        let (control_action, close_requested) = self.render_panel_controls(ui, node_id, panel_manager, viewed_nodes);
+        let (control_action, close_requested) = self.render_panel_controls(ui, node_id, panel_manager, viewed_nodes, graph, execution_engine);
         if control_action != PanelAction::None {
             panel_action = control_action;
         }
@@ -257,6 +263,8 @@ impl ViewportPanel {
         node_ids: &[NodeId],
         panel_manager: &mut InterfacePanelManager,
         viewed_nodes: &HashMap<NodeId, Node>,
+        graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> PanelAction {
         let mut panel_action = PanelAction::None;
         
@@ -321,7 +329,7 @@ impl ViewportPanel {
         if let Some(&selected_node_id) = node_ids.get(new_selected_tab) {
             if let Some(node) = viewed_nodes.get(&selected_node_id) {
                 // Panel controls for the selected viewport
-                let (control_action, close_requested) = self.render_panel_controls(ui, selected_node_id, panel_manager, viewed_nodes);
+                let (control_action, close_requested) = self.render_panel_controls(ui, selected_node_id, panel_manager, viewed_nodes, graph, execution_engine);
                 if control_action != PanelAction::None {
                     panel_action = control_action;
                 }
@@ -407,6 +415,8 @@ impl ViewportPanel {
         node_id: NodeId,
         panel_manager: &mut InterfacePanelManager,
         viewed_nodes: &std::collections::HashMap<NodeId, crate::nodes::Node>,
+        graph: &mut crate::nodes::NodeGraph,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
     ) -> (PanelAction, bool) {
         let mut panel_action = PanelAction::None;
         let mut close_requested = false;
@@ -429,12 +439,55 @@ impl ViewportPanel {
                 let name_response = ui.text_edit_singleline(&mut name_buffer);
                 if name_response.changed() {
                     panel_manager.set_node_name(node_id, name_buffer.clone());
+                    
+                    // Update the actual node's title in the graph (same as parameter panel)
+                    if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
+                        node_mut.title = name_buffer.clone();
+                        
+                        // If fit name is enabled, resize the node to fit the new title
+                        if fit_name {
+                            // Calculate new size based on actual text width with proper padding
+                            let font_id = egui::FontId::proportional(12.0);
+                            let text_width = ui.fonts(|fonts| {
+                                fonts.layout_no_wrap(name_buffer.clone(), font_id, egui::Color32::WHITE).size().x
+                            });
+                            let padding = 60.0; // 30px padding on each side (extra 30px to avoid visibility flag)
+                            let min_width = 120.0; // Minimum node width
+                            let new_width = (text_width + padding).max(min_width);
+                            node_mut.size.x = new_width;
+                            node_mut.update_port_positions(); // Update port positions after resize
+                        }
+                    }
                 }
                 
                 // Fit name checkbox
                 let fit_response = ui.checkbox(&mut fit_name, "Fit name");
                 if fit_response.changed() {
                     panel_manager.set_fit_name(node_id, fit_name);
+                    
+                    // Handle fit name toggle - resize immediately or restore default
+                    if fit_name {
+                        // Fit name was just enabled - resize to fit text
+                        if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
+                            // Calculate new size based on actual text width with proper padding
+                            let font_id = egui::FontId::proportional(12.0);
+                            let text_width = ui.fonts(|fonts| {
+                                fonts.layout_no_wrap(node_mut.title.clone(), font_id, egui::Color32::WHITE).size().x
+                            });
+                            let padding = 60.0; // 30px padding on each side (extra 30px to avoid visibility flag)
+                            let min_width = 120.0; // Minimum node width
+                            let new_width = (text_width + padding).max(min_width);
+                            node_mut.size.x = new_width;
+                            node_mut.update_port_positions();
+                        }
+                    } else {
+                        // Fit name was just disabled - restore default width
+                        if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
+                            let default_width = 150.0; // Standard default node width
+                            node_mut.size.x = default_width;
+                            node_mut.update_port_positions();
+                        }
+                    }
                 }
             });
             

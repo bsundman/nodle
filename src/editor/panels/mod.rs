@@ -139,6 +139,8 @@ impl PanelManager {
                             &mut self.interface_panel_manager,
                             menu_bar_height,
                             viewed_nodes,
+                            graph,
+                            execution_engine,
                         );
                         debug!("PanelManager: Viewport panel render completed for node {}, result: {:?}", node_id, result);
                         result
