@@ -1381,15 +1381,79 @@ impl eframe::App for NodeEditor {
                     ));
                     
                     // Render node titles using CPU (GPU handles node bodies and ports)
-                    for (_node_id, node) in &viewed_nodes {
-                    // Node titles (CPU-rendered text)
-                    painter.text(
-                        transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
-                        egui::Align2::CENTER_CENTER,
-                        &node.title,
-                        egui::FontId::proportional(12.0 * self.canvas.zoom),
-                        Color32::WHITE,
-                    );
+                    for (node_id, node) in &viewed_nodes {
+                        // Check if fit name is enabled for this node
+                        let fit_name_enabled = self.panel_manager.interface_panel_manager().get_fit_name(*node_id);
+                        let font_id = egui::FontId::proportional(12.0 * self.canvas.zoom);
+                        
+                        // If fit name is enabled, always show full title without truncation
+                        let display_text = if fit_name_enabled {
+                            node.title.clone()
+                        } else {
+                            // Calculate available width for text (node width minus padding and visibility flag)
+                            let text_padding = 20.0; // 10px padding on each side
+                            let visibility_flag_space = 30.0; // More conservative space for visibility flag
+                            let available_width = (node.size.x - text_padding - visibility_flag_space) * self.canvas.zoom;
+                            
+                            // Measure the full title width using proper text layout
+                            let full_text_width = painter.fonts(|fonts| {
+                                fonts.layout_no_wrap(node.title.clone(), font_id.clone(), egui::Color32::WHITE).size().x
+                            });
+                            
+                            // Calculate ellipsis width upfront
+                            let ellipsis = "...";
+                            let ellipsis_width = painter.fonts(|fonts| {
+                                fonts.layout_no_wrap(ellipsis.to_string(), font_id.clone(), egui::Color32::WHITE).size().x
+                            });
+                            
+                            // Show ellipsis sooner: if adding ellipsis space would make it tight, show ellipsis
+                            let threshold_width = available_width - ellipsis_width;
+                            
+                            if full_text_width <= threshold_width {
+                                // Text fits comfortably even with ellipsis space reserved, show full title
+                                node.title.clone()
+                            } else {
+                                // Text would be tight, show truncated version with ellipsis
+                                let available_for_text = available_width - ellipsis_width;
+                                
+                                // Binary search to find the maximum characters that fit with ellipsis
+                                let mut low = 0;
+                                let mut high = node.title.len();
+                                let mut best_fit = 0;
+                                
+                                while low <= high && low < node.title.len() {
+                                    let mid = (low + high) / 2;
+                                    let test_text = &node.title[..mid];
+                                    let test_width = painter.fonts(|fonts| {
+                                        fonts.layout_no_wrap(test_text.to_string(), font_id.clone(), egui::Color32::WHITE).size().x
+                                    });
+                                    
+                                    if test_width <= available_for_text {
+                                        best_fit = mid;
+                                        low = mid + 1;
+                                    } else {
+                                        if mid == 0 { break; }
+                                        high = mid - 1;
+                                    }
+                                }
+                                
+                                if best_fit > 0 {
+                                    let truncated = &node.title[..best_fit];
+                                    format!("{}{}", truncated, ellipsis)
+                                } else {
+                                    ellipsis.to_string()
+                                }
+                            }
+                        };
+                        
+                        // Node titles (CPU-rendered text)
+                        painter.text(
+                            transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
+                            egui::Align2::CENTER_CENTER,
+                            &display_text,
+                            font_id,
+                            Color32::WHITE,
+                        );
                     
                     // Port names on hover (CPU-rendered text)
                     if let Some(mouse_world_pos) = self.input_state.mouse_world_pos {

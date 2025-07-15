@@ -354,14 +354,17 @@ impl ParameterPanel {
                     
                     // If fit name is enabled, resize the node to fit the new title
                     if fit_name {
-                        // Calculate new size based on title length (rough estimate)
-                        let char_width = 8.0; // Approximate character width
-                        let padding = 40.0; // Extra padding for ports and margins
+                        // Calculate new size based on actual text width with 15px padding on each side
+                        let font_id = egui::FontId::proportional(12.0);
+                        let text_width = ui.fonts(|fonts| {
+                            fonts.layout_no_wrap(name_buffer.clone(), font_id, egui::Color32::WHITE).size().x
+                        });
+                        let padding = 60.0; // 30px padding on each side (extra 30px to avoid visibility flag)
                         let min_width = 120.0; // Minimum node width
-                        let new_width = (name_buffer.len() as f32 * char_width + padding).max(min_width);
+                        let new_width = (text_width + padding).max(min_width);
                         node_mut.size.x = new_width;
                         node_mut.update_port_positions(); // Update port positions after resize
-                        println!("🔄 NAME CHANGE: Resized node to width {}", new_width);
+                        println!("🔄 NAME CHANGE: Resized node to width {} (text: {}, padding: {})", new_width, text_width, padding);
                     }
                     
                     println!("✅ NAME CHANGE: Graph node title updated to '{}'", node_mut.title);
@@ -375,15 +378,29 @@ impl ParameterPanel {
             if fit_response.changed() {
                 panel_manager.set_fit_name(node_id, fit_name);
                 
-                // If fit name was just enabled, resize the node immediately
+                // Handle fit name toggle - resize immediately or restore default
                 if fit_name {
+                    // Fit name was just enabled - resize to fit text
                     if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
-                        let char_width = 8.0;
-                        let padding = 40.0;
-                        let min_width = 120.0;
-                        let new_width = (node_mut.title.len() as f32 * char_width + padding).max(min_width);
+                        // Calculate new size based on actual text width with 15px padding on each side
+                        let font_id = egui::FontId::proportional(12.0);
+                        let text_width = ui.fonts(|fonts| {
+                            fonts.layout_no_wrap(node_mut.title.clone(), font_id, egui::Color32::WHITE).size().x
+                        });
+                        let padding = 60.0; // 30px padding on each side (extra 30px to avoid visibility flag)
+                        let min_width = 120.0; // Minimum node width
+                        let new_width = (text_width + padding).max(min_width);
                         node_mut.size.x = new_width;
                         node_mut.update_port_positions();
+                        println!("🔄 FIT NAME ENABLED: Resized node to width {} (text: {}, padding: {})", new_width, text_width, padding);
+                    }
+                } else {
+                    // Fit name was just disabled - restore default width
+                    if let Some(node_mut) = graph.nodes.get_mut(&node_id) {
+                        let default_width = 150.0; // Standard default node width
+                        node_mut.size.x = default_width;
+                        node_mut.update_port_positions();
+                        println!("🔄 FIT NAME DISABLED: Restored node to default width {}", default_width);
                     }
                 }
             }
