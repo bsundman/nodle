@@ -20,6 +20,11 @@ pub struct UsdFileReaderLogic {
     pub extract_cameras: bool,
     pub coordinate_system_mode: String,
     last_file_path: String,
+    last_coordinate_system_mode: String,
+    last_extract_geometry: bool,
+    last_extract_materials: bool,
+    last_extract_lights: bool,
+    last_extract_cameras: bool,
     usd_engine: USDEngine,
     cached_scene_data: Option<USDSceneData>,
 }
@@ -62,8 +67,13 @@ impl UsdFileReaderLogic {
             extract_materials,
             extract_lights,
             extract_cameras,
-            coordinate_system_mode,
+            coordinate_system_mode: coordinate_system_mode.clone(),
             last_file_path: String::new(),
+            last_coordinate_system_mode: coordinate_system_mode,
+            last_extract_geometry: extract_geometry,
+            last_extract_materials: extract_materials,
+            last_extract_lights: extract_lights,
+            last_extract_cameras: extract_cameras,
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
         }
@@ -84,18 +94,45 @@ impl UsdFileReaderLogic {
             return vec![NodeData::None];
         }
 
-        // Check if file path has changed or reload is explicitly requested
+        // Check if any parameters have changed that affect the cached data
         let file_path_changed = self.file_path != self.last_file_path;
-        let should_reload = file_path_changed || self.needs_reload;
+        let coordinate_mode_changed = self.coordinate_system_mode != self.last_coordinate_system_mode;
+        let extract_geometry_changed = self.extract_geometry != self.last_extract_geometry;
+        let extract_materials_changed = self.extract_materials != self.last_extract_materials;
+        let extract_lights_changed = self.extract_lights != self.last_extract_lights;
+        let extract_cameras_changed = self.extract_cameras != self.last_extract_cameras;
         
-        // If file path hasn't changed and we don't need to reload, return cached data
+        let should_reload = file_path_changed || self.needs_reload || 
+                           coordinate_mode_changed || extract_geometry_changed || 
+                           extract_materials_changed || extract_lights_changed || 
+                           extract_cameras_changed;
+        
+        // Log what triggered the reload for debugging
+        if should_reload {
+            let mut reasons = Vec::new();
+            if file_path_changed { reasons.push("file path"); }
+            if self.needs_reload { reasons.push("explicit reload"); }
+            if coordinate_mode_changed { reasons.push("coordinate system mode"); }
+            if extract_geometry_changed { reasons.push("geometry extraction"); }
+            if extract_materials_changed { reasons.push("materials extraction"); }
+            if extract_lights_changed { reasons.push("lights extraction"); }
+            if extract_cameras_changed { reasons.push("cameras extraction"); }
+            println!("📁 USD File Reader: Reloading due to changes in: {}", reasons.join(", "));
+        }
+        
+        // If nothing has changed, return cached data
         if !should_reload && self.cached_scene_data.is_some() {
-            println!("📁 USD File Reader: Using cached scene data");
+            println!("📁 USD File Reader: Using cached scene data (no parameter changes detected)");
             return vec![crate::nodes::interface::NodeData::USDSceneData(self.cached_scene_data.clone().unwrap())];
         }
         
-        // Update the last file path
+        // Update all last parameter values for next comparison
         self.last_file_path = self.file_path.clone();
+        self.last_coordinate_system_mode = self.coordinate_system_mode.clone();
+        self.last_extract_geometry = self.extract_geometry;
+        self.last_extract_materials = self.extract_materials;
+        self.last_extract_lights = self.extract_lights;
+        self.last_extract_cameras = self.extract_cameras;
 
         println!("📁 USD File Reader: Loading USD file: {}", self.file_path);
 
@@ -311,6 +348,11 @@ impl Default for UsdFileReaderLogic {
             extract_cameras: false,
             coordinate_system_mode: "Auto".to_string(),
             last_file_path: String::new(),
+            last_coordinate_system_mode: "Auto".to_string(),
+            last_extract_geometry: true,
+            last_extract_materials: true,
+            last_extract_lights: true,
+            last_extract_cameras: false,
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
         }
