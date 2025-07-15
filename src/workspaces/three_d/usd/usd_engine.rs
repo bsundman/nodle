@@ -275,14 +275,15 @@ impl USDEngine {
             ]
             face_counts = [4, 4, 4, 4, 4, 4]
             
-            # Triangulate faces
+            # Triangulate faces with correct winding order for coordinate system
             triangles = []
             face_start = 0
             for face_count in face_counts:
                 face_verts = face_indices[face_start:face_start + face_count]
                 # Quad to triangles
-                triangles.extend([face_verts[0], face_verts[1], face_verts[2]])
-                triangles.extend([face_verts[0], face_verts[2], face_verts[3]])
+                # Always use reversed winding order for procedural primitives
+                triangles.extend([face_verts[0], face_verts[2], face_verts[1]])
+                triangles.extend([face_verts[0], face_verts[3], face_verts[2]])
                 face_start += face_count
                 
             # Calculate normals
@@ -379,6 +380,7 @@ impl USDEngine {
                     v3 = (v + 1) * u_res + u
                     
                     # Add quad as two triangles
+                    # Use original winding order for sphere
                     triangles.extend([v0, v1, v2])
                     triangles.extend([v0, v2, v3])
             
@@ -443,7 +445,7 @@ impl USDEngine {
             cap_top_center = len(vertices)
             vertices.append([0.0, height/2, 0.0])
             
-            # Generate side triangles
+            # Generate side triangles with correct winding order for coordinate system
             triangles = []
             for v in range(v_res):
                 for u in range(u_res):
@@ -452,19 +454,22 @@ impl USDEngine {
                     v2 = (v + 1) * u_res + (u + 1) % u_res
                     v3 = (v + 1) * u_res + u
                     
-                    triangles.extend([v0, v1, v2])
-                    triangles.extend([v0, v2, v3])
+                    # Always use reversed winding order for procedural primitives
+                    triangles.extend([v0, v2, v1])
+                    triangles.extend([v0, v3, v2])
             
-            # Add bottom cap triangles
+            # Add bottom cap triangles 
             for u in range(u_res):
                 u1 = (u + 1) % u_res
-                triangles.extend([cap_bottom_center, u1, u])
+                # Always use reversed winding order for procedural primitives
+                triangles.extend([cap_bottom_center, u, u1])
             
             # Add top cap triangles
             top_ring_start = v_res * u_res
             for u in range(u_res):
                 u1 = (u + 1) % u_res
-                triangles.extend([cap_top_center, top_ring_start + u, top_ring_start + u1])
+                # Always use reversed winding order for procedural primitives
+                triangles.extend([cap_top_center, top_ring_start + u1, top_ring_start + u])
             
             # Calculate normals
             normals = []
@@ -543,12 +548,14 @@ impl USDEngine {
             # Side triangles (apex to base)
             for u in range(u_res):
                 u1 = (u + 1) % u_res
-                triangles.extend([0, u + 1, u1 + 1])
+                # Always use reversed winding order for procedural primitives
+                triangles.extend([0, u1 + 1, u + 1])
             
             # Base triangles
             for u in range(u_res):
                 u1 = (u + 1) % u_res
-                triangles.extend([base_center, u1 + 1, u + 1])
+                # Always use reversed winding order for procedural primitives
+                triangles.extend([base_center, u + 1, u1 + 1])
             
             # Calculate normals
             normals = []
@@ -607,61 +614,174 @@ impl USDEngine {
             if capsule.GetHeightAttr() and capsule.GetHeightAttr().HasValue():
                 height = float(capsule.GetHeightAttr().Get())
             
-            # Generate capsule geometry (cylinder with hemisphere caps)
+            # Generate capsule geometry from scratch
             u_res = 20  # circumference resolution
-            v_res = 8   # vertical resolution for hemispheres
+            v_res = 16  # vertical resolution for hemispheres
             
             vertices = []
-            
-            # Cylinder height (excluding hemispheres)
-            cylinder_height = max(0, height - 2 * radius)
-            
-            # Generate cylinder body (if any)
-            if cylinder_height > 0:
-                for v in range(2):  # Just top and bottom rings
-                    y = cylinder_height * (v - 0.5)
-                    for u in range(u_res):
-                        angle = 2 * math.pi * u / u_res
-                        x = radius * math.cos(angle)
-                        z = radius * math.sin(angle)
-                        vertices.append([x, y, z])
-            
-            # Generate top hemisphere
-            for v in range(1, v_res//2 + 1):
-                theta = math.pi * v / v_res  # 0 to pi/2
-                for u in range(u_res):
-                    phi = 2 * math.pi * u / u_res
-                    x = radius * math.sin(theta) * math.cos(phi)
-                    y = cylinder_height/2 + radius * math.cos(theta)
-                    z = radius * math.sin(theta) * math.sin(phi)
-                    vertices.append([x, y, z])
-            
-            # Generate bottom hemisphere
-            for v in range(v_res//2, v_res):
-                theta = math.pi * v / v_res  # pi/2 to pi
-                for u in range(u_res):
-                    phi = 2 * math.pi * u / u_res
-                    x = radius * math.sin(theta) * math.cos(phi)
-                    y = -cylinder_height/2 + radius * math.cos(theta)
-                    z = radius * math.sin(theta) * math.sin(phi)
-                    vertices.append([x, y, z])
-            
-            # Generate triangles (simplified - just create a basic capsule shape)
             triangles = []
             
-            # For simplicity, create triangles by connecting adjacent vertices
-            # This is a simplified tessellation - a full implementation would be more complex
-            vertex_count = len(vertices)
-            for i in range(vertex_count - u_res):
-                for j in range(u_res):
-                    v0 = i * u_res + j
-                    v1 = i * u_res + (j + 1) % u_res
-                    v2 = (i + 1) * u_res + (j + 1) % u_res
-                    v3 = (i + 1) * u_res + j
+            # Capsule is a cylinder with hemisphere caps
+            # Total height includes the hemispheres
+            cylinder_height = max(0, height - 2 * radius)
+            
+            # Generate vertices for the complete capsule
+            # Start from bottom pole and work up to top pole
+            
+            # Bottom pole (south pole)
+            bottom_pole_idx = len(vertices)
+            vertices.append([0.0, -height/2, 0.0])
+            
+            # Bottom hemisphere rings (from bottom pole upward)
+            for v in range(1, v_res//2):
+                theta = math.pi * v / v_res  # angle from south pole
+                y = -height/2 + radius * (1 - math.cos(theta))
+                
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res
+                    x = radius * math.sin(theta) * math.cos(phi)
+                    z = radius * math.sin(theta) * math.sin(phi)
+                    vertices.append([x, y, z])
+            
+            # Cylinder body rings (if any)
+            cylinder_start_idx = len(vertices)
+            if cylinder_height > 0:
+                # Bottom ring of cylinder
+                y = -cylinder_height/2
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res
+                    x = radius * math.cos(phi)
+                    z = radius * math.sin(phi)
+                    vertices.append([x, y, z])
+                
+                # Top ring of cylinder
+                y = cylinder_height/2
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res
+                    x = radius * math.cos(phi)
+                    z = radius * math.sin(phi)
+                    vertices.append([x, y, z])
+            
+            # Top hemisphere rings (from equator to top pole)
+            for v in range(v_res//2 + 1, v_res):
+                theta = math.pi * v / v_res  # angle from south pole
+                y = height/2 - radius * (1 + math.cos(theta))
+                
+                for u in range(u_res):
+                    phi = 2 * math.pi * u / u_res
+                    x = radius * math.sin(theta) * math.cos(phi)
+                    z = radius * math.sin(theta) * math.sin(phi)
+                    vertices.append([x, y, z])
+            
+            # Top pole (north pole)
+            top_pole_idx = len(vertices)
+            vertices.append([0.0, height/2, 0.0])
+            
+            # Generate triangles with proper connections
+            current_ring_start = 1  # Start after bottom pole
+            
+            # Bottom hemisphere triangles
+            # Connect bottom pole to first ring (keep pole triangles as is)
+            for u in range(u_res):
+                u1 = (u + 1) % u_res
+                triangles.extend([bottom_pole_idx, current_ring_start + u, current_ring_start + u1])
+            
+            # Connect bottom hemisphere rings
+            for ring in range(v_res//2 - 2):
+                for u in range(u_res):
+                    u1 = (u + 1) % u_res
+                    v0 = current_ring_start + ring * u_res + u
+                    v1 = current_ring_start + ring * u_res + u1
+                    v2 = current_ring_start + (ring + 1) * u_res + u1
+                    v3 = current_ring_start + (ring + 1) * u_res + u
                     
-                    if v2 < vertex_count and v3 < vertex_count:
-                        triangles.extend([v0, v1, v2])
-                        triangles.extend([v0, v2, v3])
+                    # Use reversed winding order for hemisphere body
+                    triangles.extend([v0, v2, v1])
+                    triangles.extend([v0, v3, v2])
+            
+            # Connect bottom hemisphere to cylinder (if cylinder exists)
+            if cylinder_height > 0:
+                # Last hemisphere ring to first cylinder ring
+                last_hemisphere_ring = current_ring_start + (v_res//2 - 2) * u_res
+                cylinder_bottom_ring = cylinder_start_idx
+                
+                for u in range(u_res):
+                    u1 = (u + 1) % u_res
+                    v0 = last_hemisphere_ring + u
+                    v1 = last_hemisphere_ring + u1
+                    v2 = cylinder_bottom_ring + u1
+                    v3 = cylinder_bottom_ring + u
+                    
+                    # Use reversed winding order
+                    triangles.extend([v0, v2, v1])
+                    triangles.extend([v0, v3, v2])
+                
+                # Cylinder body triangles
+                for u in range(u_res):
+                    u1 = (u + 1) % u_res
+                    bottom_ring = cylinder_start_idx + u
+                    bottom_ring_next = cylinder_start_idx + u1
+                    top_ring = cylinder_start_idx + u_res + u
+                    top_ring_next = cylinder_start_idx + u_res + u1
+                    
+                    # Use reversed winding order
+                    triangles.extend([bottom_ring, top_ring_next, bottom_ring_next])
+                    triangles.extend([bottom_ring, top_ring, top_ring_next])
+                
+                # Connect cylinder to top hemisphere
+                cylinder_top_ring = cylinder_start_idx + u_res
+                top_hemisphere_first_ring = cylinder_start_idx + 2 * u_res
+                
+                for u in range(u_res):
+                    u1 = (u + 1) % u_res
+                    v0 = cylinder_top_ring + u
+                    v1 = cylinder_top_ring + u1
+                    v2 = top_hemisphere_first_ring + u1
+                    v3 = top_hemisphere_first_ring + u
+                    
+                    # Use reversed winding order
+                    triangles.extend([v0, v2, v1])
+                    triangles.extend([v0, v3, v2])
+                
+                current_ring_start = cylinder_start_idx + 2 * u_res
+            else:
+                # No cylinder - connect hemispheres directly
+                last_bottom_ring = current_ring_start + (v_res//2 - 2) * u_res
+                first_top_ring = current_ring_start + (v_res//2 - 1) * u_res
+                
+                for u in range(u_res):
+                    u1 = (u + 1) % u_res
+                    v0 = last_bottom_ring + u
+                    v1 = last_bottom_ring + u1
+                    v2 = first_top_ring + u1
+                    v3 = first_top_ring + u
+                    
+                    # Use reversed winding order
+                    triangles.extend([v0, v2, v1])
+                    triangles.extend([v0, v3, v2])
+                
+                current_ring_start = first_top_ring
+            
+            # Top hemisphere triangles
+            # Connect top hemisphere rings
+            hemisphere_rings = v_res//2 - 1
+            for ring in range(hemisphere_rings - 1):
+                for u in range(u_res):
+                    u1 = (u + 1) % u_res
+                    v0 = current_ring_start + ring * u_res + u
+                    v1 = current_ring_start + ring * u_res + u1
+                    v2 = current_ring_start + (ring + 1) * u_res + u1
+                    v3 = current_ring_start + (ring + 1) * u_res + u
+                    
+                    # Use reversed winding order for hemisphere body
+                    triangles.extend([v0, v2, v1])
+                    triangles.extend([v0, v3, v2])
+            
+            # Connect last ring to top pole (keep pole triangles as is)
+            last_ring_start = current_ring_start + (hemisphere_rings - 1) * u_res
+            for u in range(u_res):
+                u1 = (u + 1) % u_res
+                triangles.extend([top_pole_idx, last_ring_start + u1, last_ring_start + u])
             
             # Calculate normals (simplified - use normalized position for sphere-like surfaces)
             normals = []
@@ -715,7 +835,8 @@ impl USDEngine {
             ]
             
             # Two triangles for the quad
-            triangles = [0, 1, 2, 0, 2, 3]
+            # Always use reversed winding order for procedural primitives
+            triangles = [0, 2, 1, 0, 3, 2]
             
             # Normals (all pointing up)
             normals = [
