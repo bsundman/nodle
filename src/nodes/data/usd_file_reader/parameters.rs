@@ -152,20 +152,73 @@ impl UsdFileReaderParameters {
             ui.label("🔄 Coordinate System");
             ui.separator();
             
-            // Convert coordinate system toggle
-            let mut convert_coords = node.parameters.get("convert_coordinate_system")
-                .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                .unwrap_or(true);
+            // Get current coordinate system mode
+            let current_mode = node.parameters.get("coordinate_system_mode")
+                .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+                .unwrap_or("Auto".to_string());
             
-            if ui.checkbox(&mut convert_coords, "Convert Z-up to Y-up").changed() {
+            ui.label("Convert to Y-up (viewport standard):");
+            ui.separator();
+            
+            // Auto-detect mode
+            let mut is_auto = current_mode == "Auto";
+            if ui.radio_value(&mut is_auto, true, "🤖 Auto-detect from USD file").changed() && is_auto {
                 changes.push(ParameterChange {
-                    parameter: "convert_coordinate_system".to_string(),
-                    value: NodeData::Boolean(convert_coords),
+                    parameter: "coordinate_system_mode".to_string(),
+                    value: NodeData::String("Auto".to_string()),
                 });
             }
             
-            ui.label("🔧 Transforms USD's Z-up coordinate system to viewport's Y-up");
-            ui.label("   Also reverses triangle winding order for proper rendering");
+            // Manual override modes
+            ui.label("Manual override:");
+            ui.indent("manual_modes", |ui| {
+                let mut is_manual_z = current_mode == "Z-up";
+                if ui.radio_value(&mut is_manual_z, true, "🔧 Force Z-up → Y-up").changed() && is_manual_z {
+                    changes.push(ParameterChange {
+                        parameter: "coordinate_system_mode".to_string(),
+                        value: NodeData::String("Z-up".to_string()),
+                    });
+                }
+                
+                let mut is_manual_y = current_mode == "Y-up";
+                if ui.radio_value(&mut is_manual_y, true, "✅ Force Y-up (no conversion)").changed() && is_manual_y {
+                    changes.push(ParameterChange {
+                        parameter: "coordinate_system_mode".to_string(),
+                        value: NodeData::String("Y-up".to_string()),
+                    });
+                }
+                
+                let mut is_manual_x = current_mode == "X-up";
+                if ui.radio_value(&mut is_manual_x, true, "🔄 Force X-up → Y-up").changed() && is_manual_x {
+                    changes.push(ParameterChange {
+                        parameter: "coordinate_system_mode".to_string(),
+                        value: NodeData::String("X-up".to_string()),
+                    });
+                }
+            });
+            
+            // Description based on current mode
+            ui.separator();
+            match current_mode.as_str() {
+                "Auto" => {
+                    ui.label("🔍 Reads up-axis from USD metadata and converts automatically");
+                    ui.label("   Supports X-up, Y-up, and Z-up USD files");
+                }
+                "Z-up" => {
+                    ui.label("🔧 Always converts from Z-up to Y-up coordinate system");
+                    ui.label("   Use when USD metadata is incorrect or missing");
+                }
+                "Y-up" => {
+                    ui.label("✅ No coordinate conversion applied");
+                    ui.label("   Use when USD file is already in Y-up coordinates");
+                }
+                "X-up" => {
+                    ui.label("🔄 Always converts from X-up to Y-up coordinate system");
+                    ui.label("   Use when USD metadata is incorrect or missing");
+                }
+                _ => {}
+            }
+            ui.label("   Also reverses triangle winding order when conversion is applied");
         });
 
         ui.add_space(8.0);

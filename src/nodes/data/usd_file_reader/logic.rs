@@ -18,7 +18,7 @@ pub struct UsdFileReaderLogic {
     pub extract_materials: bool,
     pub extract_lights: bool,
     pub extract_cameras: bool,
-    pub convert_coordinate_system: bool,
+    pub coordinate_system_mode: String,
     last_file_path: String,
     usd_engine: USDEngine,
     cached_scene_data: Option<USDSceneData>,
@@ -51,9 +51,9 @@ impl UsdFileReaderLogic {
             .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
             .unwrap_or(false);
         
-        let convert_coordinate_system = node.parameters.get("convert_coordinate_system")
-            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-            .unwrap_or(true);
+        let coordinate_system_mode = node.parameters.get("coordinate_system_mode")
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or("Auto".to_string());
 
         Self {
             file_path,
@@ -62,7 +62,7 @@ impl UsdFileReaderLogic {
             extract_materials,
             extract_lights,
             extract_cameras,
-            convert_coordinate_system,
+            coordinate_system_mode,
             last_file_path: String::new(),
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
@@ -127,10 +127,12 @@ impl UsdFileReaderLogic {
                 // Cache the scene data for reuse
                 self.cached_scene_data = Some(usd_scene_data.clone());
                 
-                // Apply coordinate system conversion if enabled
-                let converted_scene_data = if self.convert_coordinate_system {
+                // Apply coordinate system conversion based on mode
+                let converted_scene_data = if self.coordinate_system_mode != "Y-up" {
                     self.convert_coordinate_system(usd_scene_data)?
                 } else {
+                    // Y-up mode - no conversion needed
+                    println!("📁 USD File Reader: Y-up mode selected - skipping coordinate conversion");
                     usd_scene_data
                 };
                 
@@ -184,19 +186,40 @@ impl UsdFileReaderLogic {
     
     /// Convert coordinate system from USD to Nodle viewport (Y-up, right-handed)
     fn convert_coordinate_system(&self, mut usd_scene_data: USDSceneData) -> Result<USDSceneData, String> {
-        println!("📁 USD File Reader: Converting coordinate system from {}-up to Y-up", usd_scene_data.up_axis);
+        // Determine which up-axis to convert from
+        let source_up_axis = match self.coordinate_system_mode.as_str() {
+            "Auto" => {
+                // Use the up-axis detected from USD file metadata
+                println!("📁 USD File Reader: Auto-detecting coordinate system from USD metadata: {}-up", usd_scene_data.up_axis);
+                usd_scene_data.up_axis.as_str()
+            }
+            "Z-up" => {
+                println!("📁 USD File Reader: Manual override - forcing Z-up to Y-up conversion");
+                "Z"
+            }
+            "X-up" => {
+                println!("📁 USD File Reader: Manual override - forcing X-up to Y-up conversion");
+                "X"
+            }
+            _ => {
+                // Should not reach here since Y-up is handled earlier
+                return Err(format!("Invalid coordinate system mode: {}", self.coordinate_system_mode));
+            }
+        };
         
-        // Determine the transformation matrix based on the USD up axis
-        let coordinate_transform = match usd_scene_data.up_axis.as_str() {
+        println!("📁 USD File Reader: Converting coordinate system from {}-up to Y-up", source_up_axis);
+        
+        // Determine the transformation matrix based on the source up axis
+        let coordinate_transform = match source_up_axis {
             "Y" => {
-                // USD is already Y-up, no transformation needed
-                println!("📁 USD File Reader: USD file is already Y-up, no coordinate conversion needed");
+                // Already Y-up, no transformation needed
+                println!("📁 USD File Reader: Source is already Y-up, no coordinate conversion needed");
                 return Ok(usd_scene_data);
             }
             "Z" => {
-                // USD Z-up to Nodle Y-up: rotate -90 degrees around X-axis
+                // Z-up to Y-up: rotate -90 degrees around X-axis
                 // This converts:
-                // - USD Z-up (0,0,1) -> Nodle Y-up (0,1,0)
+                // - Z-up (0,0,1) -> Y-up (0,1,0)
                 // - USD Y-forward (0,1,0) -> Nodle Z-forward (0,0,1)
                 // - USD X-right (1,0,0) -> Nodle X-right (1,0,0) [unchanged]
                 Mat4::from_rotation_x(-std::f32::consts::PI / 2.0)
@@ -210,7 +233,7 @@ impl UsdFileReaderLogic {
                 Mat4::from_rotation_z(std::f32::consts::PI / 2.0)
             }
             _ => {
-                println!("⚠️  USD File Reader: Unknown up axis '{}', defaulting to Z-up conversion", usd_scene_data.up_axis);
+                println!("⚠️  USD File Reader: Unknown up axis '{}', defaulting to Z-up conversion", source_up_axis);
                 // Default to Z-up conversion
                 Mat4::from_rotation_x(-std::f32::consts::PI / 2.0)
             }
@@ -276,7 +299,7 @@ impl Default for UsdFileReaderLogic {
             extract_materials: true,
             extract_lights: true,
             extract_cameras: false,
-            convert_coordinate_system: true,
+            coordinate_system_mode: "Auto".to_string(),
             last_file_path: String::new(),
             usd_engine: USDEngine::new(),
             cached_scene_data: None,
