@@ -209,8 +209,8 @@ impl UsdFileReaderLogic {
         
         println!("📁 USD File Reader: Converting coordinate system from {}-up to Y-up", source_up_axis);
         
-        // Determine the transformation matrix based on the source up axis
-        let coordinate_transform = match source_up_axis {
+        // Determine the transformation matrix and handedness change based on the source up axis
+        let (coordinate_transform, flips_handedness) = match source_up_axis {
             "Y" => {
                 // Already Y-up, no transformation needed
                 println!("📁 USD File Reader: Source is already Y-up, no coordinate conversion needed");
@@ -222,20 +222,24 @@ impl UsdFileReaderLogic {
                 // - Z-up (0,0,1) -> Y-up (0,1,0)
                 // - USD Y-forward (0,1,0) -> Nodle Z-forward (0,0,1)
                 // - USD X-right (1,0,0) -> Nodle X-right (1,0,0) [unchanged]
-                Mat4::from_rotation_x(-std::f32::consts::PI / 2.0)
+                // HANDEDNESS: Right-handed → Right-handed (NO CHANGE)
+                println!("📁 USD File Reader: Z-up → Y-up conversion preserves handedness");
+                (Mat4::from_rotation_x(-std::f32::consts::PI / 2.0), false)
             }
             "X" => {
-                // USD X-up to Nodle Y-up: rotate 90 degrees around Z-axis
+                // X-up to Y-up: rotate 90 degrees around Z-axis
                 // This converts:
                 // - USD X-up (1,0,0) -> Nodle Y-up (0,1,0)
-                // - USD Y-forward (0,1,0) -> Nodle X-right (1,0,0)
+                // - USD Y-forward (0,1,0) -> Nodle -X-left (-1,0,0)
                 // - USD Z-forward (0,0,1) -> Nodle Z-forward (0,0,1) [unchanged]
-                Mat4::from_rotation_z(std::f32::consts::PI / 2.0)
+                // HANDEDNESS: Right-handed → Left-handed (FLIPS!)
+                println!("📁 USD File Reader: X-up → Y-up conversion flips handedness - will reverse winding order");
+                (Mat4::from_rotation_z(std::f32::consts::PI / 2.0), true)
             }
             _ => {
                 println!("⚠️  USD File Reader: Unknown up axis '{}', defaulting to Z-up conversion", source_up_axis);
-                // Default to Z-up conversion
-                Mat4::from_rotation_x(-std::f32::consts::PI / 2.0)
+                // Default to Z-up conversion (preserves handedness)
+                (Mat4::from_rotation_x(-std::f32::consts::PI / 2.0), false)
             }
         };
         
@@ -256,14 +260,20 @@ impl UsdFileReaderLogic {
             // Transform vertex colors if present (no spatial transformation needed)
             // Vertex colors remain unchanged as they are material properties
             
-            // Flip winding order for proper face culling
-            // When transforming from Z-up to Y-up with a -90° X rotation,
-            // the handedness changes, so we need to reverse triangle winding
-            // to maintain correct face normals and culling
-            for triangle in mesh.indices.chunks_mut(3) {
-                if triangle.len() == 3 {
-                    triangle.swap(1, 2); // Reverse winding: ABC -> ACB
+            // Flip winding order only when handedness changes
+            if flips_handedness {
+                // Handedness flipped (e.g., X-up → Y-up conversion)
+                // Reverse triangle winding to maintain correct face normals and culling
+                println!("📁 USD File Reader: Reversing triangle winding order due to handedness flip");
+                for triangle in mesh.indices.chunks_mut(3) {
+                    if triangle.len() == 3 {
+                        triangle.swap(1, 2); // Reverse winding: ABC -> ACB
+                    }
                 }
+            } else {
+                // Handedness preserved (e.g., Z-up → Y-up conversion)
+                // Keep original triangle winding order
+                println!("📁 USD File Reader: Preserving triangle winding order (handedness unchanged)");
             }
             
             // Transform mesh transform matrix

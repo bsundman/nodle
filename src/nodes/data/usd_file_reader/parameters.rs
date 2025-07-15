@@ -162,7 +162,7 @@ impl UsdFileReaderParameters {
             
             // Auto-detect mode
             let mut is_auto = current_mode == "Auto";
-            if ui.radio_value(&mut is_auto, true, "🤖 Auto-detect from USD file").changed() && is_auto {
+            if ui.radio_value(&mut is_auto, true, "Auto-detect from USD file").changed() && is_auto {
                 changes.push(ParameterChange {
                     parameter: "coordinate_system_mode".to_string(),
                     value: NodeData::String("Auto".to_string()),
@@ -173,7 +173,7 @@ impl UsdFileReaderParameters {
             ui.label("Manual override:");
             ui.indent("manual_modes", |ui| {
                 let mut is_manual_z = current_mode == "Z-up";
-                if ui.radio_value(&mut is_manual_z, true, "🔧 Force Z-up → Y-up").changed() && is_manual_z {
+                if ui.radio_value(&mut is_manual_z, true, "Z-up").changed() && is_manual_z {
                     changes.push(ParameterChange {
                         parameter: "coordinate_system_mode".to_string(),
                         value: NodeData::String("Z-up".to_string()),
@@ -181,7 +181,7 @@ impl UsdFileReaderParameters {
                 }
                 
                 let mut is_manual_y = current_mode == "Y-up";
-                if ui.radio_value(&mut is_manual_y, true, "✅ Force Y-up (no conversion)").changed() && is_manual_y {
+                if ui.radio_value(&mut is_manual_y, true, "Y-up (no conversion)").changed() && is_manual_y {
                     changes.push(ParameterChange {
                         parameter: "coordinate_system_mode".to_string(),
                         value: NodeData::String("Y-up".to_string()),
@@ -189,7 +189,7 @@ impl UsdFileReaderParameters {
                 }
                 
                 let mut is_manual_x = current_mode == "X-up";
-                if ui.radio_value(&mut is_manual_x, true, "🔄 Force X-up → Y-up").changed() && is_manual_x {
+                if ui.radio_value(&mut is_manual_x, true, "X-up").changed() && is_manual_x {
                     changes.push(ParameterChange {
                         parameter: "coordinate_system_mode".to_string(),
                         value: NodeData::String("X-up".to_string()),
@@ -201,20 +201,20 @@ impl UsdFileReaderParameters {
             ui.separator();
             match current_mode.as_str() {
                 "Auto" => {
-                    ui.label("🔍 Reads up-axis from USD metadata and converts automatically");
-                    ui.label("   Supports X-up, Y-up, and Z-up USD files");
+                    ui.label("Reads up-axis from USD metadata and converts automatically");
+                    ui.label("Supports X-up, Y-up, and Z-up USD files");
                 }
                 "Z-up" => {
-                    ui.label("🔧 Always converts from Z-up to Y-up coordinate system");
-                    ui.label("   Use when USD metadata is incorrect or missing");
+                    ui.label("Always converts from Z-up to Y-up coordinate system");
+                    ui.label("Use when USD metadata is incorrect or missing");
                 }
                 "Y-up" => {
-                    ui.label("✅ No coordinate conversion applied");
-                    ui.label("   Use when USD file is already in Y-up coordinates");
+                    ui.label("No coordinate conversion applied");
+                    ui.label("Use when USD file is already in Y-up coordinates");
                 }
                 "X-up" => {
-                    ui.label("🔄 Always converts from X-up to Y-up coordinate system");
-                    ui.label("   Use when USD metadata is incorrect or missing");
+                    ui.label("Always converts from X-up to Y-up coordinate system");
+                    ui.label("Use when USD metadata is incorrect or missing");
                 }
                 _ => {}
             }
