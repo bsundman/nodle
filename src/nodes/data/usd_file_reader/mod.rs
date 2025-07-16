@@ -20,8 +20,8 @@ impl NodeFactory for UsdFileReaderNodeFactory {
     fn metadata() -> NodeMetadata {
         NodeMetadata::new(
             "Data_UsdFileReader",
-            "USD File Reader",
-            NodeCategory::new(&["Data", "USD"]),
+            "Read USD",
+            NodeCategory::new(&["Data"]),
             "Reads USD files and extracts scene data for downstream processing"
         )
         .with_color(Color32::from_rgb(70, 130, 180)) // Steel blue for USD

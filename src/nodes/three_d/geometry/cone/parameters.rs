@@ -1,12 +1,12 @@
-//! Plane node parameter interface with primitive/mesh toggle
+//! Cone node parameter interface with primitive/mesh toggle
 
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
 use egui::{Ui, DragValue, ComboBox, Separator};
 
-pub struct PlaneParameters;
+pub struct ConeParameters;
 
-impl PlaneParameters {
+impl ConeParameters {
     pub fn build_interface(node: &mut Node, ui: &mut Ui) -> Vec<ParameterChange> {
         let mut changes = Vec::new();
         
@@ -39,71 +39,83 @@ impl PlaneParameters {
         
         ui.add(Separator::default());
         
-        // Size parameters
-        ui.label("Size:");
+        // Radius parameter
+        let mut radius = node.parameters.get("radius")
+            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+            .unwrap_or(1.0);
         
-        let mut size_x = node.parameters.get("size_x")
+        if ui.add(DragValue::new(&mut radius)
+            .speed(0.1)
+            .range(0.1..=10.0)
+            .prefix("Radius: "))
+            .changed() {
+            changes.push(ParameterChange {
+                parameter: "radius".to_string(),
+                value: NodeData::Float(radius),
+            });
+        }
+        
+        // Height parameter
+        let mut height = node.parameters.get("height")
             .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
             .unwrap_or(2.0);
-        let mut size_y = node.parameters.get("size_y")
-            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
-            .unwrap_or(2.0);
         
-        ui.horizontal(|ui| {
-            if ui.add(DragValue::new(&mut size_x)
-                .speed(0.1)
-                .range(0.1..=10.0)
-                .prefix("X: "))
-                .changed() {
-                changes.push(ParameterChange {
-                    parameter: "size_x".to_string(),
-                    value: NodeData::Float(size_x),
-                });
-            }
-            if ui.add(DragValue::new(&mut size_y)
-                .speed(0.1)
-                .range(0.1..=10.0)
-                .prefix("Y: "))
-                .changed() {
-                changes.push(ParameterChange {
-                    parameter: "size_y".to_string(),
-                    value: NodeData::Float(size_y),
-                });
-            }
-        });
+        if ui.add(DragValue::new(&mut height)
+            .speed(0.1)
+            .range(0.1..=10.0)
+            .prefix("Height: "))
+            .changed() {
+            changes.push(ParameterChange {
+                parameter: "height".to_string(),
+                value: NodeData::Float(height),
+            });
+        }
         
         ui.add(Separator::default());
         
         // Mesh subdivision parameters (disabled in primitive mode)
         ui.label("Mesh Subdivision:");
         
-        let mut subdivisions_x = node.parameters.get("subdivisions_x")
+        let mut subdivisions_axis = node.parameters.get("subdivisions_axis")
+            .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+            .unwrap_or(20);
+        let mut subdivisions_caps = node.parameters.get("subdivisions_caps")
             .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
             .unwrap_or(1);
-        let mut subdivisions_y = node.parameters.get("subdivisions_y")
+        let mut subdivisions_height = node.parameters.get("subdivisions_height")
             .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
             .unwrap_or(1);
         
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!is_primitive_mode, |ui| {
-                if ui.add(DragValue::new(&mut subdivisions_x)
+                if ui.add(DragValue::new(&mut subdivisions_axis)
                     .speed(1)
-                    .range(1..=50)
-                    .prefix("X: "))
+                    .range(8..=64)
+                    .prefix("Axis: "))
                     .changed() {
                     changes.push(ParameterChange {
-                        parameter: "subdivisions_x".to_string(),
-                        value: NodeData::Integer(subdivisions_x),
+                        parameter: "subdivisions_axis".to_string(),
+                        value: NodeData::Integer(subdivisions_axis),
                     });
                 }
-                if ui.add(DragValue::new(&mut subdivisions_y)
+                if ui.add(DragValue::new(&mut subdivisions_caps)
                     .speed(1)
-                    .range(1..=50)
-                    .prefix("Y: "))
+                    .range(1..=20)
+                    .prefix("Caps: "))
                     .changed() {
                     changes.push(ParameterChange {
-                        parameter: "subdivisions_y".to_string(),
-                        value: NodeData::Integer(subdivisions_y),
+                        parameter: "subdivisions_caps".to_string(),
+                        value: NodeData::Integer(subdivisions_caps),
+                    });
+                }
+                if ui.add(DragValue::new(&mut subdivisions_height)
+                    .speed(1)
+                    .range(1..=20)
+                    .prefix("Height: "))
+                    .changed() {
+                    changes.push(ParameterChange {
+                        parameter: "subdivisions_height".to_string(),
+                        value: NodeData::Integer(subdivisions_height),
                     });
                 }
             });
@@ -135,9 +147,9 @@ impl PlaneParameters {
         // Show mode info
         ui.add(Separator::default());
         if is_primitive_mode {
-            ui.label("🔧 Primitive mode: Uses USD procedural plane primitive");
+            ui.label("🔧 Primitive mode: Uses USD procedural cone primitive");
         } else {
-            ui.label("🔧 Mesh mode: Generates tessellated plane mesh");
+            ui.label("🔧 Mesh mode: Generates tessellated cone mesh");
         }
         
         changes

@@ -435,21 +435,30 @@ impl NodeGraphEngine {
                 }
             }
             
-            // 3D Geometry nodes
-            "Cube" => {
-                // Executing Cube node
-                // For now, just pass through - implement cube generation later
-                Ok(vec![NodeData::None])
+            // 3D Geometry nodes (USD-based)
+            "3D_Cube" => {
+                // Executing USD Cube node
+                Ok(crate::nodes::three_d::geometry::cube::CubeNode::process_node(node, inputs))
             }
-            "Sphere" => {
-                // Executing Sphere node
-                // For now, just pass through - implement sphere generation later
-                Ok(vec![NodeData::None])
+            "3D_Sphere" => {
+                // Executing USD Sphere node
+                Ok(crate::nodes::three_d::geometry::sphere::SphereNode::process_node(node, inputs))
             }
-            "Plane" => {
-                // Executing Plane node
-                // For now, just pass through - implement plane generation later
-                Ok(vec![NodeData::None])
+            "3D_Cylinder" => {
+                // Executing USD Cylinder node
+                Ok(crate::nodes::three_d::geometry::cylinder::CylinderNode::process_node(node, inputs))
+            }
+            "3D_Cone" => {
+                // Executing USD Cone node
+                Ok(crate::nodes::three_d::geometry::cone::ConeNode::process_node(node, inputs))
+            }
+            "3D_Plane" => {
+                // Executing USD Plane node
+                Ok(crate::nodes::three_d::geometry::plane::PlaneNode::process_node(node, inputs))
+            }
+            "3D_Capsule" => {
+                // Executing USD Capsule node
+                Ok(crate::nodes::three_d::geometry::capsule::CapsuleNode::process_node(node, inputs))
             }
             
             // 3D Lighting nodes
@@ -611,8 +620,8 @@ impl NodeGraphEngine {
     }
     
     /// Clear viewport-specific caches for a node
-    fn clear_viewport_caches(&mut self, node_id: NodeId) {
-        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE};
+    pub fn clear_viewport_caches(&mut self, node_id: NodeId) {
+        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, FORCE_VIEWPORT_REFRESH};
         
         // Clear viewport input cache
         if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
@@ -626,26 +635,71 @@ impl NodeGraphEngine {
             println!("🧹 Cleared viewport data cache for node: {}", node_id);
         }
         
+        // Clear force refresh cache
+        if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+            force_set.remove(&node_id);
+            println!("🧹 Cleared force refresh cache for node: {}", node_id);
+        }
+        
         // Note: USD renderer cache uses file paths as keys, not node IDs
         // We avoid clearing ALL entries since that would affect unrelated viewport nodes
         // Instead, we let the viewport node handle its own USD renderer cache clearing
         // when it detects input changes through the FORCE_VIEWPORT_REFRESH mechanism
         
         // CRITICAL: Clear GPU mesh caches when viewport connections change
-        // This ensures viewport updates are visible immediately
         crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
-        println!("🧹 Cleared GPU mesh caches for connection change");
+        println!("🧹 Cleared GPU mesh caches for viewport node: {}", node_id);
         
-        // Clear execution engine output cache for this node to force data reprocessing  
-        self.output_cache.retain(|(cached_node_id, _), _| *cached_node_id != node_id);
+        // Clear USD renderer cache - this is necessary when switching between geometry nodes
+        use crate::nodes::three_d::ui::viewport::USD_RENDERER_CACHE;
+        if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
+            let renderer_count = cache.renderers.len();
+            let bounds_count = cache.scene_bounds.len();
+            cache.renderers.clear();
+            cache.scene_bounds.clear();
+            println!("🧹 Cleared USD renderer cache ({} renderers, {} bounds) for viewport connection change", 
+                     renderer_count, bounds_count);
+        }
+        
+        // Clear execution engine output cache for the node
+        self.output_cache.retain(|(id, _), _| *id != node_id);
         println!("🧹 Cleared execution engine output cache for node: {}", node_id);
+    }
+    
+    /// Handle node removal by clearing all related caches and marking affected nodes as dirty
+    pub fn on_node_removed(&mut self, node_id: NodeId, graph: &NodeGraph) {
+        // Clear all caches for the deleted node
+        self.clear_viewport_caches(node_id);
         
-        // CRITICAL: Mark the viewport node as dirty so it gets re-executed
-        self.dirty_nodes.insert(node_id);
-        self.node_states.insert(node_id, NodeState::Dirty);
-        println!("🔄 Marked viewport node {} as dirty for re-execution", node_id);
+        // Find all nodes that were connected to the deleted node
+        let mut affected_nodes = Vec::new();
+        for connection in &graph.connections {
+            if connection.from_node == node_id {
+                // The deleted node was providing input to this node
+                affected_nodes.push(connection.to_node);
+            }
+        }
         
-        println!("✅ All viewport caches cleared for node: {} - ready for regeneration", node_id);
+        // Mark all affected nodes as dirty and clear their caches
+        for affected_node_id in affected_nodes {
+            self.mark_dirty(affected_node_id, graph);
+            
+            // If the affected node is a viewport node, clear its caches too
+            if let Some(node) = graph.nodes.get(&affected_node_id) {
+                if node.type_id == "Viewport" {
+                    self.clear_viewport_caches(affected_node_id);
+                    
+                    // Force viewport refresh by adding to force refresh set
+                    use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
+                    if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+                        force_set.insert(affected_node_id);
+                        println!("🔄 Added affected viewport node {} to FORCE_VIEWPORT_REFRESH set", affected_node_id);
+                    }
+                }
+            }
+        }
+        
+        println!("🧹 Completed node removal cleanup for node: {}", node_id);
     }
 
     /// Handle a node parameter change
@@ -656,9 +710,16 @@ impl NodeGraphEngine {
         if let Some(node) = graph.nodes.get(&node_id) {
             // Node parameters changed
             
-            // If this is a USD File Reader node, clear GPU mesh cache to force re-upload
-            if node.type_id == "Data_UsdFileReader" {
-                println!("🔄 USD File Reader parameters changed - clearing GPU mesh cache and marking downstream dirty");
+            // If this is a USD source node (File Reader or geometry node), clear GPU mesh cache to force re-upload
+            let is_usd_source_node = match node.type_id.as_str() {
+                "Data_UsdFileReader" => true,
+                "3D_Cube" | "3D_Sphere" | "3D_Cylinder" | "3D_Cone" | "3D_Plane" | "3D_Capsule" => true,
+                _ => node.type_id.contains("USD") || node.type_id.contains("3D_"),
+            };
+            
+            if is_usd_source_node {
+                println!("🔄 USD source node '{}' (type: {}) parameters changed - clearing GPU mesh cache and marking downstream dirty", 
+                        node.title, node.type_id);
                 self.clear_gpu_mesh_cache_for_usd_changes(node_id, graph);
             }
         }
@@ -681,7 +742,7 @@ impl NodeGraphEngine {
         
         for downstream_id in &downstream_nodes {
             if let Some(node) = graph.nodes.get(downstream_id) {
-                if node.type_id == "Viewport" {
+                if node.type_id == "Viewport" || node.type_id == "3D_Viewport" {
                     connected_viewport_nodes.push(*downstream_id);
                 }
             }
@@ -691,7 +752,7 @@ impl NodeGraphEngine {
         if !connected_viewport_nodes.is_empty() {
             println!("🧹 Clearing caches only for connected viewport nodes: {:?}", connected_viewport_nodes);
             
-            use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE, FORCE_VIEWPORT_REFRESH};
+            use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE};
             
             // Clear viewport input cache only for connected nodes
             if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {

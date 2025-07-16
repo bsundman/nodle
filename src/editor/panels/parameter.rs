@@ -557,6 +557,7 @@ impl ParameterPanel {
             // Rendering node interface
             
             // Try to handle all known node types with build_interface methods
+            println!("🔍 PARAMETER PANEL: Node type_id: '{}', title: '{}'", node.type_id, title);
             let changes = match node.type_id.as_str() {
                 // Data nodes
                 "Data_UsdFileReader" => {
@@ -585,17 +586,29 @@ impl ParameterPanel {
                 },
                 
                 // 3D Geometry nodes
-                "Cube" => {
+                "Cube" | "3D_Cube" => {
                     // Using Cube interface
-                    crate::nodes::three_d::geometry::cube::parameters::CubeNode::build_interface(node, ui)
+                    crate::nodes::three_d::geometry::cube::parameters::CubeParameters::build_interface(node, ui)
                 },
-                "Sphere" => {
+                "Sphere" | "3D_Sphere" => {
                     // Using Sphere interface
-                    crate::nodes::three_d::geometry::sphere::parameters::SphereNode::build_interface(node, ui)
+                    crate::nodes::three_d::geometry::sphere::parameters::SphereParameters::build_interface(node, ui)
                 },
-                "Plane" => {
+                "Cylinder" | "3D_Cylinder" => {
+                    // Using Cylinder interface
+                    crate::nodes::three_d::geometry::cylinder::parameters::CylinderParameters::build_interface(node, ui)
+                },
+                "Cone" | "3D_Cone" => {
+                    // Using Cone interface
+                    crate::nodes::three_d::geometry::cone::parameters::ConeParameters::build_interface(node, ui)
+                },
+                "Plane" | "3D_Plane" => {
                     // Using Plane interface
-                    crate::nodes::three_d::geometry::plane::parameters::PlaneNode::build_interface(node, ui)
+                    crate::nodes::three_d::geometry::plane::parameters::PlaneParameters::build_interface(node, ui)
+                },
+                "Capsule" | "3D_Capsule" => {
+                    // Using Capsule interface
+                    crate::nodes::three_d::geometry::capsule::parameters::CapsuleParameters::build_interface(node, ui)
                 },
                 
                 // 3D Lighting nodes
@@ -877,13 +890,13 @@ impl ParameterPanel {
         
         // Geometry nodes using Pattern A
         if node.type_id.contains("Sphere") && !node.type_id.contains("USD") {
-            let changes = crate::nodes::three_d::geometry::sphere::parameters::SphereNode::build_interface(node, ui);
+            let changes = crate::nodes::three_d::geometry::sphere::parameters::SphereParameters::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
         
         if node.type_id.contains("Cube") && !node.type_id.contains("USD") {
-            let changes = crate::nodes::three_d::geometry::cube::parameters::CubeNode::build_interface(node, ui);
+            let changes = crate::nodes::three_d::geometry::cube::parameters::CubeParameters::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
@@ -973,7 +986,7 @@ impl ParameterPanel {
         
         // Geometry nodes using Pattern A
         if title.contains("Plane") && !title.contains("USD") {
-            let changes = crate::nodes::three_d::geometry::plane::parameters::PlaneNode::build_interface(node, ui);
+            let changes = crate::nodes::three_d::geometry::plane::parameters::PlaneParameters::build_interface(node, ui);
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
             return true;
         }
@@ -1026,30 +1039,79 @@ impl ParameterPanel {
             // Notify execution engine that parameters changed
             execution_engine.on_node_parameter_changed(node_id, graph);
             
-            // CRITICAL: For USD File Reader nodes, force viewport refresh immediately
+            // CRITICAL: For nodes that output USD scene data, force viewport refresh immediately
             // This ensures viewport gets fresh data when parameters change
             if let Some(current_node) = graph.nodes.get(&node_id) {
-                if current_node.type_id == "Data_UsdFileReader" {
+                let is_usd_source_node = match current_node.type_id.as_str() {
+                    // USD File Reader
+                    "Data_UsdFileReader" => true,
+                    // All 3D geometry nodes that output USD scene data
+                    "3D_Cube" | "3D_Sphere" | "3D_Cylinder" | "3D_Cone" | "3D_Plane" | "3D_Capsule" => true,
+                    // Any other node types that output USD data
+                    _ => current_node.type_id.contains("USD") || current_node.type_id.contains("3D_"),
+                };
+                
+                if is_usd_source_node {
+                    println!("🔄 PARAMETER CHANGE: Handling USD source node '{}' (type: {})", title, current_node.type_id);
+                    
                     // Find all downstream viewport nodes and force them to refresh immediately
                     let downstream_nodes = self.find_downstream_nodes(node_id, graph);
                     let mut connected_viewport_nodes = Vec::new();
                     
                     for downstream_id in &downstream_nodes {
                         if let Some(node) = graph.nodes.get(downstream_id) {
-                            if node.type_id == "Viewport" {
+                            if node.type_id == "Viewport" || node.type_id == "3D_Viewport" {
                                 connected_viewport_nodes.push(*downstream_id);
                                 use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
                                 if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                                     force_set.insert(*downstream_id);
+                                    println!("🔄 PARAMETER CHANGE: Forced viewport refresh for node {}", downstream_id);
                                 }
                             }
                         }
                     }
                     
-                    // CRITICAL: Clear GPU mesh caches only if there are connected viewport nodes
+                    // CRITICAL: Clear ALL relevant caches when USD source parameters change
                     if !connected_viewport_nodes.is_empty() {
+                        println!("🧹 PARAMETER CHANGE: Clearing all caches for {} connected viewport nodes: {:?}", 
+                                connected_viewport_nodes.len(), connected_viewport_nodes);
+                        
+                        // Clear GPU mesh caches (wgpu buffers)
                         crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
-                        println!("🧹 PANEL: Cleared GPU mesh caches for connected viewport nodes: {:?}", connected_viewport_nodes);
+                        println!("🧹 PARAMETER CHANGE: Cleared GPU mesh caches (wgpu buffers)");
+                        
+                        // Clear USD renderer cache
+                        use crate::nodes::three_d::ui::viewport::USD_RENDERER_CACHE;
+                        if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
+                            let renderer_count = cache.renderers.len();
+                            let bounds_count = cache.scene_bounds.len();
+                            cache.renderers.clear();
+                            cache.scene_bounds.clear();
+                            println!("🧹 PARAMETER CHANGE: Cleared USD renderer cache ({} renderers, {} bounds)", 
+                                    renderer_count, bounds_count);
+                        }
+                        
+                        // Clear viewport input and data caches for each connected viewport
+                        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE};
+                        for viewport_id in &connected_viewport_nodes {
+                            if let Ok(mut input_cache) = VIEWPORT_INPUT_CACHE.lock() {
+                                input_cache.remove(viewport_id);
+                                println!("🧹 PARAMETER CHANGE: Cleared viewport input cache for node {}", viewport_id);
+                            }
+                            if let Ok(mut data_cache) = VIEWPORT_DATA_CACHE.lock() {
+                                data_cache.remove(viewport_id);
+                                println!("🧹 PARAMETER CHANGE: Cleared viewport data cache for node {}", viewport_id);
+                            }
+                        }
+                        
+                        // CRITICAL: Also mark the USD source node itself as dirty in all caches
+                        // This ensures the new parameter values are picked up
+                        execution_engine.mark_dirty(node_id, graph);
+                        println!("🔄 PARAMETER CHANGE: Marked USD source node {} as dirty", node_id);
+                        
+                        println!("🧹 PARAMETER CHANGE: All cache clearing completed for geometry node parameter change");
+                    } else {
+                        println!("🔄 PARAMETER CHANGE: No connected viewport nodes found for USD source node '{}'", title);
                     }
                 }
             }

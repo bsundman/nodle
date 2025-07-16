@@ -1,4 +1,4 @@
-//! USD-based Plane Geometry Node
+//! USD-based Capsule Geometry Node
 
 pub mod parameters;
 pub mod logic;
@@ -9,26 +9,26 @@ use crate::nodes::factory::{DataType, PortDefinition, ProcessingCost};
 use egui::{Color32, Ui};
 
 #[derive(Default)]
-pub struct PlaneNodeFactory;
+pub struct CapsuleNodeFactory;
 
-impl NodeFactory for PlaneNodeFactory {
+impl NodeFactory for CapsuleNodeFactory {
     fn metadata() -> NodeMetadata {
         NodeMetadata::new(
-            "3D_Plane",
-            "Plane",
+            "3D_Capsule",
+            "Capsule",
             NodeCategory::new(&["3D", "Geometry"]),
-            "Creates a plane using USD procedural primitives with primitive/mesh toggle"
+            "Creates a capsule using USD procedural primitives with primitive/mesh toggle"
         )
         .with_color(Color32::from_rgb(100, 150, 200))
-        .with_icon("▬")
+        .with_icon("💊")
         .with_inputs(vec![
             // No inputs - this is a geometry source node
         ])
         .with_outputs(vec![
             PortDefinition::required("Scene", DataType::Any)
-                .with_description("USD scene data with plane geometry")
+                .with_description("USD scene data with capsule geometry")
         ])
-        .with_tags(vec!["geometry", "primitive", "plane", "3d", "mesh", "usd"])
+        .with_tags(vec!["geometry", "primitive", "capsule", "3d", "mesh", "usd"])
         .with_processing_cost(ProcessingCost::Low)
         .with_workspace_compatibility(vec!["3D", "USD", "MaterialX"])
     }
@@ -51,12 +51,14 @@ impl NodeFactory for PlaneNodeFactory {
         
         // Initialize default parameters
         node.parameters.insert("mode".to_string(), NodeData::String("primitive".to_string()));
-        node.parameters.insert("size_x".to_string(), NodeData::Float(2.0));
-        node.parameters.insert("size_y".to_string(), NodeData::Float(2.0));
+        node.parameters.insert("needs_reload".to_string(), NodeData::Boolean(false));
+        node.parameters.insert("radius".to_string(), NodeData::Float(0.5));
+        node.parameters.insert("height".to_string(), NodeData::Float(1.0));
         
         // Mesh subdivision parameters
-        node.parameters.insert("subdivisions_x".to_string(), NodeData::Integer(1));
-        node.parameters.insert("subdivisions_y".to_string(), NodeData::Integer(1));
+        node.parameters.insert("subdivisions_axis".to_string(), NodeData::Integer(16));
+        node.parameters.insert("subdivisions_height".to_string(), NodeData::Integer(1));
+        node.parameters.insert("subdivisions_caps".to_string(), NodeData::Integer(8));
         node.parameters.insert("smooth_normals".to_string(), NodeData::Boolean(true));
         node.parameters.insert("generate_uvs".to_string(), NodeData::Boolean(true));
         
@@ -66,18 +68,18 @@ impl NodeFactory for PlaneNodeFactory {
     }
 }
 
-/// USD-based Plane Node implementation
-pub struct PlaneNode;
+/// USD-based Capsule Node implementation
+pub struct CapsuleNode;
 
-impl PlaneNode {
-    /// Build the parameter interface for the Plane node
+impl CapsuleNode {
+    /// Build the parameter interface for the Capsule node
     pub fn build_interface(node: &mut Node, ui: &mut Ui) -> Vec<ParameterChange> {
-        parameters::PlaneParameters::build_interface(node, ui)
+        parameters::CapsuleParameters::build_interface(node, ui)
     }
     
-    /// Process the Plane node's logic
+    /// Process the Capsule node's logic
     pub fn process_node(node: &Node, inputs: Vec<NodeData>) -> Vec<NodeData> {
-        let mut logic = logic::PlaneLogic::from_node(node);
+        let mut logic = logic::CapsuleLogic::from_node(node);
         logic.process(inputs)
     }
 }

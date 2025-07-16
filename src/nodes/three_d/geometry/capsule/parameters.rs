@@ -1,12 +1,12 @@
-//! Sphere node parameter interface with primitive/mesh toggle
+//! Capsule node parameter interface with primitive/mesh toggle
 
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
 use egui::{Ui, DragValue, ComboBox, Separator};
 
-pub struct SphereParameters;
+pub struct CapsuleParameters;
 
-impl SphereParameters {
+impl CapsuleParameters {
     pub fn build_interface(node: &mut Node, ui: &mut Ui) -> Vec<ParameterChange> {
         let mut changes = Vec::new();
         
@@ -52,11 +52,11 @@ impl SphereParameters {
         // Radius parameter
         let mut radius = node.parameters.get("radius")
             .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
-            .unwrap_or(1.0);
+            .unwrap_or(0.5);
         
         if ui.add(DragValue::new(&mut radius)
             .speed(0.1)
-            .range(0.1..=10.0)
+            .range(0.1..=5.0)
             .prefix("Radius: "))
             .changed() {
             changes.push(ParameterChange {
@@ -70,42 +70,80 @@ impl SphereParameters {
             });
         }
         
+        // Height parameter (cylinder body height, not including hemisphere caps)
+        let mut height = node.parameters.get("height")
+            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+            .unwrap_or(1.0);
+        
+        if ui.add(DragValue::new(&mut height)
+            .speed(0.1)
+            .range(0.1..=10.0)
+            .prefix("Height: "))
+            .changed() {
+            changes.push(ParameterChange {
+                parameter: "height".to_string(),
+                value: NodeData::Float(height),
+            });
+            // Trigger reload when height changes
+            changes.push(ParameterChange {
+                parameter: "needs_reload".to_string(),
+                value: NodeData::Boolean(true),
+            });
+        }
+        
         ui.add(Separator::default());
         
         // Mesh subdivision parameters (disabled in primitive mode)
         ui.label("Mesh Subdivision:");
         
-        let mut rings = node.parameters.get("rings")
+        let mut subdivisions_axis = node.parameters.get("subdivisions_axis")
             .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
             .unwrap_or(16);
-        let mut segments = node.parameters.get("segments")
+        let mut subdivisions_height = node.parameters.get("subdivisions_height")
             .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
-            .unwrap_or(20);
+            .unwrap_or(1);
+        let mut subdivisions_caps = node.parameters.get("subdivisions_caps")
+            .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+            .unwrap_or(8);
         
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!is_primitive_mode, |ui| {
-                if ui.add(DragValue::new(&mut rings)
+                if ui.add(DragValue::new(&mut subdivisions_axis)
                     .speed(1)
-                    .range(4..=64)
-                    .prefix("Rings: "))
+                    .range(8..=64)
+                    .prefix("Axis: "))
                     .changed() {
                     changes.push(ParameterChange {
-                        parameter: "rings".to_string(),
-                        value: NodeData::Integer(rings),
+                        parameter: "subdivisions_axis".to_string(),
+                        value: NodeData::Integer(subdivisions_axis),
                     });
                     changes.push(ParameterChange {
                         parameter: "needs_reload".to_string(),
                         value: NodeData::Boolean(true),
                     });
                 }
-                if ui.add(DragValue::new(&mut segments)
+                if ui.add(DragValue::new(&mut subdivisions_height)
                     .speed(1)
-                    .range(8..=128)
-                    .prefix("Segments: "))
+                    .range(1..=20)
+                    .prefix("Height: "))
                     .changed() {
                     changes.push(ParameterChange {
-                        parameter: "segments".to_string(),
-                        value: NodeData::Integer(segments),
+                        parameter: "subdivisions_height".to_string(),
+                        value: NodeData::Integer(subdivisions_height),
+                    });
+                    changes.push(ParameterChange {
+                        parameter: "needs_reload".to_string(),
+                        value: NodeData::Boolean(true),
+                    });
+                }
+                if ui.add(DragValue::new(&mut subdivisions_caps)
+                    .speed(1)
+                    .range(4..=32)
+                    .prefix("Caps: "))
+                    .changed() {
+                    changes.push(ParameterChange {
+                        parameter: "subdivisions_caps".to_string(),
+                        value: NodeData::Integer(subdivisions_caps),
                     });
                     changes.push(ParameterChange {
                         parameter: "needs_reload".to_string(),
@@ -149,10 +187,11 @@ impl SphereParameters {
         // Show mode info
         ui.add(Separator::default());
         if is_primitive_mode {
-            ui.label("🔧 Primitive mode: Uses USD procedural sphere primitive");
+            ui.label("🔧 Primitive mode: Uses USD procedural capsule primitive");
         } else {
-            ui.label("🔧 Mesh mode: Generates tessellated sphere mesh");
+            ui.label("🔧 Mesh mode: Generates tessellated capsule mesh");
         }
+        ui.label("💡 Height = cylinder body only (total = height + 2×radius)");
         
         // Reset needs_reload flag after parameter changes have been processed
         if node.parameters.get("needs_reload")

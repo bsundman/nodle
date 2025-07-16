@@ -2,7 +2,7 @@
 //! Copied from USD plugin and adapted for core integration
 
 use crate::nodes::interface::{NodeData, ParameterChange, PanelType};
-use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory};
+use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory, NodeId};
 use egui::Ui;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -29,13 +29,12 @@ pub static FORCE_VIEWPORT_REFRESH: Lazy<Arc<Mutex<HashSet<crate::nodes::NodeId>>
     Arc::new(Mutex::new(HashSet::new()))
 });
 
-/// Calculate hash for USD scene data to detect changes - includes source node ID
-fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData, source_node_id: crate::nodes::NodeId) -> u64 {
+/// Calculate hash for USD scene data to detect changes - uses stage path to differentiate sources
+fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData) -> u64 {
     let mut hasher = DefaultHasher::new();
     
-    // CRITICAL: Include source node ID in hash so data from different nodes is always different
-    source_node_id.hash(&mut hasher);
-    
+    // CRITICAL: The stage path now includes the source node ID, so it uniquely identifies the source
+    println!("🔍 Calculating hash for USD scene with stage_path: '{}'", usd_scene_data.stage_path);
     usd_scene_data.stage_path.hash(&mut hasher);
     usd_scene_data.meshes.len().hash(&mut hasher);
     
@@ -356,6 +355,38 @@ impl Default for ViewportNode {
 }
 
 impl ViewportNode {
+    /// Check if a viewport node has any input connections
+    /// This can be used to determine if the node should show content or empty state
+    pub fn has_input_connections(node_id: NodeId, graph: &crate::nodes::NodeGraph) -> bool {
+        for connection in &graph.connections {
+            if connection.to_node == node_id {
+                return true;
+            }
+        }
+        false
+    }
+    
+    /// Clear all cached data for a specific viewport node
+    /// This forces a complete refresh of the viewport state
+    pub fn clear_cached_data(node_id: NodeId) {
+        println!("🗑️ ViewportNode::clear_cached_data: Clearing all cached data for node {}", node_id);
+        
+        // Clear input cache
+        if let Ok(mut input_cache) = VIEWPORT_INPUT_CACHE.lock() {
+            input_cache.remove(&node_id);
+        }
+        
+        // Clear viewport data cache
+        if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
+            viewport_cache.remove(&node_id);
+        }
+        
+        // Clear force refresh flag
+        if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
+            force_set.remove(&node_id);
+        }
+    }
+
     /// Update scene size in camera settings based on current USD input data
     pub fn update_scene_size(&mut self, node: &Node) {
         // Scene size is now calculated from input data only
@@ -1056,7 +1087,22 @@ impl ViewportNode {
             
             println!("🎬 Viewport: Using USDSceneData input from: {}", usd_scene_data.stage_path);
         } else {
-            // No input data - show empty scene
+            // No input data - clear cached data and show empty scene
+            println!("🎬 Viewport: No input connections detected - clearing cached data for node {}", node.id);
+            
+            // Clear cached data immediately when no inputs are present
+            if let Ok(mut input_cache) = VIEWPORT_INPUT_CACHE.lock() {
+                if input_cache.remove(&node.id).is_some() {
+                    println!("🗑️ Viewport: Cleared input cache for node {}", node.id);
+                }
+            }
+            
+            if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
+                if viewport_cache.remove(&node.id).is_some() {
+                    println!("🗑️ Viewport: Cleared viewport data cache for node {}", node.id);
+                }
+            }
+            
             outputs.push(NodeData::String("Empty Viewport - Connect USD File Reader".to_string()));
             outputs.push(NodeData::Boolean(false)); // No scene loaded
         }
@@ -1084,7 +1130,7 @@ impl ViewportNode {
             if let Some(usd_scene_data) = input_cache.get(&node.id) {
                 println!("🎬 ViewportNode::get_viewport_data: Found cached USD data for node {} with {} meshes", node.id, usd_scene_data.meshes.len());
                 // Check if we have a cached converted viewport data (but bypass if force refresh)
-                let scene_hash = calculate_usd_scene_hash(usd_scene_data, node.id);
+                let scene_hash = calculate_usd_scene_hash(usd_scene_data);
                 if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
                     if !force_refresh {
                         if let Some((cached_viewport_data, cached_hash)) = viewport_cache.get(&node.id) {
@@ -1104,11 +1150,12 @@ impl ViewportNode {
                     return Some(viewport_data);
                 }
             } else {
+                println!("🎬 ViewportNode::get_viewport_data: No cached USD data for node {} - will return empty scene", node.id);
             }
         }
         
-        
         // No input data - return empty scene
+        println!("🎬 ViewportNode::get_viewport_data: Returning empty viewport data for node {}", node.id);
         Some(Self::create_empty_viewport_data(node))
     }
     
@@ -1256,8 +1303,18 @@ impl ViewportNode {
         let mut scene = SceneData::default();
         scene.name = "Empty Viewport - Connect USD File Reader".to_string();
         
-        // Add a simple text mesh to indicate no data
-        // For now, we'll just return an empty scene
+        // Set proper camera for empty state
+        scene.camera = CameraData {
+            position: [5.0, 5.0, 5.0],
+            target: [0.0, 0.0, 0.0],
+            up: [0.0, 1.0, 0.0],
+            fov: 45.0_f32.to_radians(),
+            near: 0.1,
+            far: 100.0,
+            aspect: 800.0 / 600.0,
+        };
+        
+        // Empty scene has minimal bounding box
         scene.bounding_box = Some(([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]));
         
         let mut viewport_data = ViewportData {

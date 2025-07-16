@@ -609,4 +609,25 @@ impl ViewportPanel {
         }
     }
 
+    /// Clean up viewport caches for a deleted node
+    pub fn cleanup_deleted_node(&mut self, node_id: NodeId) {
+        // Remove viewport instance
+        if let Some(_removed_instance) = self.viewport_instances.remove(&node_id) {
+            info!("🧹 Cleaned up viewport instance for deleted node: {}", node_id);
+        }
+        
+        // Remove viewport callback
+        if let Some(_removed_callback) = self.viewport_callbacks.remove(&node_id) {
+            info!("🧹 Cleaned up viewport callback for deleted node: {}", node_id);
+        }
+        
+        // Clean up any tab tracking for this node
+        let node_id_str = node_id.to_string();
+        self.selected_tabs.retain(|window_id, _| {
+            !window_id.contains(&node_id_str)
+        });
+        
+        info!("🧹 Viewport panel cleanup completed for deleted node: {}", node_id);
+    }
+
 }

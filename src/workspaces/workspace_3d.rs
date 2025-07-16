@@ -3,7 +3,7 @@
 use crate::workspace::{Workspace, WorkspaceMenuItem};
 use crate::nodes::factory::NodeRegistry;
 use crate::nodes::three_d::*;
-use crate::nodes::three_d::geometry::{CubeNode, SphereNode};
+use crate::nodes::three_d::geometry::*;
 use crate::nodes::three_d::transform::TranslateNode;
 use crate::nodes::utility::{NullNode, TestNode};
 use log::{debug, info, warn};
@@ -28,9 +28,12 @@ impl Workspace3D {
         node_registry.register::<crate::nodes::three_d::transform::ScaleNode>();
         
         // Register 3D geometry nodes
-        node_registry.register::<CubeNode>();
-        node_registry.register::<SphereNode>();
-        node_registry.register::<crate::nodes::three_d::geometry::PlaneNode>();
+        node_registry.register::<CubeNodeFactory>();
+        node_registry.register::<SphereNodeFactory>();
+        node_registry.register::<CylinderNodeFactory>();
+        node_registry.register::<ConeNodeFactory>();
+        node_registry.register::<PlaneNodeFactory>();
+        node_registry.register::<CapsuleNodeFactory>();
         
         // Register 3D lighting nodes
         node_registry.register::<crate::nodes::three_d::lighting::PointLightNode>();

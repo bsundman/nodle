@@ -1124,9 +1124,13 @@ impl Default for NodeRegistry {
         registry.register::<crate::nodes::three_d::transform::TranslateNode>();
         registry.register::<crate::nodes::three_d::transform::RotateNode>();
         registry.register::<crate::nodes::three_d::transform::ScaleNode>();
-        registry.register::<crate::nodes::three_d::geometry::CubeNode>();
-        registry.register::<crate::nodes::three_d::geometry::SphereNode>();
-        registry.register::<crate::nodes::three_d::geometry::PlaneNode>();
+        // Register new USD-based geometry nodes
+        registry.register::<crate::nodes::three_d::geometry::CubeNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::SphereNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::CylinderNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::ConeNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::PlaneNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::CapsuleNodeFactory>();
         registry.register::<crate::nodes::three_d::lighting::PointLightNode>();
         registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
         registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();

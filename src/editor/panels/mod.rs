@@ -261,6 +261,19 @@ impl PanelManager {
         None
     }
 
+    /// Clean up panel caches for a deleted node
+    pub fn cleanup_deleted_node(&mut self, node_id: NodeId) {
+        // Clean up viewport panel caches
+        self.viewport_panel.cleanup_deleted_node(node_id);
+        
+        // Clean up interface panel manager state
+        self.interface_panel_manager.set_panel_visibility(node_id, false);
+        self.interface_panel_manager.set_panel_open(node_id, false);
+        self.interface_panel_manager.set_panel_minimized(node_id, false);
+        
+        debug!("🧹 Panel manager cleanup completed for deleted node: {}", node_id);
+    }
+
     // DEPRECATED: Auto-detection removed in favor of node self-assignment
     // Nodes now carry their own panel_type field and assign themselves
     // to the appropriate panel type when created

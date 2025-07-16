@@ -1,165 +1,205 @@
-//! Sphere node functional operations - geometry generation logic
+//! Sphere node logic implementation
 
-use crate::nodes::interface::{GeometryData, NodeData};
+use crate::nodes::interface::NodeData;
+use crate::nodes::Node;
+use crate::workspaces::three_d::usd::usd_engine::{USDSceneData, USDMeshGeometry};
+use glam::{Mat4, Vec3, Vec2};
 use std::f32::consts::PI;
 
-/// Sphere type options for different sphere configurations
-#[derive(Debug, Clone)]
-pub enum SphereType {
-    Full,
-    Hemisphere,
-    Quarter,
-    Custom,
+pub struct SphereLogic {
+    mode: String,
+    radius: f32,
+    rings: i32,
+    segments: i32,
+    smooth_normals: bool,
+    generate_uvs: bool,
+    node_id: crate::nodes::NodeId,
 }
 
-impl Default for SphereType {
-    fn default() -> Self {
-        SphereType::Full
-    }
-}
-
-/// Core sphere data and functionality
-#[derive(Debug, Clone)]
-pub struct SphereGeometry {
-    /// Sphere radius
-    pub radius: f32,
-    /// Number of longitudinal segments (around the sphere)
-    pub rings: i32,
-    /// Number of latitudinal segments (from pole to pole)
-    pub segments: i32,
-    /// Start and end angles for partial spheres
-    pub phi_start: f32,
-    pub phi_length: f32,
-    pub theta_start: f32,
-    pub theta_length: f32,
-    /// Whether to generate UVs
-    pub generate_uvs: bool,
-    /// Whether to generate normals
-    pub generate_normals: bool,
-    /// Sphere type
-    pub sphere_type: SphereType,
-}
-
-impl Default for SphereGeometry {
-    fn default() -> Self {
+impl SphereLogic {
+    pub fn from_node(node: &Node) -> Self {
         Self {
-            radius: 1.0,
-            rings: 16,
-            segments: 32,
-            phi_start: 0.0,
-            phi_length: 2.0 * PI,
-            theta_start: 0.0,
-            theta_length: PI,
-            generate_uvs: true,
-            generate_normals: true,
-            sphere_type: SphereType::Full,
+            mode: node.parameters.get("mode")
+                .and_then(|d| if let NodeData::String(s) = d { Some(s.clone()) } else { None })
+                .unwrap_or_else(|| "primitive".to_string()),
+            radius: node.parameters.get("radius")
+                .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+                .unwrap_or(1.0),
+            rings: node.parameters.get("rings")
+                .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+                .unwrap_or(16),
+            segments: node.parameters.get("segments")
+                .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+                .unwrap_or(20),
+            smooth_normals: node.parameters.get("smooth_normals")
+                .and_then(|d| if let NodeData::Boolean(b) = d { Some(*b) } else { None })
+                .unwrap_or(true),
+            generate_uvs: node.parameters.get("generate_uvs")
+                .and_then(|d| if let NodeData::Boolean(b) = d { Some(*b) } else { None })
+                .unwrap_or(true),
+            node_id: node.id,
         }
     }
-}
-
-impl SphereGeometry {
-    /// Generate sphere geometry based on current parameters
-    pub fn generate_geometry(&self, node_id: usize) -> GeometryData {
+    
+    pub fn process(&mut self, _inputs: Vec<NodeData>) -> Vec<NodeData> {
+        // Generate USD scene data based on mode
+        let scene_data = if self.mode == "primitive" {
+            self.generate_primitive_sphere_scene()
+        } else {
+            self.generate_mesh_sphere_scene()
+        };
+        
+        println!("🔵 SphereLogic::process generated USD scene with stage_path: '{}'", scene_data.stage_path);
+        vec![NodeData::USDSceneData(scene_data)]
+    }
+    
+    fn generate_primitive_sphere_scene(&self) -> USDSceneData {
+        // For primitive mode, create a USD scene with a procedural sphere primitive
+        // Generate simple sphere geometry for primitive representation
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut normals = Vec::new();
         let mut uvs = Vec::new();
         
-        // Generate sphere vertices
-        for i in 0..=self.rings {
-            let theta = self.theta_start + (i as f32 / self.rings as f32) * self.theta_length;
+        // Generate basic sphere vertices using spherical coordinates
+        let rings = 8; // Lower resolution for primitive mode
+        let segments = 12;
+        
+        for ring in 0..=rings {
+            let theta = PI * ring as f32 / rings as f32;
             let sin_theta = theta.sin();
             let cos_theta = theta.cos();
             
-            for j in 0..=self.segments {
-                let phi = self.phi_start + (j as f32 / self.segments as f32) * self.phi_length;
+            for segment in 0..=segments {
+                let phi = 2.0 * PI * segment as f32 / segments as f32;
                 let sin_phi = phi.sin();
                 let cos_phi = phi.cos();
                 
-                // Vertex position
                 let x = self.radius * sin_theta * cos_phi;
                 let y = self.radius * cos_theta;
                 let z = self.radius * sin_theta * sin_phi;
                 
-                vertices.push([x, y, z]);
+                vertices.push(Vec3::new(x, y, z));
+                normals.push(Vec3::new(x, y, z).normalize());
                 
-                // Normal (normalized position for a sphere)
-                if self.generate_normals {
-                    normals.push([sin_theta * cos_phi, cos_theta, sin_theta * sin_phi]);
-                }
-                
-                // UV coordinates
                 if self.generate_uvs {
-                    let u = j as f32 / self.segments as f32;
-                    let v = i as f32 / self.rings as f32;
-                    uvs.push([u, v]);
+                    let u = segment as f32 / segments as f32;
+                    let v = ring as f32 / rings as f32;
+                    uvs.push(Vec2::new(u, v));
                 }
             }
         }
         
         // Generate indices
-        for i in 0..self.rings {
-            for j in 0..self.segments {
-                let first = i * (self.segments + 1) + j;
-                let second = first + self.segments + 1;
+        for ring in 0..rings {
+            for segment in 0..segments {
+                let current = ring * (segments + 1) + segment;
+                let next = current + segments + 1;
                 
-                // First triangle
-                indices.push(first as u32);
-                indices.push(second as u32);
-                indices.push((first + 1) as u32);
+                // Create two triangles for each quad
+                indices.push(current as u32);
+                indices.push((current + 1) as u32);
+                indices.push((next + 1) as u32);
                 
-                // Second triangle
-                indices.push(second as u32);
-                indices.push((second + 1) as u32);
-                indices.push((first + 1) as u32);
+                indices.push(current as u32);
+                indices.push((next + 1) as u32);
+                indices.push(next as u32);
             }
         }
         
-        GeometryData {
-            id: format!("sphere_{}", node_id),
-            vertices,
-            indices,
-            normals,
-            uvs,
-            material_id: None,
+        USDSceneData {
+            stage_path: format!("procedural://sphere_node_{}", self.node_id),
+            meshes: vec![
+                USDMeshGeometry {
+                    prim_path: "/Sphere".to_string(),
+                    vertices,
+                    indices,
+                    normals,
+                    uvs,
+                    vertex_colors: None,
+                    transform: Mat4::IDENTITY,
+                }
+            ],
+            lights: vec![],
+            materials: vec![],
+            up_axis: "Y".to_string(),
         }
     }
     
-    /// Update sphere parameters based on type
-    pub fn update_for_type(&mut self) {
-        match self.sphere_type {
-            SphereType::Full => {
-                self.phi_start = 0.0;
-                self.phi_length = 2.0 * PI;
-                self.theta_start = 0.0;
-                self.theta_length = PI;
-            }
-            SphereType::Hemisphere => {
-                self.phi_start = 0.0;
-                self.phi_length = 2.0 * PI;
-                self.theta_start = 0.0;
-                self.theta_length = PI * 0.5;
-            }
-            SphereType::Quarter => {
-                self.phi_start = 0.0;
-                self.phi_length = PI * 0.5;
-                self.theta_start = 0.0;
-                self.theta_length = PI * 0.5;
-            }
-            SphereType::Custom => {
-                // Keep current values
-            }
-        }
-    }
-    
-    /// Process input data and generate sphere geometry
-    pub fn process(&self, inputs: Vec<NodeData>, node_id: usize) -> Vec<NodeData> {
-        // Generate the geometry
-        let geometry = self.generate_geometry(node_id);
+    fn generate_mesh_sphere_scene(&self) -> USDSceneData {
+        // Generate high-resolution sphere mesh with proper tessellation
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut normals = Vec::new();
+        let mut uvs = Vec::new();
         
-        // If there's a transform input, we would apply it here
-        // For now, just return the geometry
-        let _ = inputs; // Suppress unused warning
-        vec![NodeData::Geometry(geometry)]
+        // Generate sphere vertices using spherical coordinates
+        for ring in 0..=self.rings {
+            let theta = PI * ring as f32 / self.rings as f32;
+            let sin_theta = theta.sin();
+            let cos_theta = theta.cos();
+            
+            for segment in 0..=self.segments {
+                let phi = 2.0 * PI * segment as f32 / self.segments as f32;
+                let sin_phi = phi.sin();
+                let cos_phi = phi.cos();
+                
+                let x = self.radius * sin_theta * cos_phi;
+                let y = self.radius * cos_theta;
+                let z = self.radius * sin_theta * sin_phi;
+                
+                vertices.push(Vec3::new(x, y, z));
+                
+                // Generate normals
+                if self.smooth_normals {
+                    normals.push(Vec3::new(x, y, z).normalize());
+                } else {
+                    // For flat shading, we'd need to compute face normals
+                    normals.push(Vec3::new(x, y, z).normalize());
+                }
+                
+                // Generate UVs
+                if self.generate_uvs {
+                    let u = segment as f32 / self.segments as f32;
+                    let v = ring as f32 / self.rings as f32;
+                    uvs.push(Vec2::new(u, v));
+                }
+            }
+        }
+        
+        // Generate sphere indices
+        for ring in 0..self.rings {
+            for segment in 0..self.segments {
+                let current = ring * (self.segments + 1) + segment;
+                let next = current + self.segments + 1;
+                
+                // Create two triangles for each quad
+                indices.push(current as u32);
+                indices.push((current + 1) as u32);
+                indices.push((next + 1) as u32);
+                
+                indices.push(current as u32);
+                indices.push((next + 1) as u32);
+                indices.push(next as u32);
+            }
+        }
+        
+        USDSceneData {
+            stage_path: format!("procedural://sphere_mesh_node_{}", self.node_id),
+            meshes: vec![
+                USDMeshGeometry {
+                    prim_path: "/SphereMesh".to_string(),
+                    vertices,
+                    indices,
+                    normals,
+                    uvs,
+                    vertex_colors: None,
+                    transform: Mat4::IDENTITY,
+                }
+            ],
+            lights: vec![],
+            materials: vec![],
+            up_axis: "Y".to_string(),
+        }
     }
 }

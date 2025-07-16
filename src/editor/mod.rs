@@ -1180,14 +1180,27 @@ impl eframe::App for NodeEditor {
             // Handle keyboard input using input state
             if self.input_state.delete_pressed(ui) {
                 if !self.interaction.selected_nodes.is_empty() {
+                    // Clean up panel caches for deleted nodes
+                    for node_id in &self.interaction.selected_nodes {
+                        self.panel_manager.cleanup_deleted_node(*node_id);
+                    }
+                    
                     // Delete all selected nodes from the correct graph
                     match self.navigation.current_view() {
                         GraphView::Root => {
+                            // Notify execution engine about each node removal before deleting
+                            for node_id in &self.interaction.selected_nodes {
+                                self.execution_engine.on_node_removed(*node_id, &self.graph);
+                            }
                             self.interaction.delete_selected(&mut self.graph);
                         }
                         GraphView::WorkspaceNode(node_id) => {
                             if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                 if let Some(internal_graph) = node.get_internal_graph_mut() {
+                                    // Notify execution engine about each node removal before deleting
+                                    for selected_node_id in &self.interaction.selected_nodes {
+                                        self.execution_engine.on_node_removed(*selected_node_id, internal_graph);
+                                    }
                                     self.interaction.delete_selected(internal_graph);
                                 }
                             }

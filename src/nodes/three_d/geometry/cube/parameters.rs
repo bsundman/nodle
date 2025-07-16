@@ -1,307 +1,259 @@
-//! Cube node parameters using Pattern A: build_interface method
+//! Cube node parameter interface with primitive/mesh toggle
 
 use crate::nodes::interface::{NodeData, ParameterChange};
 use crate::nodes::Node;
-use super::logic::{CubeGeometry, PivotType};
+use egui::{Ui, DragValue, ComboBox, Separator};
 
-/// Cube node with Pattern A interface
-#[derive(Debug, Clone)]
-pub struct CubeNode {
-    pub size_x: f32,
-    pub size_y: f32,
-    pub size_z: f32,
-    pub subdiv_x: i32,
-    pub subdiv_y: i32,
-    pub subdiv_z: i32,
-    pub pivot: PivotType,
-    pub generate_uvs: bool,
-    pub generate_normals: bool,
-}
+pub struct CubeParameters;
 
-impl Default for CubeNode {
-    fn default() -> Self {
-        Self {
-            size_x: 1.0,
-            size_y: 1.0,
-            size_z: 1.0,
-            subdiv_x: 1,
-            subdiv_y: 1,
-            subdiv_z: 1,
-            pivot: PivotType::Center,
-            generate_uvs: true,
-            generate_normals: true,
-        }
-    }
-}
-
-impl CubeNode {
-    /// Pattern A: build_interface method that renders UI and returns parameter changes
-    pub fn build_interface(node: &mut Node, ui: &mut egui::Ui) -> Vec<ParameterChange> {
+impl CubeParameters {
+    pub fn build_interface(node: &mut Node, ui: &mut Ui) -> Vec<ParameterChange> {
         let mut changes = Vec::new();
         
-        ui.heading("Cube Parameters");
-        ui.separator();
+        // Get current mode
+        let mut current_mode = node.parameters.get("mode")
+            .and_then(|d| if let NodeData::String(s) = d { Some(s.clone()) } else { None })
+            .unwrap_or_else(|| "primitive".to_string());
         
-        // Quick Size Presets
-        ui.label("Quick Size Presets:");
+        let is_primitive_mode = current_mode == "primitive";
+        
+        // Mode selector
         ui.horizontal(|ui| {
-            if ui.button("Unit Cube").clicked() {
-                changes.push(ParameterChange {
-                    parameter: "size_x".to_string(),
-                    value: NodeData::Float(1.0),
-                });
-                changes.push(ParameterChange {
-                    parameter: "size_y".to_string(),
-                    value: NodeData::Float(1.0),
-                });
-                changes.push(ParameterChange {
-                    parameter: "size_z".to_string(),
-                    value: NodeData::Float(1.0),
-                });
-            }
-            if ui.button("Thin Panel").clicked() {
-                changes.push(ParameterChange {
-                    parameter: "size_x".to_string(),
-                    value: NodeData::Float(2.0),
-                });
-                changes.push(ParameterChange {
-                    parameter: "size_y".to_string(),
-                    value: NodeData::Float(0.1),
-                });
-                changes.push(ParameterChange {
-                    parameter: "size_z".to_string(),
-                    value: NodeData::Float(1.0),
-                });
-            }
-            if ui.button("Tall Tower").clicked() {
-                changes.push(ParameterChange {
-                    parameter: "size_x".to_string(),
-                    value: NodeData::Float(0.5),
-                });
-                changes.push(ParameterChange {
-                    parameter: "size_y".to_string(),
-                    value: NodeData::Float(3.0),
-                });
-                changes.push(ParameterChange {
-                    parameter: "size_z".to_string(),
-                    value: NodeData::Float(0.5),
-                });
-            }
-        });
-        
-        ui.separator();
-        
-        // Quick Subdivision Presets
-        ui.label("Quick Subdivision Presets:");
-        ui.horizontal(|ui| {
-            if ui.button("Low Detail").clicked() {
-                changes.push(ParameterChange {
-                    parameter: "subdiv_x".to_string(),
-                    value: NodeData::Integer(1),
-                });
-                changes.push(ParameterChange {
-                    parameter: "subdiv_y".to_string(),
-                    value: NodeData::Integer(1),
-                });
-                changes.push(ParameterChange {
-                    parameter: "subdiv_z".to_string(),
-                    value: NodeData::Integer(1),
-                });
-            }
-            if ui.button("Medium Detail").clicked() {
-                changes.push(ParameterChange {
-                    parameter: "subdiv_x".to_string(),
-                    value: NodeData::Integer(3),
-                });
-                changes.push(ParameterChange {
-                    parameter: "subdiv_y".to_string(),
-                    value: NodeData::Integer(3),
-                });
-                changes.push(ParameterChange {
-                    parameter: "subdiv_z".to_string(),
-                    value: NodeData::Integer(3),
-                });
-            }
-            if ui.button("High Detail").clicked() {
-                changes.push(ParameterChange {
-                    parameter: "subdiv_x".to_string(),
-                    value: NodeData::Integer(8),
-                });
-                changes.push(ParameterChange {
-                    parameter: "subdiv_y".to_string(),
-                    value: NodeData::Integer(8),
-                });
-                changes.push(ParameterChange {
-                    parameter: "subdiv_z".to_string(),
-                    value: NodeData::Integer(8),
-                });
-            }
-        });
-        
-        ui.separator();
-        
-        // Size X
-        ui.horizontal(|ui| {
-            ui.label("Size X:");
-            let mut size_x = node.parameters.get("size_x")
-                .and_then(|v| if let NodeData::Float(f) = v { Some(*f) } else { None })
-                .unwrap_or(1.0);
-            
-            if ui.add(egui::Slider::new(&mut size_x, 0.1..=10.0).step_by(0.1)).changed() {
-                changes.push(ParameterChange {
-                    parameter: "size_x".to_string(),
-                    value: NodeData::Float(size_x),
-                });
-            }
-        });
-        
-        // Size Y
-        ui.horizontal(|ui| {
-            ui.label("Size Y:");
-            let mut size_y = node.parameters.get("size_y")
-                .and_then(|v| if let NodeData::Float(f) = v { Some(*f) } else { None })
-                .unwrap_or(1.0);
-            
-            if ui.add(egui::Slider::new(&mut size_y, 0.1..=10.0).step_by(0.1)).changed() {
-                changes.push(ParameterChange {
-                    parameter: "size_y".to_string(),
-                    value: NodeData::Float(size_y),
-                });
-            }
-        });
-        
-        // Size Z
-        ui.horizontal(|ui| {
-            ui.label("Size Z:");
-            let mut size_z = node.parameters.get("size_z")
-                .and_then(|v| if let NodeData::Float(f) = v { Some(*f) } else { None })
-                .unwrap_or(1.0);
-            
-            if ui.add(egui::Slider::new(&mut size_z, 0.1..=10.0).step_by(0.1)).changed() {
-                changes.push(ParameterChange {
-                    parameter: "size_z".to_string(),
-                    value: NodeData::Float(size_z),
-                });
-            }
-        });
-        
-        ui.separator();
-        
-        // Subdiv X
-        ui.horizontal(|ui| {
-            ui.label("Subdiv X:");
-            let mut subdiv_x = node.parameters.get("subdiv_x")
-                .and_then(|v| if let NodeData::Integer(i) = v { Some(*i) } else { None })
-                .unwrap_or(1);
-            
-            if ui.add(egui::Slider::new(&mut subdiv_x, 1..=20)).changed() {
-                changes.push(ParameterChange {
-                    parameter: "subdiv_x".to_string(),
-                    value: NodeData::Integer(subdiv_x),
-                });
-            }
-        });
-        
-        // Subdiv Y
-        ui.horizontal(|ui| {
-            ui.label("Subdiv Y:");
-            let mut subdiv_y = node.parameters.get("subdiv_y")
-                .and_then(|v| if let NodeData::Integer(i) = v { Some(*i) } else { None })
-                .unwrap_or(1);
-            
-            if ui.add(egui::Slider::new(&mut subdiv_y, 1..=20)).changed() {
-                changes.push(ParameterChange {
-                    parameter: "subdiv_y".to_string(),
-                    value: NodeData::Integer(subdiv_y),
-                });
-            }
-        });
-        
-        // Subdiv Z
-        ui.horizontal(|ui| {
-            ui.label("Subdiv Z:");
-            let mut subdiv_z = node.parameters.get("subdiv_z")
-                .and_then(|v| if let NodeData::Integer(i) = v { Some(*i) } else { None })
-                .unwrap_or(1);
-            
-            if ui.add(egui::Slider::new(&mut subdiv_z, 1..=20)).changed() {
-                changes.push(ParameterChange {
-                    parameter: "subdiv_z".to_string(),
-                    value: NodeData::Integer(subdiv_z),
-                });
-            }
-        });
-        
-        ui.separator();
-        
-        // Pivot
-        let current_pivot = node.parameters.get("pivot")
-            .and_then(|v| if let NodeData::Integer(i) = v { Some(*i) } else { None })
-            .unwrap_or(0);
-            
-        ui.horizontal(|ui| {
-            ui.label("Pivot:");
-            
-            let pivot_names = ["Center", "Corner", "Bottom"];
-            let mut selected = current_pivot as usize;
-            
-            egui::ComboBox::from_id_source(egui::Id::new("pivot"))
-                .selected_text(*pivot_names.get(selected).unwrap_or(&"Center"))
+            ComboBox::from_label("Mode")
+                .selected_text(if is_primitive_mode { "Primitive" } else { "Mesh" })
                 .show_ui(ui, |ui| {
-                    for (i, name) in pivot_names.iter().enumerate() {
-                        if ui.selectable_value(&mut selected, i, *name).changed() {
-                            changes.push(ParameterChange {
-                                parameter: "pivot".to_string(),
-                                value: NodeData::Integer(i as i32),
-                            });
-                        }
+                    if ui.selectable_value(&mut current_mode, "primitive".to_string(), "Primitive").changed() {
+                        changes.push(ParameterChange {
+                            parameter: "mode".to_string(),
+                            value: NodeData::String("primitive".to_string()),
+                        });
+                        // Trigger reload when mode changes
+                        changes.push(ParameterChange {
+                            parameter: "needs_reload".to_string(),
+                            value: NodeData::Boolean(true),
+                        });
+                    }
+                    if ui.selectable_value(&mut current_mode, "mesh".to_string(), "Mesh").changed() {
+                        changes.push(ParameterChange {
+                            parameter: "mode".to_string(),
+                            value: NodeData::String("mesh".to_string()),
+                        });
+                        // Trigger reload when mode changes
+                        changes.push(ParameterChange {
+                            parameter: "needs_reload".to_string(),
+                            value: NodeData::Boolean(true),
+                        });
                     }
                 });
         });
         
-        ui.separator();
+        ui.add(Separator::default());
         
-        // Generate UVs
+        // Size parameters
+        ui.label("Size:");
+        
+        // Uniform size option
+        let mut size = node.parameters.get("size")
+            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+            .unwrap_or(2.0);
+        
+        if ui.add(DragValue::new(&mut size)
+            .speed(0.1)
+            .range(0.1..=10.0)
+            .prefix("Uniform: "))
+            .changed() {
+            changes.push(ParameterChange {
+                parameter: "size".to_string(),
+                value: NodeData::Float(size),
+            });
+            // Update individual size components
+            changes.push(ParameterChange {
+                parameter: "size_x".to_string(),
+                value: NodeData::Float(size),
+            });
+            changes.push(ParameterChange {
+                parameter: "size_y".to_string(),
+                value: NodeData::Float(size),
+            });
+            changes.push(ParameterChange {
+                parameter: "size_z".to_string(),
+                value: NodeData::Float(size),
+            });
+            // Trigger reload when size changes
+            changes.push(ParameterChange {
+                parameter: "needs_reload".to_string(),
+                value: NodeData::Boolean(true),
+            });
+        }
+        
+        // Individual size controls
+        let mut size_x = node.parameters.get("size_x")
+            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+            .unwrap_or(2.0);
+        let mut size_y = node.parameters.get("size_y")
+            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+            .unwrap_or(2.0);
+        let mut size_z = node.parameters.get("size_z")
+            .and_then(|d| if let NodeData::Float(f) = d { Some(*f) } else { None })
+            .unwrap_or(2.0);
+        
         ui.horizontal(|ui| {
-            ui.label("Generate UVs:");
-            let mut generate_uvs = node.parameters.get("generate_uvs")
-                .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                .unwrap_or(true);
-            
-            if ui.checkbox(&mut generate_uvs, "").changed() {
+            if ui.add(DragValue::new(&mut size_x)
+                .speed(0.1)
+                .range(0.1..=10.0)
+                .prefix("X: "))
+                .changed() {
+                changes.push(ParameterChange {
+                    parameter: "size_x".to_string(),
+                    value: NodeData::Float(size_x),
+                });
+                changes.push(ParameterChange {
+                    parameter: "needs_reload".to_string(),
+                    value: NodeData::Boolean(true),
+                });
+            }
+            if ui.add(DragValue::new(&mut size_y)
+                .speed(0.1)
+                .range(0.1..=10.0)
+                .prefix("Y: "))
+                .changed() {
+                changes.push(ParameterChange {
+                    parameter: "size_y".to_string(),
+                    value: NodeData::Float(size_y),
+                });
+                changes.push(ParameterChange {
+                    parameter: "needs_reload".to_string(),
+                    value: NodeData::Boolean(true),
+                });
+            }
+            if ui.add(DragValue::new(&mut size_z)
+                .speed(0.1)
+                .range(0.1..=10.0)
+                .prefix("Z: "))
+                .changed() {
+                changes.push(ParameterChange {
+                    parameter: "size_z".to_string(),
+                    value: NodeData::Float(size_z),
+                });
+                changes.push(ParameterChange {
+                    parameter: "needs_reload".to_string(),
+                    value: NodeData::Boolean(true),
+                });
+            }
+        });
+        
+        ui.add(Separator::default());
+        
+        // Mesh subdivision parameters (disabled in primitive mode)
+        ui.label("Mesh Subdivision:");
+        
+        let mut subdivisions_x = node.parameters.get("subdivisions_x")
+            .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+            .unwrap_or(1);
+        let mut subdivisions_y = node.parameters.get("subdivisions_y")
+            .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+            .unwrap_or(1);
+        let mut subdivisions_z = node.parameters.get("subdivisions_z")
+            .and_then(|d| if let NodeData::Integer(i) = d { Some(*i) } else { None })
+            .unwrap_or(1);
+        
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(!is_primitive_mode, |ui| {
+                if ui.add(DragValue::new(&mut subdivisions_x)
+                    .speed(1)
+                    .range(1..=20)
+                    .prefix("X: "))
+                    .changed() {
+                    changes.push(ParameterChange {
+                        parameter: "subdivisions_x".to_string(),
+                        value: NodeData::Integer(subdivisions_x),
+                    });
+                    changes.push(ParameterChange {
+                        parameter: "needs_reload".to_string(),
+                        value: NodeData::Boolean(true),
+                    });
+                }
+                if ui.add(DragValue::new(&mut subdivisions_y)
+                    .speed(1)
+                    .range(1..=20)
+                    .prefix("Y: "))
+                    .changed() {
+                    changes.push(ParameterChange {
+                        parameter: "subdivisions_y".to_string(),
+                        value: NodeData::Integer(subdivisions_y),
+                    });
+                    changes.push(ParameterChange {
+                        parameter: "needs_reload".to_string(),
+                        value: NodeData::Boolean(true),
+                    });
+                }
+                if ui.add(DragValue::new(&mut subdivisions_z)
+                    .speed(1)
+                    .range(1..=20)
+                    .prefix("Z: "))
+                    .changed() {
+                    changes.push(ParameterChange {
+                        parameter: "subdivisions_z".to_string(),
+                        value: NodeData::Integer(subdivisions_z),
+                    });
+                    changes.push(ParameterChange {
+                        parameter: "needs_reload".to_string(),
+                        value: NodeData::Boolean(true),
+                    });
+                }
+            });
+        });
+        
+        // Mesh options
+        let mut smooth_normals = node.parameters.get("smooth_normals")
+            .and_then(|d| if let NodeData::Boolean(b) = d { Some(*b) } else { None })
+            .unwrap_or(false);
+        let mut generate_uvs = node.parameters.get("generate_uvs")
+            .and_then(|d| if let NodeData::Boolean(b) = d { Some(*b) } else { None })
+            .unwrap_or(true);
+        
+        ui.add_enabled_ui(!is_primitive_mode, |ui| {
+            if ui.checkbox(&mut smooth_normals, "Smooth Normals").changed() {
+                changes.push(ParameterChange {
+                    parameter: "smooth_normals".to_string(),
+                    value: NodeData::Boolean(smooth_normals),
+                });
+                changes.push(ParameterChange {
+                    parameter: "needs_reload".to_string(),
+                    value: NodeData::Boolean(true),
+                });
+            }
+            if ui.checkbox(&mut generate_uvs, "Generate UVs").changed() {
                 changes.push(ParameterChange {
                     parameter: "generate_uvs".to_string(),
                     value: NodeData::Boolean(generate_uvs),
                 });
-            }
-        });
-        
-        // Generate Normals
-        ui.horizontal(|ui| {
-            ui.label("Generate Normals:");
-            let mut generate_normals = node.parameters.get("generate_normals")
-                .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
-                .unwrap_or(true);
-            
-            if ui.checkbox(&mut generate_normals, "").changed() {
                 changes.push(ParameterChange {
-                    parameter: "generate_normals".to_string(),
-                    value: NodeData::Boolean(generate_normals),
+                    parameter: "needs_reload".to_string(),
+                    value: NodeData::Boolean(true),
                 });
             }
         });
         
-        changes
-    }
-    
-    /// Convert current parameters to CubeGeometry for processing
-    pub fn to_cube_geometry(&self) -> CubeGeometry {
-        CubeGeometry {
-            size: [self.size_x, self.size_y, self.size_z],
-            subdivisions: [self.subdiv_x, self.subdiv_y, self.subdiv_z],
-            pivot: self.pivot.clone(),
-            generate_uvs: self.generate_uvs,
-            generate_normals: self.generate_normals,
+        // Show mode info
+        ui.add(Separator::default());
+        if is_primitive_mode {
+            ui.label("🔧 Primitive mode: Uses USD procedural cube primitive");
+        } else {
+            ui.label("🔧 Mesh mode: Generates tessellated mesh geometry");
         }
+        
+        // Reset needs_reload flag after parameter changes have been processed
+        if node.parameters.get("needs_reload")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(false) 
+        {
+            changes.push(ParameterChange {
+                parameter: "needs_reload".to_string(),
+                value: NodeData::Boolean(false),
+            });
+        }
+        
+        changes
     }
 }
