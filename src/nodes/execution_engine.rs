@@ -752,7 +752,7 @@ impl NodeGraphEngine {
         if !connected_viewport_nodes.is_empty() {
             println!("🧹 Clearing caches only for connected viewport nodes: {:?}", connected_viewport_nodes);
             
-            use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE};
+            use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, USD_RENDERER_CACHE, EXECUTION_VIEWPORT_CACHE};
             
             // Clear viewport input cache only for connected nodes
             if let Ok(mut cache) = VIEWPORT_INPUT_CACHE.lock() {
@@ -767,6 +767,14 @@ impl NodeGraphEngine {
                 for viewport_node_id in &connected_viewport_nodes {
                     cache.remove(viewport_node_id);
                     println!("🧹 Cleared viewport data cache for connected node: {}", viewport_node_id);
+                }
+            }
+            
+            // Clear execution cache only for connected nodes
+            if let Ok(mut cache) = EXECUTION_VIEWPORT_CACHE.lock() {
+                for viewport_node_id in &connected_viewport_nodes {
+                    cache.remove(viewport_node_id);
+                    println!("🧹 Cleared execution viewport cache for connected node: {}", viewport_node_id);
                 }
             }
             

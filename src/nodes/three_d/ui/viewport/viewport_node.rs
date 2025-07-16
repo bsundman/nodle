@@ -29,6 +29,12 @@ pub static FORCE_VIEWPORT_REFRESH: Lazy<Arc<Mutex<HashSet<crate::nodes::NodeId>>
     Arc::new(Mutex::new(HashSet::new()))
 });
 
+/// Execution-synchronized cache for viewport data - populated during process_node
+/// This eliminates the race condition between cache clearing and UI rendering
+pub static EXECUTION_VIEWPORT_CACHE: Lazy<Arc<Mutex<HashMap<crate::nodes::NodeId, ViewportData>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
 /// Calculate hash for USD scene data to detect changes - uses stage path to differentiate sources
 fn calculate_usd_scene_hash(usd_scene_data: &crate::workspaces::three_d::usd::usd_engine::USDSceneData) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -379,6 +385,11 @@ impl ViewportNode {
         // Clear viewport data cache
         if let Ok(mut viewport_cache) = VIEWPORT_DATA_CACHE.lock() {
             viewport_cache.remove(&node_id);
+        }
+        
+        // Clear execution cache
+        if let Ok(mut exec_cache) = EXECUTION_VIEWPORT_CACHE.lock() {
+            exec_cache.remove(&node_id);
         }
         
         // Clear force refresh flag
@@ -1082,6 +1093,17 @@ impl ViewportNode {
                          node.id, usd_scene_data.meshes.len(), usd_scene_data.stage_path);
             }
             
+            // CRITICAL: Generate viewport data during execution to avoid race condition
+            // This ensures viewport data is always ready when UI needs it
+            println!("🎬 Viewport: Generating viewport data during execution for node {}", node.id);
+            let viewport_data = Self::convert_usd_scene_to_viewport_data(&usd_scene_data, node);
+            
+            // Store in execution-synchronized cache
+            if let Ok(mut exec_cache) = EXECUTION_VIEWPORT_CACHE.lock() {
+                exec_cache.insert(node.id, viewport_data);
+                println!("🎬 Viewport: Stored viewport data in execution cache for node {}", node.id);
+            }
+            
             outputs.push(NodeData::String(format!("USD Viewport: {} (from input)", usd_scene_data.stage_path)));
             outputs.push(NodeData::Boolean(true)); // Scene loaded indicator
             
@@ -1103,6 +1125,20 @@ impl ViewportNode {
                 }
             }
             
+            // Clear execution cache too
+            if let Ok(mut exec_cache) = EXECUTION_VIEWPORT_CACHE.lock() {
+                if exec_cache.remove(&node.id).is_some() {
+                    println!("🗑️ Viewport: Cleared execution cache for node {}", node.id);
+                }
+            }
+            
+            // Generate empty viewport data during execution
+            let empty_viewport_data = Self::create_empty_viewport_data(node);
+            if let Ok(mut exec_cache) = EXECUTION_VIEWPORT_CACHE.lock() {
+                exec_cache.insert(node.id, empty_viewport_data);
+                println!("🎬 Viewport: Stored empty viewport data in execution cache for node {}", node.id);
+            }
+            
             outputs.push(NodeData::String("Empty Viewport - Connect USD File Reader".to_string()));
             outputs.push(NodeData::Boolean(false)); // No scene loaded
         }
@@ -1113,6 +1149,17 @@ impl ViewportNode {
     /// Get viewport data for 3D rendering - uses cached data when possible
     /// This is called by the viewport panel system to get scene data
     pub fn get_viewport_data(node: &Node) -> Option<ViewportData> {
+        // CRITICAL: First check execution-synchronized cache to avoid race condition
+        if let Ok(exec_cache) = EXECUTION_VIEWPORT_CACHE.lock() {
+            if let Some(viewport_data) = exec_cache.get(&node.id) {
+                println!("🎬 ViewportNode::get_viewport_data: Using execution-synchronized viewport data for node {}", node.id);
+                return Some(viewport_data.clone());
+            }
+        }
+        
+        // Fallback to old behavior if execution cache is empty (shouldn't happen normally)
+        println!("🎬 ViewportNode::get_viewport_data: No execution cache found for node {}, falling back to old behavior", node.id);
+        
         // Check if we need to force refresh for this node (parameter changes)
         let force_refresh = if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
             let should_force = force_set.contains(&node.id);
