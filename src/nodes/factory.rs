@@ -19,6 +19,8 @@ pub enum DataType {
     String,
     /// Boolean value
     Boolean,
+    /// USD scene data
+    USDScene,
     /// Any type (for generic ports)
     Any,
 }
@@ -37,6 +39,7 @@ impl DataType {
             DataType::Color => "Color",
             DataType::String => "String",
             DataType::Boolean => "Boolean",
+            DataType::USDScene => "USDScene",
             DataType::Any => "Any",
         }
     }
@@ -49,6 +52,7 @@ impl DataType {
             DataType::Color => Color32::from_rgb(255, 200, 100), // Orange
             DataType::String => Color32::from_rgb(100, 255, 100), // Green
             DataType::Boolean => Color32::from_rgb(255, 100, 255), // Magenta
+            DataType::USDScene => Color32::from_rgb(255, 165, 0), // Orange
             DataType::Any => Color32::from_rgb(150, 150, 150), // Gray
         }
     }
@@ -609,26 +613,37 @@ impl NodeRegistry {
             debug!("Updated port positions for plugin node");
             
             // Handle storage based on panel type
+            debug!("Plugin node '{}' panel_type: {:?}", metadata_test.display_name, panel_type);
+            println!("🔧 FACTORY: Plugin node '{}' panel_type: {:?}", metadata_test.display_name, panel_type);
+            
             if panel_type == crate::nodes::interface::PanelType::Viewport {
                 debug!("Node has viewport panel type - storing in global plugin manager");
+                println!("🔧 FACTORY: {} has viewport panel type - storing in global plugin manager", metadata_test.display_name);
                 
                 // For viewport nodes, store in global plugin manager for viewport rendering
                 if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
                     if let Ok(mut manager) = plugin_manager.lock() {
                         debug!("Storing viewport plugin node {} in global manager", node_id);
+                        println!("🔧 FACTORY: Storing viewport plugin node {} in global manager", node_id);
                         manager.store_plugin_node_instance(node_id, plugin_node);
                     } else {
                         warn!("Failed to lock plugin manager for viewport node storage");
+                        println!("🔧 FACTORY: Failed to lock plugin manager for viewport node storage");
                     }
                 } else {
                     warn!("No global plugin manager available for viewport node storage");
+                    println!("🔧 FACTORY: No global plugin manager available for viewport node storage");
                 }
                 
                 debug!("Viewport node stored in plugin manager only");
+                println!("🔧 FACTORY: Viewport node stored in plugin manager only");
             } else {
                 // For non-viewport nodes, store in core node for parameter rendering
                 debug!("Storing plugin node instance in core node for parameter rendering");
+                println!("🔧 FACTORY: {} has non-viewport panel type - storing in core node for parameter rendering", metadata_test.display_name);
+                println!("🔧 FACTORY: Setting core_node.plugin_node = Some(plugin_node) for node {}", node_id);
                 core_node.plugin_node = Some(plugin_node);
+                println!("🔧 FACTORY: Successfully set plugin_node field. Is Some: {}", core_node.plugin_node.is_some());
             }
             
             debug!("Plugin node creation process completed successfully");
@@ -702,6 +717,7 @@ impl NodeRegistry {
                         nodle_plugin_sdk::DataType::Color => DataType::Color,
                         nodle_plugin_sdk::DataType::String => DataType::String,
                         nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+                        nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
                         nodle_plugin_sdk::DataType::Any => DataType::Any,
                     },
                     optional: p.optional,
@@ -715,6 +731,7 @@ impl NodeRegistry {
                         nodle_plugin_sdk::DataType::Color => DataType::Color,
                         nodle_plugin_sdk::DataType::String => DataType::String,
                         nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+                        nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
                         nodle_plugin_sdk::DataType::Any => DataType::Any,
                     },
                     optional: p.optional,
@@ -852,6 +869,7 @@ impl NodeRegistry {
             nodle_plugin_sdk::DataType::Color => DataType::Color,
             nodle_plugin_sdk::DataType::String => DataType::String,
             nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+            nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
             nodle_plugin_sdk::DataType::Any => DataType::Any,
         }
     }

@@ -631,12 +631,19 @@ impl ParameterPanel {
                     crate::nodes::three_d::modify::reverse::parameters::ReverseNode::build_interface(node, ui)
                 },
                 
-                // Other node types - use generic parameter interface if available
+                // Other node types - check if it's a plugin node first, otherwise use generic interface
                 _ => {
-                    // Using generic parameter interface
-                    // Fall back to basic parameter editing for unknown types
-                    // This creates a simple interface for any parameters the node has
-                    self.build_generic_parameter_interface(node, ui)
+                    // Check if this is a plugin node that should be handled by plugin system
+                    if node.plugin_node.is_some() {
+                        // This is a plugin node - don't handle it here, let plugin handling take over
+                        println!("🔍 PARAM PANEL: Found plugin node in default case - letting plugin handler process");
+                        Vec::new() // Return empty changes - plugin handler will take over
+                    } else {
+                        // Using generic parameter interface
+                        // Fall back to basic parameter editing for unknown types
+                        // This creates a simple interface for any parameters the node has
+                        self.build_generic_parameter_interface(node, ui)
+                    }
                 }
             };
             
@@ -654,7 +661,13 @@ impl ParameterPanel {
             } else {
                 // No parameter changes
             }
-            handled = true;
+            
+            // Only mark as handled if this is NOT a plugin node (plugin nodes will be handled later)
+            if node.plugin_node.is_none() {
+                handled = true;
+            } else {
+                println!("🔍 PARAM PANEL: Not marking plugin node as handled - plugin handler will process");
+            }
         }
         
         // Notify execution engine outside the mutable borrow scope if changes were made
@@ -663,7 +676,88 @@ impl ParameterPanel {
             execution_engine.on_node_parameter_changed(node_id, graph);
         }
         
+        // If not handled by the main match statement, check for plugin nodes
+        if !handled {
+            handled = self.handle_plugin_nodes_safe(ui, node_id, execution_engine, graph);
+        }
+        
         handled
+    }
+    
+    /// Handle plugin nodes separately after the main match statement
+    fn handle_plugin_nodes_safe(
+        &mut self,
+        ui: &mut egui::Ui,
+        node_id: NodeId,
+        execution_engine: &mut crate::nodes::NodeGraphEngine,
+        graph: &mut crate::nodes::NodeGraph,
+    ) -> bool {
+        if let Some(node) = graph.nodes.get_mut(&node_id) {
+            let title = node.title.clone();
+            
+            // Check for plugin nodes that weren't handled by the main match statement
+            println!("🔍 PARAM PANEL: Checking plugin_node for {} (type: {})", title, node.type_id);
+            println!("🔍 PARAM PANEL: plugin_node.is_some(): {}", node.plugin_node.is_some());
+            
+            if let Some(plugin_node) = &mut node.plugin_node {
+                println!("🎛️ PLUGIN NODE DETECTED for: {}", title);
+                println!("🎛️ PLUGIN NODE: Type info: {:?}", std::any::type_name_of_val(&**plugin_node));
+                
+                // Get UI description from plugin using normal Rust types
+                let ui_description = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    println!("🎛️ PLUGIN NODE: Calling get_parameter_ui()");
+                    let result = plugin_node.get_parameter_ui();
+                    println!("🎛️ PLUGIN NODE: get_parameter_ui() returned successfully");
+                    result
+                })) {
+                    Ok(ui_desc) => ui_desc,
+                    Err(e) => {
+                        println!("❌ Plugin get_parameter_ui() crashed: {:?}", e);
+                        ui.colored_label(egui::Color32::RED, format!("Plugin '{}' parameter UI crashed", title));
+                        return true;
+                    }
+                };
+                
+                println!("🎛️ PLUGIN NODE: UI description has {} elements", ui_description.elements.len());
+                
+                // Render UI elements 
+                let ui_actions = self.render_ui_elements(ui, &ui_description.elements);
+                
+                // Handle UI actions and convert to parameter changes
+                if !ui_actions.is_empty() {
+                    println!("🎛️ PLUGIN NODE: Processing {} UI actions", ui_actions.len());
+                    for action in ui_actions {
+                        match action {
+                            crate::plugins::UIAction::ParameterChanged { parameter, value } => {
+                                println!("🎛️ PLUGIN PARAMETER CHANGED: {} = {:?}", parameter, value);
+                                
+                                // Convert plugin NodeData to core NodeData
+                                let core_value = match value {
+                                    crate::plugins::NodeData::Float(f) => crate::nodes::interface::NodeData::Float(f),
+                                    crate::plugins::NodeData::Vector3(v) => crate::nodes::interface::NodeData::Vector3(v),
+                                    crate::plugins::NodeData::Color(c) => crate::nodes::interface::NodeData::Color([c[0], c[1], c[2], 1.0]),
+                                    crate::plugins::NodeData::String(s) => crate::nodes::interface::NodeData::String(s),
+                                    crate::plugins::NodeData::Boolean(b) => crate::nodes::interface::NodeData::Boolean(b),
+                                    crate::plugins::NodeData::USDScene(s) => crate::nodes::interface::NodeData::String(s), // Convert USD to string
+                                };
+                                node.parameters.insert(parameter, core_value);
+                            }
+                            crate::plugins::UIAction::ButtonClicked { action } => {
+                                println!("🎛️ PLUGIN BUTTON CLICKED: {}", action);
+                                // Handle button clicks if needed - for now just log
+                            }
+                        }
+                    }
+                    
+                    // Notify execution engine
+                    execution_engine.on_node_parameter_changed(node_id, graph);
+                }
+                
+                return true;
+            }
+        }
+        
+        false
     }
     
     /// Build a generic parameter interface for nodes without specialized interfaces
@@ -752,6 +846,8 @@ impl ParameterPanel {
         
         // Handle plugin nodes using FFI-SAFE methods
         // Check core node storage first (non-viewport nodes)
+        println!("🔍 PARAM PANEL: Checking plugin_node for {} (type: {})", title, node.type_id);
+        println!("🔍 PARAM PANEL: plugin_node.is_some(): {}", node.plugin_node.is_some());
         if let Some(plugin_node) = &mut node.plugin_node {
             println!("🎛️ PLUGIN NODE DETECTED for: {}", title);
             println!("🎛️ PLUGIN NODE: Type info: {:?}", std::any::type_name_of_val(&**plugin_node));
