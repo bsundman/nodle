@@ -5,9 +5,11 @@
 
 mod parameter;
 mod viewport;
+mod tree;
 
 pub use parameter::ParameterPanel;
 pub use viewport::ViewportPanel;
+pub use tree::TreePanel;
 
 use egui::Ui;
 use crate::nodes::{
@@ -41,6 +43,8 @@ pub struct PanelManager {
     parameter_panel: ParameterPanel,
     /// Viewport panel renderer
     viewport_panel: ViewportPanel,
+    /// Tree panel renderer
+    tree_panel: TreePanel,
 }
 
 impl PanelManager {
@@ -51,6 +55,7 @@ impl PanelManager {
             current_menu_bar_height: 0.0,
             parameter_panel: ParameterPanel::new(),
             viewport_panel: ViewportPanel::new(),
+            tree_panel: TreePanel::new(),
         }
     }
 
@@ -62,6 +67,11 @@ impl PanelManager {
     /// Get a mutable reference to the underlying interface panel manager
     pub fn interface_panel_manager_mut(&mut self) -> &mut InterfacePanelManager {
         &mut self.interface_panel_manager
+    }
+    
+    /// Get a mutable reference to the tree panel
+    pub fn tree_panel_mut(&mut self) -> &mut TreePanel {
+        &mut self.tree_panel
     }
 
     /// Set the current menu bar height for window constraints
@@ -143,6 +153,21 @@ impl PanelManager {
                             execution_engine,
                         );
                         debug!("PanelManager: Viewport panel render completed for node {}, result: {:?}", node_id, result);
+                        result
+                    },
+                    PanelType::Tree => {
+                        debug!("PanelManager: Rendering tree panel for node {}", node_id);
+                        let result = self.tree_panel.render(
+                            ctx,
+                            node_id,
+                            node,
+                            &mut self.interface_panel_manager,
+                            menu_bar_height,
+                            viewed_nodes,
+                            graph,
+                            execution_engine,
+                        );
+                        debug!("PanelManager: Tree panel render completed for node {}, result: {:?}", node_id, result);
                         result
                     },
                     _ => {
@@ -265,6 +290,9 @@ impl PanelManager {
     pub fn cleanup_deleted_node(&mut self, node_id: NodeId) {
         // Clean up viewport panel caches
         self.viewport_panel.cleanup_deleted_node(node_id);
+        
+        // Clean up tree panel caches
+        self.tree_panel.cleanup_deleted_node(node_id);
         
         // Clean up interface panel manager state
         self.interface_panel_manager.set_panel_visibility(node_id, false);

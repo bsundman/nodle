@@ -371,12 +371,9 @@ impl ParameterPanel {
                         let new_width = (text_width + padding).max(min_width);
                         node_mut.size.x = new_width;
                         node_mut.update_port_positions(); // Update port positions after resize
-                        println!("🔄 NAME CHANGE: Resized node to width {} (text: {}, padding: {})", new_width, text_width, padding);
                     }
                     
-                    println!("✅ NAME CHANGE: Graph node title updated to '{}'", node_mut.title);
                 } else {
-                    println!("❌ NAME CHANGE: Could not find node {} in graph!", node_id);
                 }
             }
             
@@ -399,7 +396,6 @@ impl ParameterPanel {
                         let new_width = (text_width + padding).max(min_width);
                         node_mut.size.x = new_width;
                         node_mut.update_port_positions();
-                        println!("🔄 FIT NAME ENABLED: Resized node to width {} (text: {}, padding: {})", new_width, text_width, padding);
                     }
                 } else {
                     // Fit name was just disabled - restore default width
@@ -407,7 +403,6 @@ impl ParameterPanel {
                         let default_width = 150.0; // Standard default node width
                         node_mut.size.x = default_width;
                         node_mut.update_port_positions();
-                        println!("🔄 FIT NAME DISABLED: Restored node to default width {}", default_width);
                     }
                 }
             }
@@ -557,7 +552,6 @@ impl ParameterPanel {
             // Rendering node interface
             
             // Try to handle all known node types with build_interface methods
-            println!("🔍 PARAMETER PANEL: Node type_id: '{}', title: '{}'", node.type_id, title);
             let changes = match node.type_id.as_str() {
                 // Data nodes
                 "Data_UsdFileReader" => {
@@ -636,7 +630,6 @@ impl ParameterPanel {
                     // Check if this is a plugin node that should be handled by plugin system
                     if node.plugin_node.is_some() {
                         // This is a plugin node - don't handle it here, let plugin handling take over
-                        println!("🔍 PARAM PANEL: Found plugin node in default case - letting plugin handler process");
                         Vec::new() // Return empty changes - plugin handler will take over
                     } else {
                         // Using generic parameter interface
@@ -665,8 +658,6 @@ impl ParameterPanel {
             // Only mark as handled if this is NOT a plugin node (plugin nodes will be handled later)
             if node.plugin_node.is_none() {
                 handled = true;
-            } else {
-                println!("🔍 PARAM PANEL: Not marking plugin node as handled - plugin handler will process");
             }
         }
         
@@ -696,40 +687,30 @@ impl ParameterPanel {
             let title = node.title.clone();
             
             // Check for plugin nodes that weren't handled by the main match statement
-            println!("🔍 PARAM PANEL: Checking plugin_node for {} (type: {})", title, node.type_id);
-            println!("🔍 PARAM PANEL: plugin_node.is_some(): {}", node.plugin_node.is_some());
             
             if let Some(plugin_node) = &mut node.plugin_node {
-                println!("🎛️ PLUGIN NODE DETECTED for: {}", title);
-                println!("🎛️ PLUGIN NODE: Type info: {:?}", std::any::type_name_of_val(&**plugin_node));
                 
                 // Get UI description from plugin using normal Rust types
                 let ui_description = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    println!("🎛️ PLUGIN NODE: Calling get_parameter_ui()");
                     let result = plugin_node.get_parameter_ui();
-                    println!("🎛️ PLUGIN NODE: get_parameter_ui() returned successfully");
-                    result
+                        result
                 })) {
                     Ok(ui_desc) => ui_desc,
                     Err(e) => {
-                        println!("❌ Plugin get_parameter_ui() crashed: {:?}", e);
                         ui.colored_label(egui::Color32::RED, format!("Plugin '{}' parameter UI crashed", title));
                         return true;
                     }
                 };
                 
-                println!("🎛️ PLUGIN NODE: UI description has {} elements", ui_description.elements.len());
                 
                 // Render UI elements 
                 let ui_actions = self.render_ui_elements(ui, &ui_description.elements);
                 
                 // Handle UI actions and convert to parameter changes
                 if !ui_actions.is_empty() {
-                    println!("🎛️ PLUGIN NODE: Processing {} UI actions", ui_actions.len());
                     for action in ui_actions {
                         match action {
                             crate::plugins::UIAction::ParameterChanged { parameter, value } => {
-                                println!("🎛️ PLUGIN PARAMETER CHANGED: {} = {:?}", parameter, value);
                                 
                                 // Convert plugin NodeData to core NodeData
                                 let core_value = match value {
@@ -743,7 +724,6 @@ impl ParameterPanel {
                                 node.parameters.insert(parameter, core_value);
                             }
                             crate::plugins::UIAction::ButtonClicked { action } => {
-                                println!("🎛️ PLUGIN BUTTON CLICKED: {}", action);
                                 // Handle button clicks if needed - for now just log
                             }
                         }
@@ -840,28 +820,17 @@ impl ParameterPanel {
         let title = node.title.clone();
         
         // Debug output for every individual node (not workspace)
-        if matches!(node.node_type, crate::nodes::NodeType::Regular) {
-            println!("🔍 INDIVIDUAL NODE: '{}' (id: {})", title, node_id);
-        }
         
         // Handle plugin nodes using FFI-SAFE methods
         // Check core node storage first (non-viewport nodes)
-        println!("🔍 PARAM PANEL: Checking plugin_node for {} (type: {})", title, node.type_id);
-        println!("🔍 PARAM PANEL: plugin_node.is_some(): {}", node.plugin_node.is_some());
         if let Some(plugin_node) = &mut node.plugin_node {
-            println!("🎛️ PLUGIN NODE DETECTED for: {}", title);
-            println!("🎛️ PLUGIN NODE: Type info: {:?}", std::any::type_name_of_val(&**plugin_node));
-            println!("🎛️ PLUGIN NODE: Pointer: {:p}", &**plugin_node as *const dyn nodle_plugin_sdk::PluginNode);
             
             // Try calling a simpler method first
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                println!("🎛️ PLUGIN NODE: Testing id() method");
                 let id = plugin_node.id();
-                println!("🎛️ PLUGIN NODE: id() returned: {}", id);
             })) {
-                Ok(_) => println!("✅ Simple method call succeeded"),
+                Ok(_) => {},
                 Err(e) => {
-                    println!("❌ Even simple id() method crashed: {:?}", e);
                     ui.colored_label(egui::Color32::RED, format!("Plugin '{}' vtable corrupted", title));
                     return true;
                 }
@@ -869,24 +838,18 @@ impl ParameterPanel {
             
             // Get UI description from plugin using normal Rust types
             let ui_description = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                println!("🎛️ PLUGIN NODE: Inside panic catch, calling get_parameter_ui()");
-                println!("🎛️ PLUGIN NODE: About to dereference and call method");
                 let result = plugin_node.get_parameter_ui();
-                println!("🎛️ PLUGIN NODE: get_parameter_ui() returned successfully");
                 result
             })) {
                 Ok(ui_desc) => {
-                    println!("🎛️ PLUGIN NODE: get_parameter_ui() completed without panic");
                     ui_desc
                 },
                 Err(e) => {
-                    println!("❌ Plugin get_parameter_ui panicked for {}: {:?}", title, e);
                     ui.colored_label(egui::Color32::RED, format!("Plugin '{}' crashed getting UI description", title));
                     return true;
                 }
             };
             
-            println!("✅ PLUGIN: Got UI description with {} elements", ui_description.elements.len());
             
             // CORE renders the UI based on normal Rust description
             let ui_actions = self.render_ui_elements(ui, &ui_description.elements);
@@ -903,12 +866,10 @@ impl ParameterPanel {
                         }
                     }
                     Err(e) => {
-                        println!("❌ Plugin handle_ui_action panicked for {}: {:?}", title, e);
                     }
                 }
             }
             
-            println!("🏁 PARAMETER PANEL: Plugin rendering completed successfully for {}", title);
             return true;
         }
         
@@ -916,7 +877,6 @@ impl ParameterPanel {
         if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
             if let Ok(mut manager) = plugin_manager.lock() {
                 if let Some(plugin_node) = manager.get_plugin_node_for_rendering(node_id, &title) {
-                    println!("🎛️ PLUGIN NODE DETECTED in manager for: {}", title);
                     
                     // Get UI description from plugin using normal Rust types
                     let ui_description = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -924,8 +884,7 @@ impl ParameterPanel {
                     })) {
                         Ok(ui_desc) => ui_desc,
                         Err(e) => {
-                            println!("❌ Plugin get_parameter_ui panicked for {}: {:?}", title, e);
-                            ui.colored_label(egui::Color32::RED, format!("Plugin '{}' crashed getting UI description", title));
+                                    ui.colored_label(egui::Color32::RED, format!("Plugin '{}' crashed getting UI description", title));
                             return true;
                         }
                     };
@@ -945,12 +904,10 @@ impl ParameterPanel {
                                 }
                             }
                             Err(e) => {
-                                println!("❌ Plugin handle_ui_action panicked for {}: {:?}", title, e);
-                            }
+                                    }
                         }
                     }
                     
-                    println!("🏁 PARAMETER PANEL: Manager plugin rendering completed successfully for {}", title);
                     return true;
                 }
             }
@@ -1095,12 +1052,8 @@ impl ParameterPanel {
         }
         
         if node.type_id.contains("Test") {
-            println!("🧪 FOUND TEST NODE! Rendering custom interface for: '{}'", title);
-            println!("🧪 TEST NODE: Node has {} parameters", node.parameters.len());
             let changes = crate::nodes::utility::test::parameters::TestNode::build_interface(node, ui);
-            println!("🧪 TEST NODE: build_interface returned {} parameter changes", changes.len());
             self.apply_parameter_changes(node, changes, &title, node_id, execution_engine, graph);
-            println!("🧪 TEST NODE: Applied parameter changes successfully");
             return true;
         }
         
@@ -1148,7 +1101,6 @@ impl ParameterPanel {
                 };
                 
                 if is_usd_source_node {
-                    println!("🔄 PARAMETER CHANGE: Handling USD source node '{}' (type: {})", title, current_node.type_id);
                     
                     // Find all downstream viewport nodes and force them to refresh immediately
                     let downstream_nodes = self.find_downstream_nodes(node_id, graph);
@@ -1161,7 +1113,6 @@ impl ParameterPanel {
                                 use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
                                 if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                                     force_set.insert(*downstream_id);
-                                    println!("🔄 PARAMETER CHANGE: Forced viewport refresh for node {}", downstream_id);
                                 }
                             }
                         }
@@ -1169,12 +1120,9 @@ impl ParameterPanel {
                     
                     // CRITICAL: Clear ALL relevant caches when USD source parameters change
                     if !connected_viewport_nodes.is_empty() {
-                        println!("🧹 PARAMETER CHANGE: Clearing all caches for {} connected viewport nodes: {:?}", 
-                                connected_viewport_nodes.len(), connected_viewport_nodes);
                         
                         // Clear GPU mesh caches (wgpu buffers)
                         crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
-                        println!("🧹 PARAMETER CHANGE: Cleared GPU mesh caches (wgpu buffers)");
                         
                         // Clear USD renderer cache
                         use crate::nodes::three_d::ui::viewport::USD_RENDERER_CACHE;
@@ -1183,8 +1131,6 @@ impl ParameterPanel {
                             let bounds_count = cache.scene_bounds.len();
                             cache.renderers.clear();
                             cache.scene_bounds.clear();
-                            println!("🧹 PARAMETER CHANGE: Cleared USD renderer cache ({} renderers, {} bounds)", 
-                                    renderer_count, bounds_count);
                         }
                         
                         // Clear viewport input and data caches for each connected viewport
@@ -1192,22 +1138,17 @@ impl ParameterPanel {
                         for viewport_id in &connected_viewport_nodes {
                             if let Ok(mut input_cache) = VIEWPORT_INPUT_CACHE.lock() {
                                 input_cache.remove(viewport_id);
-                                println!("🧹 PARAMETER CHANGE: Cleared viewport input cache for node {}", viewport_id);
                             }
                             if let Ok(mut data_cache) = VIEWPORT_DATA_CACHE.lock() {
                                 data_cache.remove(viewport_id);
-                                println!("🧹 PARAMETER CHANGE: Cleared viewport data cache for node {}", viewport_id);
                             }
                         }
                         
                         // CRITICAL: Also mark the USD source node itself as dirty in all caches
                         // This ensures the new parameter values are picked up
                         execution_engine.mark_dirty(node_id, graph);
-                        println!("🔄 PARAMETER CHANGE: Marked USD source node {} as dirty", node_id);
                         
-                        println!("🧹 PARAMETER CHANGE: All cache clearing completed for geometry node parameter change");
                     } else {
-                        println!("🔄 PARAMETER CHANGE: No connected viewport nodes found for USD source node '{}'", title);
                     }
                 }
             }
@@ -1219,7 +1160,6 @@ impl ParameterPanel {
                     // Immediate execution successful
                 }
                 Err(e) => {
-                    eprintln!("Parameter change execution failed: {}", e);
                 }
             }
             

@@ -32,7 +32,7 @@ use crate::nodes::{
 };
 use std::collections::HashMap;
 use std::path::Path;
-use log::{info, error};
+use log::{info, error, debug};
 use crate::workspace::WorkspaceManager;
 use crate::workspaces::WorkspaceRegistry;
 use crate::gpu::NodeRenderCallback;
@@ -163,6 +163,10 @@ impl NodeEditor {
     fn add_connection_to_active_graph(&mut self, connection: Connection) -> Result<(), &'static str> {
         // Debug prints removed for performance
         
+        // Check if we need to auto-open a panel BEFORE making the connection
+        let should_auto_open_panel = self.should_auto_open_panel_for_connection(&connection);
+        debug!("🔍 should_auto_open_panel: {}", should_auto_open_panel);
+        
         let result = match self.navigation.current_view() {
             GraphView::Root => {
                 // Debug print removed
@@ -197,7 +201,63 @@ impl NodeEditor {
                 }
             }
         };
+        
+        // Auto-open panel after connection is made if needed
+        if result.is_ok() && should_auto_open_panel {
+            debug!("🌳 Connection successful, calling auto_open_panel_after_connection");
+            self.auto_open_panel_after_connection(&connection);
+        } else {
+            debug!("🌳 Not auto-opening panel: result.is_ok()={}, should_auto_open_panel={}", result.is_ok(), should_auto_open_panel);
+        }
+        
         result
+    }
+
+    /// Check if we should auto-open a panel for this connection (before making the connection)
+    fn should_auto_open_panel_for_connection(&self, connection: &Connection) -> bool {
+        debug!("🔍 Checking if should auto-open panel for connection: {} -> {}", connection.from_node, connection.to_node);
+        
+        let graph = match self.navigation.current_view() {
+            GraphView::Root => &self.graph,
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = self.graph.nodes.get(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                        internal_graph
+                    } else {
+                        debug!("🔍 No internal graph found for workspace node {}", workspace_node_id);
+                        return false;
+                    }
+                } else {
+                    debug!("🔍 Workspace node {} not found", workspace_node_id);
+                    return false;
+                }
+            }
+        };
+
+        // Check if the target node (to_node) is a Scenegraph node (Tree panel type)
+        if let Some(target_node) = graph.nodes.get(&connection.to_node) {
+            let is_scenegraph = target_node.type_id == "Scenegraph";
+            debug!("🔍 Target node {} type_id: '{}', is_scenegraph: {}", connection.to_node, target_node.type_id, is_scenegraph);
+            is_scenegraph
+        } else {
+            debug!("🔍 Target node {} not found in graph", connection.to_node);
+            false
+        }
+    }
+
+    /// Auto-open tree panel after connection is made
+    fn auto_open_panel_after_connection(&mut self, connection: &Connection) {
+        debug!("🌳 Auto-opening tree panel for Scenegraph node {} after USD connection", connection.to_node);
+        
+        // Auto-open the tree panel
+        let panel_manager = self.panel_manager.interface_panel_manager_mut();
+        panel_manager.set_panel_visibility(connection.to_node, true);
+        panel_manager.set_panel_open(connection.to_node, true);
+        
+        // Force immediate cache update for the tree panel
+        self.panel_manager.tree_panel_mut().force_cache_update(connection.to_node);
+        
+        debug!("🌳 Tree panel auto-open completed for node {}", connection.to_node);
     }
     
     /// Remove a connection from the appropriate graph based on current view
@@ -347,7 +407,8 @@ impl NodeEditor {
                     // Automatically open panels for newly created nodes
                     match panel_type {
                         crate::nodes::interface::PanelType::Parameter |
-                        crate::nodes::interface::PanelType::Viewport => {
+                        crate::nodes::interface::PanelType::Viewport |
+                        crate::nodes::interface::PanelType::Tree => {
                             let panel_manager = self.panel_manager.interface_panel_manager_mut();
                             panel_manager.set_panel_visibility(node_id, true);
                             panel_manager.set_panel_open(node_id, true);

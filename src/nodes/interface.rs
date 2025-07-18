@@ -18,6 +18,8 @@ pub enum PanelType {
     Inspector,
     /// Viewport panels for 3D scene visualization and rendering
     Viewport,
+    /// Tree panels for hierarchical scene graph visualization
+    Tree,
 }
 
 /// Core data types that flow between nodes
@@ -33,6 +35,8 @@ pub enum NodeData {
     Stage(StageData),
     /// Complete USD scene data with full geometry
     USDSceneData(crate::workspaces::three_d::usd::usd_engine::USDSceneData),
+    /// Lightweight USD metadata for scenegraph display (no geometry data)
+    USDScenegraphMetadata(crate::workspaces::three_d::usd::usd_engine::USDScenegraphMetadata),
     /// Lighting data
     Light(LightData),
     /// Image/texture data
@@ -646,6 +650,9 @@ impl InterfacePanelManager {
             // Viewport panels only stack with other viewport panels
             (PanelType::Viewport, PanelType::Viewport) => true,
             (PanelType::Viewport, _) | (_, PanelType::Viewport) => false,
+            // Tree panels only stack with other tree panels
+            (PanelType::Tree, PanelType::Tree) => true,
+            (PanelType::Tree, _) | (_, PanelType::Tree) => false,
             // All other types can stack together
             _ => true,
         }

@@ -48,6 +48,47 @@ pub struct USDMaterialData {
     pub roughness: f32,
 }
 
+/// Lightweight USD metadata for scenegraph tree display (no geometry data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct USDScenegraphMetadata {
+    pub stage_path: String,
+    pub meshes: Vec<USDMeshMetadata>,
+    pub lights: Vec<USDLightMetadata>,
+    pub materials: Vec<USDMaterialMetadata>,
+    pub up_axis: String,
+    pub total_vertices: usize,
+    pub total_triangles: usize,
+}
+
+/// Lightweight mesh metadata for scenegraph display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct USDMeshMetadata {
+    pub prim_path: String,
+    pub vertex_count: usize,
+    pub triangle_count: usize,
+    pub has_normals: bool,
+    pub has_uvs: bool,
+    pub has_colors: bool,
+    pub material_binding: Option<String>,
+}
+
+/// Lightweight light metadata for scenegraph display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct USDLightMetadata {
+    pub prim_path: String,
+    pub light_type: String,
+    pub intensity: f32,
+}
+
+/// Lightweight material metadata for scenegraph display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct USDMaterialMetadata {
+    pub prim_path: String,
+    pub has_diffuse_texture: bool,
+    pub has_normal_texture: bool,
+    pub has_metallic_roughness: bool,
+}
+
 /// USD Scene extracted from a stage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDSceneData {
@@ -80,6 +121,57 @@ impl USDEngine {
     }
     
     
+    /// Extract lightweight metadata from full USD scene data for scenegraph display
+    pub fn extract_scenegraph_metadata(scene_data: &USDSceneData) -> USDScenegraphMetadata {
+        let mut total_vertices = 0;
+        let mut total_triangles = 0;
+        
+        let meshes = scene_data.meshes.iter().map(|mesh| {
+            let vertex_count = mesh.vertices.len();
+            let triangle_count = mesh.indices.len() / 3;
+            
+            total_vertices += vertex_count;
+            total_triangles += triangle_count;
+            
+            USDMeshMetadata {
+                prim_path: mesh.prim_path.clone(),
+                vertex_count,
+                triangle_count,
+                has_normals: !mesh.normals.is_empty(),
+                has_uvs: !mesh.uvs.is_empty(),
+                has_colors: mesh.vertex_colors.is_some(),
+                material_binding: None, // TODO: Extract material binding from USD data
+            }
+        }).collect();
+        
+        let lights = scene_data.lights.iter().map(|light| {
+            USDLightMetadata {
+                prim_path: light.prim_path.clone(),
+                light_type: light.light_type.clone(),
+                intensity: light.intensity,
+            }
+        }).collect();
+        
+        let materials = scene_data.materials.iter().map(|material| {
+            USDMaterialMetadata {
+                prim_path: material.prim_path.clone(),
+                has_diffuse_texture: false, // TODO: Extract texture info from USD data
+                has_normal_texture: false,
+                has_metallic_roughness: true,
+            }
+        }).collect();
+        
+        USDScenegraphMetadata {
+            stage_path: scene_data.stage_path.clone(),
+            meshes,
+            lights,
+            materials,
+            up_axis: scene_data.up_axis.clone(),
+            total_vertices,
+            total_triangles,
+        }
+    }
+
     /// Load a USD stage from file and extract scene data
     pub fn load_stage(&mut self, file_path: &str) -> Result<USDSceneData, String> {
         println!("🎬 🎬 🎬 USDEngine: REAL USD LOADING CALLED for {}", file_path);
