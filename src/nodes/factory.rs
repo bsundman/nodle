@@ -1137,6 +1137,7 @@ impl Default for NodeRegistry {
         // Register modular output nodes
         registry.register::<crate::nodes::output::PrintNodeFactory>();
         registry.register::<crate::nodes::output::DebugNodeFactory>();
+        // ScenegraphNodeFactory is now only registered in 3D workspace
         
         // Register 3D nodes and their interface versions
         registry.register::<crate::nodes::three_d::transform::TranslateNode>();

@@ -409,6 +409,14 @@ impl NodeGraphEngine {
                 // Debug nodes typically pass through their inputs
                 Ok(inputs)
             }
+            "Scenegraph" => {
+                // Executing Scenegraph node
+                use crate::nodes::three_d::ui::scenegraph::ScenegraphLogic;
+                use crate::nodes::NodeGraph;
+                let dummy_graph = NodeGraph::new();
+                let outputs = ScenegraphLogic::process(node, inputs.into_iter().map(Some).collect(), &dummy_graph);
+                Ok(outputs.into_iter().map(|(_, data)| data).collect())
+            }
             
             // 3D Transform nodes
             "3D_Translate" => {
