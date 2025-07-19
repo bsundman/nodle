@@ -625,6 +625,7 @@ impl ParameterPanel {
                     crate::nodes::three_d::modify::reverse::parameters::ReverseNode::build_interface(node, ui)
                 },
                 
+                
                 // Other node types - check if it's a plugin node first, otherwise use generic interface
                 _ => {
                     // Check if this is a plugin node that should be handled by plugin system

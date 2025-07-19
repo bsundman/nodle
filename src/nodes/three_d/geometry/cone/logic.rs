@@ -137,6 +137,7 @@ impl ConeLogic {
                     uvs,
                     vertex_colors: None,
                     transform: Mat4::IDENTITY,
+                    primvars: vec![],
                 }
             ],
             lights: vec![],
@@ -250,6 +251,7 @@ impl ConeLogic {
                     uvs,
                     vertex_colors: None,
                     transform: Mat4::IDENTITY,
+                    primvars: vec![],
                 }
             ],
             lights: vec![],

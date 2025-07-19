@@ -6,10 +6,12 @@
 mod parameter;
 mod viewport;
 mod tree;
+mod spreadsheet;
 
 pub use parameter::ParameterPanel;
 pub use viewport::ViewportPanel;
 pub use tree::TreePanel;
+pub use spreadsheet::SpreadsheetPanel;
 
 use egui::Ui;
 use crate::nodes::{
@@ -45,6 +47,8 @@ pub struct PanelManager {
     viewport_panel: ViewportPanel,
     /// Tree panel renderer
     tree_panel: TreePanel,
+    /// Spreadsheet panel renderer
+    spreadsheet_panel: SpreadsheetPanel,
 }
 
 impl PanelManager {
@@ -56,6 +60,7 @@ impl PanelManager {
             parameter_panel: ParameterPanel::new(),
             viewport_panel: ViewportPanel::new(),
             tree_panel: TreePanel::new(),
+            spreadsheet_panel: SpreadsheetPanel::new(),
         }
     }
 
@@ -168,6 +173,21 @@ impl PanelManager {
                             execution_engine,
                         );
                         debug!("PanelManager: Tree panel render completed for node {}, result: {:?}", node_id, result);
+                        result
+                    },
+                    PanelType::Spreadsheet => {
+                        debug!("PanelManager: Rendering spreadsheet panel for node {}", node_id);
+                        let result = self.spreadsheet_panel.render(
+                            ctx,
+                            node_id,
+                            node,
+                            &mut self.interface_panel_manager,
+                            menu_bar_height,
+                            viewed_nodes,
+                            graph,
+                            execution_engine,
+                        );
+                        debug!("PanelManager: Spreadsheet panel render completed for node {}, result: {:?}", node_id, result);
                         result
                     },
                     _ => {

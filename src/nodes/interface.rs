@@ -20,6 +20,8 @@ pub enum PanelType {
     Viewport,
     /// Tree panels for hierarchical scene graph visualization
     Tree,
+    /// Spreadsheet panels for tabular data display
+    Spreadsheet,
 }
 
 /// Core data types that flow between nodes

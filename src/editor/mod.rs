@@ -408,7 +408,8 @@ impl NodeEditor {
                     match panel_type {
                         crate::nodes::interface::PanelType::Parameter |
                         crate::nodes::interface::PanelType::Viewport |
-                        crate::nodes::interface::PanelType::Tree => {
+                        crate::nodes::interface::PanelType::Tree |
+                        crate::nodes::interface::PanelType::Spreadsheet => {
                             let panel_manager = self.panel_manager.interface_panel_manager_mut();
                             panel_manager.set_panel_visibility(node_id, true);
                             panel_manager.set_panel_open(node_id, true);

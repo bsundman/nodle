@@ -51,6 +51,7 @@ impl Workspace3D {
         
         // Register USD output nodes  
         node_registry.register::<crate::nodes::three_d::ui::scenegraph::ScenegraphNodeFactory>();
+        node_registry.register::<crate::nodes::three_d::ui::attributes::AttributesNodeFactory>();
         
         // USD nodes now provided by USD plugin
         

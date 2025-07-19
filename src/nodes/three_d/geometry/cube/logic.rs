@@ -105,6 +105,7 @@ impl CubeLogic {
                     ],
                     vertex_colors: None,
                     transform: Mat4::IDENTITY,
+                    primvars: vec![],
                 }
             ],
             lights: vec![],
@@ -177,6 +178,7 @@ impl CubeLogic {
                     uvs,
                     vertex_colors: None,
                     transform: Mat4::IDENTITY,
+                    primvars: vec![],
                 }
             ],
             lights: vec![],

@@ -17,6 +17,26 @@ pub struct USDStage {
     pub identifier: String,
 }
 
+/// USD Primvar with interpolation type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct USDPrimvar {
+    pub name: String,
+    pub interpolation: String,  // "vertex", "faceVarying", "uniform", "constant"
+    pub data_type: String,      // "float3", "float2", "float", "int", etc.
+    pub values: PrimvarValues,
+    pub indices: Option<Vec<u32>>,  // For indexed primvars
+}
+
+/// Primvar value types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PrimvarValues {
+    Float(Vec<f32>),
+    Float2(Vec<Vec2>),
+    Float3(Vec<Vec3>),
+    Int(Vec<i32>),
+    String(Vec<String>),
+}
+
 /// USD Geometry extracted from USD mesh prims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDMeshGeometry {
@@ -27,6 +47,7 @@ pub struct USDMeshGeometry {
     pub uvs: Vec<Vec2>,
     pub vertex_colors: Option<Vec<Vec3>>,  // Optional vertex colors from displayColor
     pub transform: Mat4,
+    pub primvars: Vec<USDPrimvar>,  // All primvars with their interpolation types
 }
 
 /// USD Light extracted from UsdLux prims
@@ -241,6 +262,81 @@ impl USDEngine {
             indices = [int(i) for i in face_indices]
             counts = [int(c) for c in face_counts]
             
+            # Extract all primvars with their interpolation types
+            primvars = []
+            primvars_api = UsdGeom.PrimvarsAPI(mesh)
+            
+            for primvar in primvars_api.GetPrimvars():
+                primvar_name = primvar.GetPrimvarName()
+                interpolation = primvar.GetInterpolation()
+                
+                # Skip if no value
+                if not primvar.HasValue():
+                    continue
+                
+                # Get the value
+                value = primvar.Get()
+                if value is None:
+                    continue
+                
+                # Get type information
+                type_name = primvar.GetTypeName()
+                
+                # Check if it's indexed
+                indices_attr = primvar.GetIndicesAttr()
+                primvar_indices = None
+                if indices_attr and indices_attr.HasValue():
+                    primvar_indices = [int(i) for i in indices_attr.Get()]
+                
+                # Convert value to appropriate format
+                primvar_data = {
+                    'name': primvar_name,
+                    'interpolation': interpolation,
+                    'type_name': str(type_name),
+                    'is_indexed': primvar_indices is not None,
+                }
+                
+                # Convert values based on type
+                if 'float3' in str(type_name) or 'point3' in str(type_name) or 'normal3' in str(type_name) or 'vector3' in str(type_name):
+                    if hasattr(value, '__iter__'):
+                        primvar_data['values'] = [[float(v[0]), float(v[1]), float(v[2])] for v in value]
+                    else:
+                        primvar_data['values'] = [[float(value[0]), float(value[1]), float(value[2])]]
+                    primvar_data['data_type'] = 'float3'
+                elif 'float2' in str(type_name) or 'texCoord2' in str(type_name):
+                    if hasattr(value, '__iter__'):
+                        primvar_data['values'] = [[float(v[0]), float(v[1])] for v in value]
+                    else:
+                        primvar_data['values'] = [[float(value[0]), float(value[1])]]
+                    primvar_data['data_type'] = 'float2'
+                elif 'float' in str(type_name) or 'double' in str(type_name):
+                    if hasattr(value, '__iter__'):
+                        primvar_data['values'] = [float(v) for v in value]
+                    else:
+                        primvar_data['values'] = [float(value)]
+                    primvar_data['data_type'] = 'float'
+                elif 'int' in str(type_name):
+                    if hasattr(value, '__iter__'):
+                        primvar_data['values'] = [int(v) for v in value]
+                    else:
+                        primvar_data['values'] = [int(value)]
+                    primvar_data['data_type'] = 'int'
+                elif 'string' in str(type_name):
+                    if hasattr(value, '__iter__'):
+                        primvar_data['values'] = [str(v) for v in value]
+                    else:
+                        primvar_data['values'] = [str(value)]
+                    primvar_data['data_type'] = 'string'
+                else:
+                    # Unknown type, convert to string
+                    primvar_data['values'] = [str(value)]
+                    primvar_data['data_type'] = 'string'
+                
+                if primvar_indices:
+                    primvar_data['indices'] = primvar_indices
+                
+                primvars.append(primvar_data)
+            
             # Fast triangulation in Python
             triangles = []
             face_start = 0
@@ -328,7 +424,8 @@ impl USDEngine {
                 'vertices': vertices_array,
                 'indices': indices_array,
                 'normals': normals_array,
-                'uvs': uvs_array
+                'uvs': uvs_array,
+                'primvars': primvars  # Include all primvars with their interpolation
             }
             
             # Add vertex colors if available
@@ -429,7 +526,8 @@ impl USDEngine {
                 'vertices': np.array(vertices, dtype=np.float32),
                 'indices': np.array(triangles, dtype=np.uint32),
                 'normals': np.array(normals, dtype=np.float32),
-                'uvs': np.array(uvs, dtype=np.float32)
+                'uvs': np.array(uvs, dtype=np.float32),
+                'primvars': []  # Procedural geometry has no primvars
             }
             meshes.append(mesh_data)
             
@@ -499,7 +597,8 @@ impl USDEngine {
                 'vertices': np.array(vertices, dtype=np.float32),
                 'indices': np.array(triangles, dtype=np.uint32),
                 'normals': np.array(normals, dtype=np.float32),
-                'uvs': np.array(uvs, dtype=np.float32)
+                'uvs': np.array(uvs, dtype=np.float32),
+                'primvars': []  # Procedural geometry has no primvars
             }
             meshes.append(mesh_data)
             
@@ -598,7 +697,8 @@ impl USDEngine {
                 'vertices': np.array(vertices, dtype=np.float32),
                 'indices': np.array(triangles, dtype=np.uint32),
                 'normals': np.array(normals, dtype=np.float32),
-                'uvs': np.array(uvs, dtype=np.float32)
+                'uvs': np.array(uvs, dtype=np.float32),
+                'primvars': []  # Procedural geometry has no primvars
             }
             meshes.append(mesh_data)
         
@@ -689,7 +789,8 @@ impl USDEngine {
                 'vertices': np.array(vertices, dtype=np.float32),
                 'indices': np.array(triangles, dtype=np.uint32),
                 'normals': np.array(normals, dtype=np.float32),
-                'uvs': np.array(uvs, dtype=np.float32)
+                'uvs': np.array(uvs, dtype=np.float32),
+                'primvars': []  # Procedural geometry has no primvars
             }
             meshes.append(mesh_data)
         
@@ -898,7 +999,8 @@ impl USDEngine {
                 'vertices': np.array(vertices, dtype=np.float32),
                 'indices': np.array(triangles, dtype=np.uint32),
                 'normals': np.array(normals, dtype=np.float32),
-                'uvs': np.array(uvs, dtype=np.float32)
+                'uvs': np.array(uvs, dtype=np.float32),
+                'primvars': []  # Procedural geometry has no primvars
             }
             meshes.append(mesh_data)
         
@@ -953,7 +1055,8 @@ impl USDEngine {
                 'vertices': np.array(vertices, dtype=np.float32),
                 'indices': np.array(triangles, dtype=np.uint32),
                 'normals': np.array(normals, dtype=np.float32),
-                'uvs': np.array(uvs, dtype=np.float32)
+                'uvs': np.array(uvs, dtype=np.float32),
+                'primvars': []  # Procedural geometry has no primvars
             }
             meshes.append(mesh_data)
     
@@ -1037,6 +1140,77 @@ impl USDEngine {
                                 None
                             };
                             
+                            // Extract primvars if available
+                            let mut primvars = Vec::new();
+                            if let Some(primvars_obj) = mesh_dict.get("primvars") {
+                                if let Ok(primvar_list) = primvars_obj.extract::<Vec<HashMap<String, pyo3::PyObject>>>(py) {
+                                    for primvar_dict in primvar_list {
+                                        if let (Ok(name), Ok(interpolation), Ok(data_type)) = (
+                                            primvar_dict.get("name").unwrap().extract::<String>(py),
+                                            primvar_dict.get("interpolation").unwrap().extract::<String>(py),
+                                            primvar_dict.get("data_type").unwrap().extract::<String>(py),
+                                        ) {
+                                            let values = match data_type.as_str() {
+                                                "float3" => {
+                                                    if let Ok(values_list) = primvar_dict.get("values").unwrap().extract::<Vec<Vec<f32>>>(py) {
+                                                        PrimvarValues::Float3(values_list.into_iter()
+                                                            .map(|v| Vec3::new(v[0], v[1], v[2]))
+                                                            .collect())
+                                                    } else {
+                                                        continue;
+                                                    }
+                                                },
+                                                "float2" => {
+                                                    if let Ok(values_list) = primvar_dict.get("values").unwrap().extract::<Vec<Vec<f32>>>(py) {
+                                                        PrimvarValues::Float2(values_list.into_iter()
+                                                            .map(|v| Vec2::new(v[0], v[1]))
+                                                            .collect())
+                                                    } else {
+                                                        continue;
+                                                    }
+                                                },
+                                                "float" => {
+                                                    if let Ok(values_list) = primvar_dict.get("values").unwrap().extract::<Vec<f32>>(py) {
+                                                        PrimvarValues::Float(values_list)
+                                                    } else {
+                                                        continue;
+                                                    }
+                                                },
+                                                "int" => {
+                                                    if let Ok(values_list) = primvar_dict.get("values").unwrap().extract::<Vec<i32>>(py) {
+                                                        PrimvarValues::Int(values_list)
+                                                    } else {
+                                                        continue;
+                                                    }
+                                                },
+                                                "string" => {
+                                                    if let Ok(values_list) = primvar_dict.get("values").unwrap().extract::<Vec<String>>(py) {
+                                                        PrimvarValues::String(values_list)
+                                                    } else {
+                                                        continue;
+                                                    }
+                                                },
+                                                _ => continue,
+                                            };
+                                            
+                                            let indices = if let Some(indices_obj) = primvar_dict.get("indices") {
+                                                indices_obj.extract::<Vec<u32>>(py).ok()
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            primvars.push(USDPrimvar {
+                                                name,
+                                                interpolation,
+                                                data_type,
+                                                values,
+                                                indices,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            
                             let mesh_geom = USDMeshGeometry {
                                 prim_path,
                                 vertices,
@@ -1045,6 +1219,7 @@ impl USDEngine {
                                 uvs,
                                 vertex_colors,
                                 transform: Mat4::IDENTITY,
+                                primvars,
                             };
                             scene_data.meshes.push(mesh_geom);
                         }
@@ -1126,6 +1301,7 @@ impl USDEngine {
                     Vec3::new(1.0, 1.0, 0.0),  // Yellow
                 ]),
                 transform: Mat4::IDENTITY,
+                primvars: vec![],  // Mock data has no primvars
             });
             
             Ok(scene_data)
@@ -1167,6 +1343,7 @@ impl USDEngine {
             ],
             vertex_colors: None,
             transform: Mat4::IDENTITY,
+            primvars: vec![],
         };
         
         scene_data.meshes.push(mock_mesh);

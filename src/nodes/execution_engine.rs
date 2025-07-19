@@ -416,6 +416,17 @@ impl NodeGraphEngine {
                 let outputs = ScenegraphLogic::process(node, inputs.into_iter().map(Some).collect(), &dummy_graph);
                 Ok(outputs.into_iter().map(|(_, data)| data).collect())
             }
+            "Attributes" => {
+                // Executing Attributes node
+                use crate::nodes::three_d::ui::attributes::logic::process_attributes_node;
+                let mut input_map = HashMap::new();
+                if !inputs.is_empty() {
+                    input_map.insert("USD Scene".to_string(), inputs[0].clone());
+                }
+                let mut dummy_cache = HashMap::new();
+                let outputs = process_attributes_node(node.id, &input_map, &mut dummy_cache);
+                Ok(outputs.into_iter().map(|(_, data)| data).collect())
+            }
             
             // 3D Transform nodes
             "3D_Translate" => {
@@ -564,6 +575,9 @@ impl NodeGraphEngine {
                 if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                     force_set.insert(connection.to_node);
                 }
+            } else if node.type_id == "Attributes" {
+                // Clear attributes cache when connections change
+                self.clear_attributes_caches(connection.to_node);
             }
         }
         
@@ -603,6 +617,9 @@ impl NodeGraphEngine {
                 if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                     force_set.insert(connection.to_node);
                 }
+            } else if node.type_id == "Attributes" {
+                // Clear attributes cache when connections change
+                self.clear_attributes_caches(connection.to_node);
             }
         }
         
@@ -658,10 +675,24 @@ impl NodeGraphEngine {
         self.output_cache.retain(|(id, _), _| *id != node_id);
     }
     
+    /// Clear attributes-specific caches for a node
+    pub fn clear_attributes_caches(&mut self, node_id: NodeId) {
+        use crate::nodes::three_d::ui::attributes::logic::ATTRIBUTES_INPUT_CACHE;
+        
+        // Clear attributes input cache
+        if let Ok(mut cache) = ATTRIBUTES_INPUT_CACHE.write() {
+            cache.remove(&node_id);
+        }
+        
+        // Clear execution engine output cache for the node
+        self.output_cache.retain(|(id, _), _| *id != node_id);
+    }
+    
     /// Handle node removal by clearing all related caches and marking affected nodes as dirty
     pub fn on_node_removed(&mut self, node_id: NodeId, graph: &NodeGraph) {
         // Clear all caches for the deleted node
         self.clear_viewport_caches(node_id);
+        self.clear_attributes_caches(node_id);
         
         // Find all nodes that were connected to the deleted node
         let mut affected_nodes = Vec::new();
@@ -686,6 +717,9 @@ impl NodeGraphEngine {
                     if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
                         force_set.insert(affected_node_id);
                     }
+                } else if node.type_id == "Attributes" {
+                    // Clear attributes cache for affected attributes nodes
+                    self.clear_attributes_caches(affected_node_id);
                 }
             }
         }
