@@ -78,6 +78,37 @@ impl UsdFileReaderLogic {
             cached_scene_data: None,
         }
     }
+    
+    /// Update logic parameters from current node state
+    pub fn update_from_node(&mut self, node: &Node) {
+        self.file_path = node.parameters.get("file_path")
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or_default();
+        
+        self.needs_reload = node.parameters.get("needs_reload")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(false);
+        
+        self.extract_geometry = node.parameters.get("extract_geometry")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(true);
+        
+        self.extract_materials = node.parameters.get("extract_materials")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(true);
+        
+        self.extract_lights = node.parameters.get("extract_lights")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(true);
+        
+        self.extract_cameras = node.parameters.get("extract_cameras")
+            .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+            .unwrap_or(false);
+        
+        self.coordinate_system_mode = node.parameters.get("coordinate_system_mode")
+            .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+            .unwrap_or("Auto".to_string());
+    }
 
     /// Process the USD file and return scene data
     pub fn process(&mut self, _inputs: Vec<NodeData>) -> Vec<NodeData> {

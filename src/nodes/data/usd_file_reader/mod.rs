@@ -8,7 +8,7 @@ pub mod parameters;
 pub mod logic;
 
 use crate::nodes::interface::{NodeData, ParameterChange};
-use crate::nodes::{Node, NodeFactory, NodeMetadata, NodeCategory};
+use crate::nodes::{Node, NodeId, NodeFactory, NodeMetadata, NodeCategory};
 use crate::nodes::factory::{DataType, PortDefinition, ProcessingCost};
 use egui::{Color32, Ui};
 
@@ -71,6 +71,21 @@ impl NodeFactory for UsdFileReaderNodeFactory {
 pub struct UsdFileReaderNode;
 
 impl UsdFileReaderNode {
+    /// Clear cached logic instance for a deleted node
+    pub fn clear_cache(node_id: NodeId) {
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        use once_cell::sync::Lazy;
+        
+        static LOGIC_CACHE: Lazy<Mutex<HashMap<NodeId, logic::UsdFileReaderLogic>>> = 
+            Lazy::new(|| Mutex::new(HashMap::new()));
+            
+        if let Ok(mut cache) = LOGIC_CACHE.lock() {
+            if cache.remove(&node_id).is_some() {
+                println!("📁 Cleared UsdFileReaderLogic cache for deleted node {}", node_id);
+            }
+        }
+    }
     /// Build the parameter interface for the USD File Reader node
     pub fn build_interface(node: &mut Node, ui: &mut Ui) -> Vec<ParameterChange> {
         parameters::UsdFileReaderParameters::build_interface(node, ui)
@@ -78,9 +93,32 @@ impl UsdFileReaderNode {
     
     /// Process the USD File Reader node's logic (called during graph execution)
     pub fn process_node(node: &Node, inputs: Vec<NodeData>) -> Vec<NodeData> {
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        use once_cell::sync::Lazy;
+        
+        // Static cache of logic instances to preserve USD data cache between executions
+        static LOGIC_CACHE: Lazy<Mutex<HashMap<NodeId, logic::UsdFileReaderLogic>>> = 
+            Lazy::new(|| Mutex::new(HashMap::new()));
+        
         println!("📁 UsdFileReaderNode::process_node called for node '{}' (type_id: {})", node.title, node.type_id);
-        let mut logic = logic::UsdFileReaderLogic::from_node(node);
-        let outputs = logic.process(inputs);
+        
+        let outputs = {
+            let mut cache = LOGIC_CACHE.lock().unwrap();
+            
+            // Get or create logic instance for this node
+            let logic = cache.entry(node.id).or_insert_with(|| {
+                println!("📁 Creating new UsdFileReaderLogic instance for node {}", node.id);
+                logic::UsdFileReaderLogic::from_node(node)
+            });
+            
+            // Update logic parameters from current node state
+            logic.update_from_node(node);
+            
+            // Process with cached logic instance
+            logic.process(inputs)
+        };
+        
         println!("📁 UsdFileReaderNode::process_node returning {} outputs", outputs.len());
         
         // Debug output contents

@@ -694,6 +694,13 @@ impl NodeGraphEngine {
         self.clear_viewport_caches(node_id);
         self.clear_attributes_caches(node_id);
         
+        // Clear USD file reader cache if applicable
+        if let Some(node) = graph.nodes.get(&node_id) {
+            if node.type_id == "Data_UsdFileReader" {
+                crate::nodes::data::usd_file_reader::UsdFileReaderNode::clear_cache(node_id);
+            }
+        }
+        
         // Find all nodes that were connected to the deleted node
         let mut affected_nodes = Vec::new();
         for connection in &graph.connections {
