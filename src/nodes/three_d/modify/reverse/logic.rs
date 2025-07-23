@@ -69,6 +69,7 @@ impl ReverseLogic {
                 println!("🔄 Reverse: Processing USD scene with {} meshes", usd_scene_data.meshes.len());
                 
                 // Clone the scene data for modification
+                // With ownership handoff, this could be optimized to move semantics for single consumers
                 let mut modified_scene = usd_scene_data.clone();
                 
                 // Apply reverse operations to each mesh

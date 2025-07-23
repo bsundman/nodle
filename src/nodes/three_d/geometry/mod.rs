@@ -6,6 +6,7 @@ pub mod cylinder;
 pub mod cone;
 pub mod plane;
 pub mod capsule;
+pub mod hooks;
 
 pub use cube::{CubeNode, CubeNodeFactory};
 pub use sphere::{SphereNode, SphereNodeFactory};

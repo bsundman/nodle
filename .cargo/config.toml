@@ -1,6 +1,6 @@
 # Cargo configuration for embedded Python and USD
 [env]
-# Point PyO3 to our embedded Python (absolute paths for cross-platform compatibility)
+# Point PyO3 to our embedded Python (absolute paths needed for PyO3 build)
 PYO3_PYTHON = "/Users/brian/nodle/nodle/vendor/python-runtime/python/bin/python3"
 PYO3_PYTHON_VERSION = "3.9"
 PYTHONPATH = "/Users/brian/nodle/nodle/vendor/python-runtime/python/lib/python3.9/site-packages"

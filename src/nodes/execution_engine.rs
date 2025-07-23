@@ -10,6 +10,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use crate::nodes::{NodeId, NodeGraph, Node, Connection};
 use crate::nodes::interface::NodeData;
+use crate::nodes::hooks::{NodeExecutionHooks, DefaultHooks};
+use crate::nodes::ownership::{OwnershipOptimizer, OwnershipConfig, OwnedNodeData};
+use crate::nodes::cache::{UnifiedNodeCache, CacheKey, CacheKeyPattern};
 
 /// Represents the execution state of a node
 #[derive(Debug, Clone, PartialEq)]
@@ -20,26 +23,79 @@ pub enum NodeState {
     Error,      // Node failed to execute
 }
 
+/// Execution mode for the graph engine
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EngineExecutionMode {
+    /// Execute immediately when parameters or connections change
+    Auto,
+    /// Only execute when manually triggered
+    Manual,
+}
+
 /// Execution engine for node graphs
 pub struct NodeGraphEngine {
     /// Current execution state for each node
     node_states: HashMap<NodeId, NodeState>,
-    /// Cached output values for each node's output ports
-    output_cache: HashMap<(NodeId, usize), NodeData>,
+    /// Unified cache for all node outputs with stage support
+    pub unified_cache: UnifiedNodeCache,
     /// Set of nodes that need re-evaluation
     dirty_nodes: HashSet<NodeId>,
     /// Execution order cache (invalidated when graph changes)
     execution_order_cache: Option<Vec<NodeId>>,
+    /// Node-specific execution hooks
+    execution_hooks: HashMap<String, Box<dyn NodeExecutionHooks>>,
+    /// Execution mode
+    execution_mode: EngineExecutionMode,
+    /// Ownership optimizer for reducing data clones
+    ownership_optimizer: OwnershipOptimizer,
+    /// Persistent USD File Reader logic instances for parameter tracking
+    usd_reader_instances: HashMap<NodeId, crate::nodes::data::usd_file_reader::logic::UsdFileReaderLogic>,
+    /// Global persistent USD file data storage keyed by file hash (survives cache invalidations)
+    persistent_usd_file_data: HashMap<String, crate::workspaces::three_d::usd::usd_engine::USDSceneData>,
 }
 
 impl NodeGraphEngine {
     /// Create a new execution engine
     pub fn new() -> Self {
+        let mut hooks: HashMap<String, Box<dyn NodeExecutionHooks>> = HashMap::new();
+        
+        // Register hooks for nodes that need special handling
+        
+        // USD File Reader
+        hooks.insert("Data_UsdFileReader".to_string(), 
+                    Box::new(crate::nodes::data::usd_file_reader::hooks::UsdFileReaderHooks));
+        
+        // Viewport
+        hooks.insert("Viewport".to_string(),
+                    Box::new(crate::nodes::three_d::ui::viewport::hooks::ViewportHooks));
+        
+        // Attributes
+        hooks.insert("Attributes".to_string(),
+                    Box::new(crate::nodes::three_d::ui::attributes::hooks::AttributesHooks));
+        
+        // Scenegraph
+        hooks.insert("Scenegraph".to_string(),
+                    Box::new(crate::nodes::three_d::ui::scenegraph::hooks::ScenegraphHooks));
+        
+        // 3D Geometry nodes (they all share the same hooks)
+        let geometry_hooks = crate::nodes::three_d::geometry::hooks::GeometryHooks;
+        hooks.insert("3D_Cube".to_string(), geometry_hooks.clone_box());
+        hooks.insert("3D_Sphere".to_string(), geometry_hooks.clone_box());
+        hooks.insert("3D_Cylinder".to_string(), geometry_hooks.clone_box());
+        hooks.insert("3D_Cone".to_string(), geometry_hooks.clone_box());
+        hooks.insert("3D_Plane".to_string(), geometry_hooks.clone_box());
+        hooks.insert("3D_Capsule".to_string(), geometry_hooks.clone_box());
+        
         Self {
             node_states: HashMap::new(),
-            output_cache: HashMap::new(),
+            unified_cache: UnifiedNodeCache::new(),
             dirty_nodes: HashSet::new(),
             execution_order_cache: None,
+            execution_hooks: hooks,
+            execution_mode: EngineExecutionMode::Auto, // Default to auto
+            ownership_optimizer: OwnershipOptimizer::with_default_config(),
+            usd_reader_instances: HashMap::new(),
+            persistent_usd_file_data: HashMap::new(),
         }
     }
 
@@ -53,14 +109,64 @@ impl NodeGraphEngine {
         self.node_states.insert(node_id, NodeState::Dirty);
         self.dirty_nodes.insert(node_id);
         
-        // Invalidate cached outputs for this node
-        self.output_cache.retain(|(id, _), _| *id != node_id);
+        // Invalidate all cache entries for this node (all stages and ports)
+        let invalidated_count = self.unified_cache.invalidate(&CacheKeyPattern::Node(node_id));
+        if invalidated_count > 0 {
+            println!("🗑️ Invalidated {} cache entries for node {}", invalidated_count, node_id);
+        }
         
         // Propagate dirty state to downstream nodes
         self.propagate_dirty_downstream(node_id, graph);
         
         // Invalidate execution order cache
         self.execution_order_cache = None;
+    }
+    
+    /// Handle USD File Reader parameter changes with granular cache invalidation
+    fn on_usd_file_reader_parameter_changed(&mut self, node_id: NodeId, graph: &NodeGraph) {
+        println!("🔧 ExecutionEngine: USD File Reader parameter changed for node {} in {} mode", 
+                 node_id, if self.execution_mode == EngineExecutionMode::Auto { "Auto" } else { "Manual" });
+        
+        // Mark as dirty without blanket cache invalidation - the USD logic will handle granular invalidation
+        self.mark_dirty_without_cache_invalidation(node_id, graph);
+        
+        // Execute immediately in Auto mode
+        if self.execution_mode == EngineExecutionMode::Auto {
+            println!("🔧 ExecutionEngine: Executing USD File Reader immediately due to parameter change");
+            if let Err(e) = self.execute_dirty_nodes(graph) {
+                eprintln!("❌ ExecutionEngine: Failed to execute dirty nodes: {}", e);
+            }
+        }
+    }
+    
+    /// Mark a node as dirty without invalidating its cache (for nodes that handle their own cache)
+    fn mark_dirty_without_cache_invalidation(&mut self, node_id: NodeId, graph: &NodeGraph) {
+        if self.node_states.get(&node_id) == Some(&NodeState::Dirty) {
+            return; // Already dirty
+        }
+
+        // Marking node as dirty without cache invalidation
+        self.node_states.insert(node_id, NodeState::Dirty);
+        self.dirty_nodes.insert(node_id);
+        
+        println!("🗑️ Node {} marked dirty - cache invalidation handled by node", node_id);
+        
+        // Propagate dirty state to downstream nodes
+        self.propagate_dirty_downstream(node_id, graph);
+        
+        // Invalidate execution order cache
+        self.execution_order_cache = None;
+    }
+    
+    /// Check if a node handles its own cache invalidation
+    fn node_handles_own_cache_invalidation(&self, node_id: NodeId, graph: &NodeGraph) -> bool {
+        // Find the node in the graph
+        if let Some(node) = graph.nodes.get(&node_id) {
+            // USD File Reader nodes handle their own cache invalidation
+            node.type_id == "USD File Reader"
+        } else {
+            false
+        }
     }
 
     /// Propagate dirty state to all downstream nodes
@@ -73,8 +179,8 @@ impl NodeGraphEngine {
                 self.node_states.insert(downstream_id, NodeState::Dirty);
                 self.dirty_nodes.insert(downstream_id);
                 
-                // Clear cached outputs
-                self.output_cache.retain(|(id, _), _| *id != downstream_id);
+                // Invalidate all cache entries for downstream node
+                self.unified_cache.invalidate(&CacheKeyPattern::Node(downstream_id));
                 
                 // Recursively propagate
                 self.propagate_dirty_downstream(downstream_id, graph);
@@ -117,14 +223,15 @@ impl NodeGraphEngine {
                 self.node_states.insert(upstream_id, NodeState::Dirty);
                 self.dirty_nodes.insert(upstream_id);
                 
-                // Clear cached outputs
-                self.output_cache.retain(|(id, _), _| *id != upstream_id);
+                // Invalidate all cache entries for upstream node
+                self.unified_cache.invalidate(&CacheKeyPattern::Node(upstream_id));
                 
                 // Recursively propagate upstream
                 self.propagate_dirty_upstream(upstream_id, graph);
             }
         }
     }
+    
 
     /// Get the execution order using topological sort
     pub fn get_execution_order(&mut self, graph: &NodeGraph) -> Result<Vec<NodeId>, String> {
@@ -194,7 +301,11 @@ impl NodeGraphEngine {
     }
 
     /// Execute all dirty nodes in dependency order
+    /// This method executes regardless of execution mode - caller must check mode
     pub fn execute_dirty_nodes(&mut self, graph: &NodeGraph) -> Result<(), String> {
+        // Analyze graph for ownership optimization before execution
+        self.ownership_optimizer.analyze_graph(graph);
+        
         // Debug: Show all node states
         // Node states checked
         
@@ -230,6 +341,10 @@ impl NodeGraphEngine {
         
         // Clear dirty set after successful execution
         self.dirty_nodes.clear();
+        
+        // Reset ownership tracking for next execution cycle
+        self.ownership_optimizer.reset_consumption_tracking();
+        
         // All dirty nodes executed
         
         Ok(())
@@ -245,11 +360,42 @@ impl NodeGraphEngine {
         // Mark as computing
         self.node_states.insert(node_id, NodeState::Computing);
         
+        // Call pre-execution hook
+        if let Some(hooks) = self.execution_hooks.get_mut(&node.type_id) {
+            if let Err(e) = hooks.before_execution(node, graph) {
+                eprintln!("Pre-execution hook failed for {}: {}", node.type_id, e);
+                // Continue execution even if hook fails
+            }
+        }
+        
         // Collect inputs from upstream nodes
         let inputs = self.collect_node_inputs(node_id, graph);
         
-        // Execute the node using the factory dispatch system
-        let outputs = match self.dispatch_node_execution(node, inputs) {
+        // Special handling for USD File Reader to use unified cache system
+        let outputs = if node.type_id == "Data_UsdFileReader" {
+            // Get or create persistent logic instance
+            if !self.usd_reader_instances.contains_key(&node_id) {
+                let logic = crate::nodes::data::usd_file_reader::logic::UsdFileReaderLogic::from_node(node);
+                self.usd_reader_instances.insert(node_id, logic);
+            }
+            
+            // Extract the logic instance temporarily to avoid borrow conflicts
+            let mut logic = self.usd_reader_instances.remove(&node_id).unwrap();
+            logic.update_from_node(node);
+            
+            // Process with the logic instance
+            let result = logic.process_with_unified_cache(node_id, inputs, self);
+            
+            // Put the logic instance back
+            self.usd_reader_instances.insert(node_id, logic);
+            
+            Ok(result)
+        } else {
+            // Execute the node using the factory dispatch system
+            self.dispatch_node_execution(node, inputs)
+        };
+        
+        let outputs = match outputs {
             Ok(outputs) => outputs,
             Err(e) => {
                 // Node execution failed
@@ -258,10 +404,20 @@ impl NodeGraphEngine {
             }
         };
         
-        // Cache the outputs
+        // Call post-execution hook with the outputs
+        if let Some(hooks) = self.execution_hooks.get_mut(&node.type_id) {
+            if let Err(e) = hooks.after_execution(node, &outputs, graph) {
+                eprintln!("Post-execution hook failed for {}: {}", node.type_id, e);
+                // Continue even if hook fails
+            }
+        }
+        
+        // Cache the outputs with ownership optimization in unified cache
         // Caching outputs
         for (port_idx, output) in outputs.into_iter().enumerate() {
-            self.output_cache.insert((node_id, port_idx), output);
+            let optimized_output = self.ownership_optimizer.optimize_output(node_id, port_idx, output);
+            let cache_key = CacheKey::new(node_id, port_idx);
+            self.unified_cache.insert(cache_key, optimized_output);
         }
         
         // Mark as clean
@@ -273,7 +429,7 @@ impl NodeGraphEngine {
     }
 
     /// Collect inputs for a node from connected upstream nodes
-    fn collect_node_inputs(&self, node_id: NodeId, graph: &NodeGraph) -> Vec<NodeData> {
+    fn collect_node_inputs(&mut self, node_id: NodeId, graph: &NodeGraph) -> Vec<NodeData> {
         let node = match graph.nodes.get(&node_id) {
             Some(node) => node,
             None => return vec![],
@@ -287,10 +443,11 @@ impl NodeGraphEngine {
             if connection.to_node == node_id {
                 found_connections += 1;
                 
-                // Get the output from the source node
-                if let Some(output_data) = self.output_cache.get(&(connection.from_node, connection.from_port)) {
+                // Get the output from the source node via unified cache
+                let cache_key = CacheKey::new(connection.from_node, connection.from_port);
+                if let Some(cached_data) = self.unified_cache.get(&cache_key) {
                     if connection.to_port < inputs.len() {
-                        inputs[connection.to_port] = output_data.clone();
+                        inputs[connection.to_port] = cached_data.clone();
                     }
                 }
             }
@@ -533,8 +690,61 @@ impl NodeGraphEngine {
     }
 
     /// Get cached output for a node's port
-    pub fn get_cached_output(&self, node_id: NodeId, port_idx: usize) -> Option<&NodeData> {
-        self.output_cache.get(&(node_id, port_idx))
+    pub fn get_cached_output(&mut self, node_id: NodeId, port_idx: usize) -> Option<&NodeData> {
+        let cache_key = CacheKey::new(node_id, port_idx);
+        self.unified_cache.get(&cache_key)
+    }
+    
+    /// Get cached output for a specific stage of a node's port
+    pub fn get_cached_stage_output(&mut self, node_id: NodeId, stage_id: &str, port_idx: usize) -> Option<&NodeData> {
+        let cache_key = CacheKey::with_stage(node_id, stage_id, port_idx);
+        self.unified_cache.get(&cache_key)
+    }
+    
+    /// Store data for a specific stage of a node
+    pub fn cache_stage_output(&mut self, node_id: NodeId, stage_id: &str, port_idx: usize, data: NodeData) {
+        let optimized_output = self.ownership_optimizer.optimize_output(node_id, port_idx, data);
+        let cache_key = CacheKey::with_stage(node_id, stage_id, port_idx);
+        self.unified_cache.insert(cache_key, optimized_output);
+    }
+    
+    /// Get cached output using stage-qualified cache key (e.g., "0.1" for node 0 stage 1)
+    pub fn get_cached_stage_output_by_key(&mut self, stage_qualified_key: &str, stage_id: &str) -> Option<&NodeData> {
+        // Parse stage-qualified key like "0.1" -> node_id=0, stage=1
+        if let Some((node_part, _stage_part)) = stage_qualified_key.split_once('.') {
+            if let Ok(node_id) = node_part.parse::<NodeId>() {
+                let cache_key = CacheKey::with_stage(node_id, stage_id, 0);
+                return self.unified_cache.get(&cache_key);
+            }
+        }
+        None
+    }
+    
+    /// Store data using stage-qualified cache key (e.g., "0.2" for node 0 stage 2)
+    pub fn cache_stage_output_by_key(&mut self, stage_qualified_key: &str, stage_id: &str, data: NodeData) {
+        // Parse stage-qualified key like "0.2" -> node_id=0, stage=2
+        if let Some((node_part, _stage_part)) = stage_qualified_key.split_once('.') {
+            if let Ok(node_id) = node_part.parse::<NodeId>() {
+                let optimized_output = self.ownership_optimizer.optimize_output(node_id, 0, data);
+                let cache_key = CacheKey::with_stage(node_id, stage_id, 0);
+                self.unified_cache.insert(cache_key, optimized_output);
+            }
+        }
+    }
+    
+    /// Invalidate cache entries for a specific stage
+    pub fn invalidate_stage_cache(&mut self, node_id: NodeId, stage_id: &str) -> usize {
+        self.unified_cache.invalidate(&CacheKeyPattern::Stage(node_id, stage_id.to_string()))
+    }
+    
+    /// Get unified cache statistics
+    pub fn get_cache_statistics(&self) -> &crate::nodes::cache::CacheStatistics {
+        self.unified_cache.get_statistics()
+    }
+    
+    /// Get ownership optimization statistics
+    pub fn get_ownership_statistics(&self) -> crate::nodes::ownership::OwnershipStatistics {
+        self.ownership_optimizer.get_statistics()
     }
 
     /// Mark all nodes as dirty (force full re-evaluation)
@@ -546,57 +756,51 @@ impl NodeGraphEngine {
             self.dirty_nodes.insert(node_id);
         }
         
-        self.output_cache.clear();
+        self.unified_cache.clear();
         self.execution_order_cache = None;
     }
 
     /// Handle a new connection being created
     pub fn on_connection_added(&mut self, connection: &Connection, graph: &NodeGraph) {
-        let source_title = graph.nodes.get(&connection.from_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
-        let target_title = graph.nodes.get(&connection.to_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
+        println!("🔗 ExecutionEngine: Connection added {} -> {}", connection.from_node, connection.to_node);
         
-        // Mark the target node as dirty (this will also propagate downstream)
-        self.mark_dirty(connection.to_node, graph);
-        
-        // CRITICAL: Mark the entire upstream dependency chain as dirty
-        // This ensures USD File Reader → Reverse → Viewport all get executed in correct order
-        self.propagate_dirty_upstream(connection.to_node, graph);
-        
-        // Also mark the source node to ensure it gets executed if it wasn't already
-        self.mark_dirty(connection.from_node, graph);
-        
-        // Clear viewport-specific caches if the target is a viewport node
-        if let Some(node) = graph.nodes.get(&connection.to_node) {
-            if node.type_id == "Viewport" {
-                self.clear_viewport_caches(connection.to_node);
-                
-                // CRITICAL: Set force refresh flag for viewport
-                use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
-                if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
-                    force_set.insert(connection.to_node);
+        // Call node-specific connection hooks for the target node
+        if let Some(target_node) = graph.nodes.get(&connection.to_node) {
+            if let Some(hooks) = self.execution_hooks.get_mut(&target_node.type_id) {
+                if let Err(e) = hooks.on_input_connection_added(target_node, graph) {
+                    eprintln!("❌ Connection added hook failed for node {}: {}", connection.to_node, e);
                 }
-            } else if node.type_id == "Attributes" {
-                // Clear attributes cache when connections change
-                self.clear_attributes_caches(connection.to_node);
             }
         }
         
-        // CRITICAL: Execute dirty nodes immediately to prevent lag
-        // This ensures connection changes are reflected immediately
-        match self.execute_dirty_nodes(graph) {
-            Ok(_) => {
-                // Immediate execution successful
-            }
-            Err(e) => {
-                eprintln!("Connection addition execution failed: {}", e);
+        // Only mark the target node (viewport) as dirty - it needs to re-render with new input
+        // Don't mark upstream nodes dirty - they haven't actually changed
+        self.node_states.insert(connection.to_node, NodeState::Dirty);
+        self.dirty_nodes.insert(connection.to_node);
+        
+        // Propagate dirty downstream from the target node (in case other nodes depend on it)
+        self.propagate_dirty_downstream(connection.to_node, graph);
+        
+        // Execute immediately if in auto mode
+        if self.execution_mode == EngineExecutionMode::Auto {
+            if let Err(e) = self.execute_dirty_nodes(graph) {
+                eprintln!("Auto execution after connection added failed: {}", e);
             }
         }
     }
 
     /// Handle a connection being removed
     pub fn on_connection_removed(&mut self, connection: &Connection, graph: &NodeGraph) {
-        let source_title = graph.nodes.get(&connection.from_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
-        let target_title = graph.nodes.get(&connection.to_node).map(|n| n.title.as_str()).unwrap_or("Unknown");
+        println!("🔗 ExecutionEngine: Connection removed {} -> {}", connection.from_node, connection.to_node);
+        
+        // Call node-specific connection hooks for the target node
+        if let Some(target_node) = graph.nodes.get(&connection.to_node) {
+            if let Some(hooks) = self.execution_hooks.get_mut(&target_node.type_id) {
+                if let Err(e) = hooks.on_input_connection_removed(target_node, graph) {
+                    eprintln!("❌ Connection removed hook failed for node {}: {}", connection.to_node, e);
+                }
+            }
+        }
         
         // Mark the target node as dirty (this will also propagate downstream)
         self.mark_dirty(connection.to_node, graph);
@@ -604,37 +808,32 @@ impl NodeGraphEngine {
         // Mark upstream dependency chain as dirty to ensure fresh execution
         self.propagate_dirty_upstream(connection.to_node, graph);
         
-        // Clear cached outputs from the source node to prevent stale data
-        self.output_cache.retain(|(node_id, _), _| *node_id != connection.from_node);
+        // CRITICAL: Clear cached outputs AND mark source node as dirty
+        // When we clear a node's cache, it needs to be re-executed when reconnected
+        self.unified_cache.invalidate(&CacheKeyPattern::Node(connection.from_node));
         
-        // Clear viewport-specific caches if the target is a viewport node
-        if let Some(node) = graph.nodes.get(&connection.to_node) {
-            if node.type_id == "Viewport" {
-                self.clear_viewport_caches(connection.to_node);
-                
-                // CRITICAL: Set force refresh flag for viewport
-                use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
-                if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
-                    force_set.insert(connection.to_node);
-                }
-            } else if node.type_id == "Attributes" {
-                // Clear attributes cache when connections change
-                self.clear_attributes_caches(connection.to_node);
+        // Mark source node dirty with proper cache handling
+        if let Some(source_node) = graph.nodes.get(&connection.from_node) {
+            if source_node.type_id == "Data_UsdFileReader" {
+                // USD File Reader handles its own cache - use special method
+                self.mark_dirty_without_cache_invalidation(connection.from_node, graph);
+            } else {
+                // Standard nodes get standard dirty marking
+                self.mark_dirty(connection.from_node, graph);
             }
         }
         
-        // CRITICAL: Execute dirty nodes immediately to prevent lag
-        // This ensures connection changes are reflected immediately
-        match self.execute_dirty_nodes(graph) {
-            Ok(_) => {
-                // Immediate execution successful
-            }
-            Err(e) => {
-                eprintln!("Connection removal execution failed: {}", e);
+        // Execute immediately if in auto mode
+        if self.execution_mode == EngineExecutionMode::Auto {
+            if let Err(e) = self.execute_dirty_nodes(graph) {
+                eprintln!("Auto execution after connection removed failed: {}", e);
             }
         }
     }
     
+    // NOTE: Old cache clearing methods removed - now handled by node hooks
+    
+    /* REMOVED - Now handled by ViewportHooks
     /// Clear viewport-specific caches for a node
     pub fn clear_viewport_caches(&mut self, node_id: NodeId) {
         use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE, FORCE_VIEWPORT_REFRESH};
@@ -672,9 +871,10 @@ impl NodeGraphEngine {
         }
         
         // Clear execution engine output cache for the node
-        self.output_cache.retain(|(id, _), _| *id != node_id);
+        self.unified_cache.invalidate(&CacheKeyPattern::Node(node_id));
     }
     
+    REMOVED - Now handled by AttributesHooks
     /// Clear attributes-specific caches for a node
     pub fn clear_attributes_caches(&mut self, node_id: NodeId) {
         use crate::nodes::three_d::ui::attributes::logic::ATTRIBUTES_INPUT_CACHE;
@@ -685,21 +885,29 @@ impl NodeGraphEngine {
         }
         
         // Clear execution engine output cache for the node
-        self.output_cache.retain(|(id, _), _| *id != node_id);
+        self.unified_cache.invalidate(&CacheKeyPattern::Node(node_id));
     }
+    
+    REMOVED - Now handled by GeometryHooks and UsdFileReaderHooks 
+    /// Clear GPU mesh cache when USD parameters change - only for connected viewport nodes
+    fn clear_gpu_mesh_cache_for_usd_changes(&mut self, usd_node_id: NodeId, graph: &NodeGraph) {
+        // ... old implementation
+    }
+    */
     
     /// Handle node removal by clearing all related caches and marking affected nodes as dirty
     pub fn on_node_removed(&mut self, node_id: NodeId, graph: &NodeGraph) {
-        // Clear all caches for the deleted node
-        self.clear_viewport_caches(node_id);
-        self.clear_attributes_caches(node_id);
-        
-        // Clear USD file reader cache if applicable
+        // Call node-specific removal hook
         if let Some(node) = graph.nodes.get(&node_id) {
-            if node.type_id == "Data_UsdFileReader" {
-                crate::nodes::data::usd_file_reader::UsdFileReaderNode::clear_cache(node_id);
+            if let Some(hooks) = self.execution_hooks.get_mut(&node.type_id) {
+                if let Err(e) = hooks.on_node_removed(node_id) {
+                    eprintln!("Node removal hook failed for {}: {}", node.type_id, e);
+                }
             }
         }
+        
+        // Clear output cache for the removed node
+        self.unified_cache.invalidate(&CacheKeyPattern::Node(node_id));
         
         // Find all nodes that were connected to the deleted node
         let mut affected_nodes = Vec::new();
@@ -710,59 +918,61 @@ impl NodeGraphEngine {
             }
         }
         
-        // Mark all affected nodes as dirty and clear their caches
+        // Mark all affected nodes as dirty
         for affected_node_id in affected_nodes {
             self.mark_dirty(affected_node_id, graph);
-            
-            // If the affected node is a viewport node, clear its caches too
-            if let Some(node) = graph.nodes.get(&affected_node_id) {
-                if node.type_id == "Viewport" {
-                    self.clear_viewport_caches(affected_node_id);
-                    
-                    // Force viewport refresh by adding to force refresh set
-                    use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
-                    if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
-                        force_set.insert(affected_node_id);
-                    }
-                } else if node.type_id == "Attributes" {
-                    // Clear attributes cache for affected attributes nodes
-                    self.clear_attributes_caches(affected_node_id);
-                }
-            }
         }
-        
     }
 
     /// Handle a node parameter change
     pub fn on_node_parameter_changed(&mut self, node_id: NodeId, graph: &NodeGraph) {
-        // Parameter changed
-        
-        // Show node title for better debugging
+        // Special handling for USD File Reader nodes - they manage their own cache invalidation
         if let Some(node) = graph.nodes.get(&node_id) {
-            // Node parameters changed
-            
-            // If this is a USD source node (File Reader or geometry node), clear GPU mesh cache to force re-upload
-            let is_usd_source_node = match node.type_id.as_str() {
-                "Data_UsdFileReader" => true,
-                "3D_Cube" | "3D_Sphere" | "3D_Cylinder" | "3D_Cone" | "3D_Plane" | "3D_Capsule" => true,
-                _ => node.type_id.contains("USD") || node.type_id.contains("3D_"),
-            };
-            
-            if is_usd_source_node {
-                self.clear_gpu_mesh_cache_for_usd_changes(node_id, graph);
+            if node.type_id == "Data_UsdFileReader" {
+                // USD File Reader handles its own granular cache invalidation
+                // Use the special method that doesn't invalidate cache
+                return self.on_usd_file_reader_parameter_changed(node_id, graph);
             }
         }
+        println!("🔧 ExecutionEngine: Parameter changed for node {} in {} mode", node_id, 
+                 if self.execution_mode == EngineExecutionMode::Auto { "Auto" } else { "Manual" });
         
-        // Mark the node as dirty
-        self.mark_dirty(node_id, graph);
+        // Check if this node handles its own cache invalidation
+        if self.node_handles_own_cache_invalidation(node_id, graph) {
+            // Node handles its own cache invalidation - just mark dirty without clearing cache
+            println!("🔧 ExecutionEngine: Node {} handles own cache invalidation", node_id);
+            self.mark_dirty_without_cache_invalidation(node_id, graph);
+        } else {
+            // Standard cache invalidation for nodes that don't manage their own caches
+            self.mark_dirty(node_id, graph);
+        }
         
-        // Node marked as dirty
+        // Execute immediately if in auto mode
+        if self.execution_mode == EngineExecutionMode::Auto {
+            println!("🔧 ExecutionEngine: Executing immediately due to parameter change");
+            if let Err(e) = self.execute_dirty_nodes(graph) {
+                eprintln!("Auto execution after parameter change failed: {}", e);
+            }
+        } else {
+            println!("🔧 ExecutionEngine: Manual mode - waiting for Cook button");
+        }
+    }
+    
+    /// Set the execution mode
+    pub fn set_execution_mode(&mut self, mode: EngineExecutionMode) {
+        self.execution_mode = mode;
+    }
+    
+    /// Get the current execution mode
+    pub fn get_execution_mode(&self) -> EngineExecutionMode {
+        self.execution_mode
     }
 
+    /* REMOVED - Now handled by node hooks
     /// Clear GPU mesh cache when USD parameters change - only for connected viewport nodes
     fn clear_gpu_mesh_cache_for_usd_changes(&mut self, usd_node_id: NodeId, graph: &NodeGraph) {
         // CRITICAL: Clear the USD node's output cache so it regenerates data
-        self.output_cache.retain(|(node_id, _), _| *node_id != usd_node_id);
+        self.unified_cache.invalidate(&CacheKeyPattern::Node(usd_node_id));
         
         // Find all downstream viewport nodes that are actually connected
         let downstream_nodes = self.find_downstream_nodes(usd_node_id, graph);
@@ -830,6 +1040,7 @@ impl NodeGraphEngine {
         // This ensures viewport nodes get the updated coordinate conversion immediately
         self.propagate_dirty_downstream(usd_node_id, graph);
     }
+    */
 
     /// Get execution statistics
     pub fn get_stats(&self) -> ExecutionStats {
@@ -853,8 +1064,34 @@ impl NodeGraphEngine {
             dirty_nodes: dirty_count,
             computing_nodes: computing_count,
             error_nodes: error_count,
-            cached_outputs: self.output_cache.len(),
+            cached_outputs: self.unified_cache.get_statistics().total_entries,
         }
+    }
+    
+    /// GLOBAL FILE CACHE: Store USD file data persistently (survives cache invalidations)
+    /// This provides a global catch-all to prevent unnecessary file reloads
+    pub fn store_persistent_usd_file_data(&mut self, hash_key: &str, data: crate::workspaces::three_d::usd::usd_engine::USDSceneData) {
+        self.persistent_usd_file_data.insert(hash_key.to_string(), data);
+        println!("🌍 STORED persistent USD data for hash: {}", hash_key);
+    }
+    
+    /// GLOBAL FILE CACHE: Retrieve USD file data if it exists and file hasn't changed
+    /// This provides a global catch-all to prevent unnecessary file reloads
+    pub fn get_persistent_usd_file_data(&self, hash_key: &str) -> Option<crate::workspaces::three_d::usd::usd_engine::USDSceneData> {
+        if let Some(data) = self.persistent_usd_file_data.get(hash_key) {
+            println!("🌍 FOUND persistent USD data for hash: {}", hash_key);
+            Some(data.clone())
+        } else {
+            println!("🌍 NO persistent USD data for hash: {}", hash_key);
+            None
+        }
+    }
+    
+    /// GLOBAL FILE CACHE: Clear persistent USD file data (for cleanup)
+    pub fn clear_persistent_usd_file_data(&mut self) {
+        let count = self.persistent_usd_file_data.len();
+        self.persistent_usd_file_data.clear();
+        println!("🌍 CLEARED {} persistent USD file data entries", count);
     }
 }
 

@@ -38,6 +38,15 @@ use crate::workspaces::WorkspaceRegistry;
 use crate::gpu::NodeRenderCallback;
 use crate::gpu::GpuInstanceManager;
 
+/// Execution mode for the node graph
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExecutionMode {
+    /// Execute immediately when parameters or connections change
+    Auto,
+    /// Only execute when Cook button is pressed
+    Manual,
+}
+
 /// Main application state for the node editor
 pub struct NodeEditor {
     graph: NodeGraph,
@@ -62,6 +71,8 @@ pub struct NodeEditor {
     show_file_menu: bool,
     // Layout constraints
     current_menu_bar_height: f32,
+    // Execution mode
+    execution_mode: ExecutionMode,
 }
 
 
@@ -103,9 +114,14 @@ impl NodeEditor {
             show_file_menu: false,
             // Layout constraints
             current_menu_bar_height: 0.0,
+            // Execution mode - start in Auto mode
+            execution_mode: ExecutionMode::Auto,
         };
 
         // Start with empty node graph - nodes created at 150.0px x 30.0px
+        
+        // Sync execution mode with engine
+        editor.sync_execution_mode();
 
         editor
     }
@@ -138,6 +154,30 @@ impl NodeEditor {
         let connections = self.navigation.get_viewed_connections(&self.graph);
         // Debug prints removed for performance
         connections
+    }
+    
+    /// Check if execution should happen automatically based on current execution mode
+    fn should_execute_automatically(&self) -> bool {
+        self.execution_mode == ExecutionMode::Auto
+    }
+    
+    /// Execute dirty nodes if in auto mode
+    fn execute_if_auto(&mut self) {
+        if self.should_execute_automatically() {
+            if let Err(e) = self.execution_engine.execute_dirty_nodes(&self.graph) {
+                eprintln!("Auto execution failed: {}", e);
+            }
+        }
+    }
+    
+    /// Sync execution mode with the execution engine
+    fn sync_execution_mode(&mut self) {
+        use crate::nodes::execution_engine::EngineExecutionMode;
+        let engine_mode = match self.execution_mode {
+            ExecutionMode::Auto => EngineExecutionMode::Auto,
+            ExecutionMode::Manual => EngineExecutionMode::Manual,
+        };
+        self.execution_engine.set_execution_mode(engine_mode);
     }
     
     /// Build a temporary graph for GPU processing
@@ -175,6 +215,7 @@ impl NodeEditor {
                 // Notify execution engine about the new connection
                 if result.is_ok() {
                     self.execution_engine.on_connection_added(&connection, &self.graph);
+                    // Note: execution_engine.on_connection_added now handles Auto mode execution internally
                 }
                 
                 // Debug print removed
@@ -189,6 +230,7 @@ impl NodeEditor {
                         // Notify execution engine about the new connection
                         if result.is_ok() {
                             self.execution_engine.on_connection_added(&connection, internal_graph);
+                            // Note: execution_engine.on_connection_added now handles Auto mode execution internally
                         }
                         
                         // Debug print removed
@@ -269,6 +311,7 @@ impl NodeEditor {
                     self.graph.remove_connection(idx);
                     // Notify execution engine about the removed connection
                     self.execution_engine.on_connection_removed(&connection_copy, &self.graph);
+                    // Note: execution_engine.on_connection_removed now handles Auto mode execution internally
                 }
             }
             GraphView::WorkspaceNode(workspace_node_id) => {
@@ -279,6 +322,7 @@ impl NodeEditor {
                             internal_graph.remove_connection(idx);
                             // Notify execution engine about the removed connection
                             self.execution_engine.on_connection_removed(&connection_copy, internal_graph);
+                            // Note: execution_engine.on_connection_removed now handles Auto mode execution internally
                         }
                     }
                 }
@@ -689,13 +733,15 @@ impl NodeEditor {
             }
         };
         
-        // Execute all dirty nodes using the new execution engine
-        match self.execution_engine.execute_dirty_nodes(graph) {
-            Ok(_) => {
-                // Success - no print needed
-            }
-            Err(e) => {
-                error!("Connection execution failed: {}", e);
+        // Execute all dirty nodes using the new execution engine (only in Auto mode)
+        if self.execution_mode == ExecutionMode::Auto {
+                match self.execution_engine.execute_dirty_nodes(graph) {
+                Ok(_) => {
+                    // Success - no print needed
+                }
+                Err(e) => {
+                    error!("Connection execution failed: {}", e);
+                }
             }
         }
         
@@ -817,6 +863,43 @@ impl eframe::App for NodeEditor {
                     file_name
                 };
                 ui.label(egui::RichText::new(file_display).color(Color32::LIGHT_BLUE));
+                
+                ui.separator();
+                
+                // Execution mode controls
+                ui.horizontal(|ui| {
+                    // Auto button
+                    let auto_selected = self.execution_mode == ExecutionMode::Auto;
+                    let auto_color = if auto_selected { Color32::GREEN } else { Color32::DARK_GREEN };
+                    if ui.add(egui::Button::new("Auto").fill(auto_color)).clicked() {
+                        self.execution_mode = ExecutionMode::Auto;
+                        self.sync_execution_mode();
+                        // Execute any dirty nodes when switching to auto mode
+                        if let Err(e) = self.execution_engine.execute_dirty_nodes(&self.graph) {
+                            eprintln!("Auto mode execution failed: {}", e);
+                        }
+                    }
+                    
+                    // Manual button
+                    let manual_selected = self.execution_mode == ExecutionMode::Manual;
+                    let manual_color = if manual_selected { Color32::YELLOW } else { Color32::DARK_GRAY };
+                    if ui.add(egui::Button::new("Manual").fill(manual_color)).clicked() {
+                        self.execution_mode = ExecutionMode::Manual;
+                        self.sync_execution_mode();
+                    }
+                    
+                    // Cook button (only active in manual mode)
+                    let cook_enabled = self.execution_mode == ExecutionMode::Manual;
+                    let cook_color = if cook_enabled { Color32::ORANGE } else { Color32::DARK_GRAY };
+                    if ui.add(egui::Button::new("Cook").fill(cook_color))
+                        .on_hover_text("Execute dirty nodes (Manual mode only)")
+                        .clicked() && cook_enabled 
+                    {
+                        if let Err(e) = self.execution_engine.execute_dirty_nodes(&self.graph) {
+                            eprintln!("Cook execution failed: {}", e);
+                        }
+                    }
+                });
                 
                 ui.separator();
                 ui.label(format!("Zoom: {:.1}x", self.canvas.zoom));

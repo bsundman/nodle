@@ -10,6 +10,7 @@ use egui::{Color32, Pos2, Vec2};
 
 pub mod parameters;
 pub mod logic;
+pub mod hooks;
 
 pub use parameters::*;
 pub use logic::*;

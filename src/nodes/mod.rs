@@ -9,6 +9,9 @@ pub mod factory;
 pub mod interface;
 pub mod defaults;
 pub mod execution_engine;
+pub mod hooks;
+pub mod ownership;
+pub mod cache;
 
 // Generic node implementations
 pub mod math;

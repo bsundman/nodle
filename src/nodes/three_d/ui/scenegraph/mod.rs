@@ -2,6 +2,7 @@
 
 mod parameters;
 pub mod logic;
+pub mod hooks;
 
 pub use parameters::ScenegraphNode;
 pub use logic::ScenegraphLogic;

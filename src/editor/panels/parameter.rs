@@ -1081,12 +1081,14 @@ impl ParameterPanel {
         graph: &crate::nodes::NodeGraph,
     ) {
         if !changes.is_empty() {
-            info!("Applied {} parameter changes for {} node {}", changes.len(), title, node_id);
+            let changes_count = changes.len();
+            info!("Applied {} parameter changes for {} node {}", changes_count, title, node_id);
             for change in changes {
                 node.parameters.insert(change.parameter, change.value);
             }
             
             // Notify execution engine that parameters changed
+            println!("🔧 PARAMETER PANEL: Notifying execution engine of {} parameter changes for node {}", changes_count, node_id);
             execution_engine.on_node_parameter_changed(node_id, graph);
             
             // CRITICAL: For nodes that output USD scene data, force viewport refresh immediately
@@ -1111,58 +1113,42 @@ impl ParameterPanel {
                         if let Some(node) = graph.nodes.get(downstream_id) {
                             if node.type_id == "Viewport" || node.type_id == "3D_Viewport" {
                                 connected_viewport_nodes.push(*downstream_id);
-                                use crate::nodes::three_d::ui::viewport::FORCE_VIEWPORT_REFRESH;
-                                if let Ok(mut force_set) = FORCE_VIEWPORT_REFRESH.lock() {
-                                    force_set.insert(*downstream_id);
-                                }
                             }
                         }
                     }
                     
-                    // CRITICAL: Clear ALL relevant caches when USD source parameters change
+                    // SIMPLIFIED: Clear only GPU caches when USD source parameters change
+                    // Unified cache system handles data cache invalidation automatically
                     if !connected_viewport_nodes.is_empty() {
                         
                         // Clear GPU mesh caches (wgpu buffers)
                         crate::gpu::viewport_3d_callback::clear_all_gpu_mesh_caches();
                         
-                        // Clear USD renderer cache
+                        // Clear USD renderer cache (GPU resources)
                         use crate::nodes::three_d::ui::viewport::USD_RENDERER_CACHE;
                         if let Ok(mut cache) = USD_RENDERER_CACHE.lock() {
-                            let renderer_count = cache.renderers.len();
-                            let bounds_count = cache.scene_bounds.len();
                             cache.renderers.clear();
                             cache.scene_bounds.clear();
                         }
                         
-                        // Clear viewport input and data caches for each connected viewport
-                        use crate::nodes::three_d::ui::viewport::{VIEWPORT_INPUT_CACHE, VIEWPORT_DATA_CACHE};
-                        for viewport_id in &connected_viewport_nodes {
-                            if let Ok(mut input_cache) = VIEWPORT_INPUT_CACHE.lock() {
-                                input_cache.remove(viewport_id);
-                            }
-                            if let Ok(mut data_cache) = VIEWPORT_DATA_CACHE.lock() {
-                                data_cache.remove(viewport_id);
+                        // Clear GPU viewport cache for connected viewports
+                        use crate::nodes::three_d::ui::viewport::GPU_VIEWPORT_CACHE;
+                        if let Ok(mut gpu_cache) = GPU_VIEWPORT_CACHE.lock() {
+                            for viewport_id in &connected_viewport_nodes {
+                                gpu_cache.remove(viewport_id);
                             }
                         }
                         
-                        // CRITICAL: Also mark the USD source node itself as dirty in all caches
-                        // This ensures the new parameter values are picked up
+                        // CRITICAL: Mark the USD source node as dirty - unified cache handles the rest
                         execution_engine.mark_dirty(node_id, graph);
                         
-                    } else {
                     }
                 }
             }
             
-            // CRITICAL: Execute dirty nodes immediately to prevent lag
-            // This ensures that parameter changes are reflected in viewport immediately
-            match execution_engine.execute_dirty_nodes(graph) {
-                Ok(_) => {
-                    // Immediate execution successful
-                }
-                Err(e) => {
-                }
-            }
+            // NOTE: No need to call execute_dirty_nodes() here because
+            // on_node_parameter_changed() already handles execution in Auto mode
+            // This prevents double execution of the same nodes
             
         }
     }
