@@ -58,25 +58,19 @@ fn vs_main(model: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
     
-    // Simple PBR-like lighting
-    // Use vertex color if available, otherwise use default color
+    // Use vertex color as base color with minimal lighting
     let base_color = in.vertex_color;
     let light_dir = normalize(vec3<f32>(1.0, 1.0, 1.0));
     let view_dir = normalize(uniforms.camera_pos - in.world_position);
     
-    // Lambertian diffuse
-    let n_dot_l = max(dot(in.world_normal, light_dir), 0.0);
+    // Lambertian diffuse with stronger base color contribution
+    let n_dot_l = max(dot(in.world_normal, light_dir), 0.2); // Ensure some lighting even in shadow
     let diffuse = base_color * n_dot_l;
     
-    // Simple specular
-    let half_vec = normalize(light_dir + view_dir);
-    let n_dot_h = max(dot(in.world_normal, half_vec), 0.0);
-    let specular = vec3<f32>(0.3) * pow(n_dot_h, 32.0);
+    // Strong ambient to preserve vertex colors
+    let ambient = base_color * 0.4;
     
-    // Ambient
-    let ambient = base_color * 0.1;
-    
-    let final_color = ambient + diffuse + specular;
+    let final_color = ambient + diffuse;
     out.color = vec4<f32>(final_color, 1.0);
     
     return out;

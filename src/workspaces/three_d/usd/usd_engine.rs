@@ -37,6 +37,65 @@ pub enum PrimvarValues {
     String(Vec<String>),
 }
 
+/// General USD attribute (all prim attributes, not just primvars)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct USDAttribute {
+    pub name: String,
+    pub value_type: String,      // "float3", "string", "token", "bool", "matrix4d", etc.
+    pub value: AttributeValue,
+    pub is_custom: bool,         // True for custom attributes, false for built-in
+    pub metadata: std::collections::HashMap<String, String>, // Any metadata on the attribute
+}
+
+/// USD attribute value types (more comprehensive than PrimvarValues)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AttributeValue {
+    // Scalar types
+    Bool(bool),
+    Int(i32),
+    Float(f32),
+    Double(f64),
+    String(String),
+    Token(String),
+    Asset(String),
+    
+    // Vector types
+    Float2(Vec2),
+    Float3(Vec3),
+    Color3f(Vec3),
+    Normal3f(Vec3),
+    Point3f(Vec3),
+    Vector3f(Vec3),
+    TexCoord2f(Vec2),
+    
+    // Matrix types
+    Matrix4d(glam::Mat4),
+    
+    // Array types
+    BoolArray(Vec<bool>),
+    IntArray(Vec<i32>),
+    FloatArray(Vec<f32>),
+    DoubleArray(Vec<f64>),
+    StringArray(Vec<String>),
+    TokenArray(Vec<String>),
+    AssetArray(Vec<String>),
+    Float2Array(Vec<Vec2>),
+    Float3Array(Vec<Vec3>),
+    Color3fArray(Vec<Vec3>),
+    Normal3fArray(Vec<Vec3>),
+    Point3fArray(Vec<Vec3>),
+    Vector3fArray(Vec<Vec3>),
+    TexCoord2fArray(Vec<Vec2>),
+    Matrix4dArray(Vec<glam::Mat4>),
+    
+    // Special USD types
+    Relationship(Vec<String>), // USD relationships (paths to other prims)
+    TimeSamples(Vec<(f64, String)>), // Time-varying values (time, value) pairs
+    
+    // Fallback for unknown types
+    Unknown(String),
+}
+
 /// USD Geometry extracted from USD mesh prims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct USDMeshGeometry {
@@ -48,6 +107,7 @@ pub struct USDMeshGeometry {
     pub vertex_colors: Option<Vec<Vec3>>,  // Optional vertex colors from displayColor
     pub transform: Mat4,
     pub primvars: Vec<USDPrimvar>,  // All primvars with their interpolation types
+    pub attributes: Vec<USDAttribute>,     // ALL USD prim attributes (built-in + custom)
 }
 
 /// USD Light extracted from UsdLux prims
@@ -140,8 +200,165 @@ impl USDEngine {
             stages: HashMap::new(),
         }
     }
+}
+
+/// Helper function to extract AttributeValue from Python object
+#[cfg(feature = "usd")]
+fn extract_attribute_value(value_obj: &pyo3::PyObject, py: Python) -> AttributeValue {
+    use pyo3::prelude::*;
     
+    // The value_obj should be a dictionary with one key indicating the type
+    if let Ok(value_dict) = value_obj.extract::<std::collections::HashMap<String, pyo3::PyObject>>(py) {
+        if let Some((key, val)) = value_dict.iter().next() {
+            match key.as_str() {
+                "Bool" => {
+                    if let Ok(v) = val.extract::<bool>(py) {
+                        return AttributeValue::Bool(v);
+                    }
+                },
+                "Int" => {
+                    if let Ok(v) = val.extract::<i32>(py) {
+                        return AttributeValue::Int(v);
+                    }
+                },
+                "Float" => {
+                    if let Ok(v) = val.extract::<f32>(py) {
+                        return AttributeValue::Float(v);
+                    }
+                },
+                "Double" => {
+                    if let Ok(v) = val.extract::<f64>(py) {
+                        return AttributeValue::Double(v);
+                    }
+                },
+                "String" => {
+                    if let Ok(v) = val.extract::<String>(py) {
+                        return AttributeValue::String(v);
+                    }
+                },
+                "Token" => {
+                    if let Ok(v) = val.extract::<String>(py) {
+                        return AttributeValue::Token(v);
+                    }
+                },
+                "Asset" => {
+                    if let Ok(v) = val.extract::<String>(py) {
+                        return AttributeValue::Asset(v);
+                    }
+                },
+                "Float2" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 2 {
+                            return AttributeValue::Float2(Vec2::new(v[0], v[1]));
+                        }
+                    }
+                },
+                "Float3" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 3 {
+                            return AttributeValue::Float3(Vec3::new(v[0], v[1], v[2]));
+                        }
+                    }
+                },
+                "Color3f" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 3 {
+                            return AttributeValue::Color3f(Vec3::new(v[0], v[1], v[2]));
+                        }
+                    }
+                },
+                "Normal3f" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 3 {
+                            return AttributeValue::Normal3f(Vec3::new(v[0], v[1], v[2]));
+                        }
+                    }
+                },
+                "Point3f" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 3 {
+                            return AttributeValue::Point3f(Vec3::new(v[0], v[1], v[2]));
+                        }
+                    }
+                },
+                "Vector3f" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 3 {
+                            return AttributeValue::Vector3f(Vec3::new(v[0], v[1], v[2]));
+                        }
+                    }
+                },
+                "Matrix4d" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        if v.len() >= 16 {
+                            let matrix = glam::Mat4::from_cols_array(&[
+                                v[0], v[1], v[2], v[3],
+                                v[4], v[5], v[6], v[7],
+                                v[8], v[9], v[10], v[11],
+                                v[12], v[13], v[14], v[15],
+                            ]);
+                            return AttributeValue::Matrix4d(matrix);
+                        }
+                    }
+                },
+                "BoolArray" => {
+                    if let Ok(v) = val.extract::<Vec<bool>>(py) {
+                        return AttributeValue::BoolArray(v);
+                    }
+                },
+                "IntArray" => {
+                    if let Ok(v) = val.extract::<Vec<i32>>(py) {
+                        return AttributeValue::IntArray(v);
+                    }
+                },
+                "FloatArray" => {
+                    if let Ok(v) = val.extract::<Vec<f32>>(py) {
+                        return AttributeValue::FloatArray(v);
+                    }
+                },
+                "StringArray" => {
+                    if let Ok(v) = val.extract::<Vec<String>>(py) {
+                        return AttributeValue::StringArray(v);
+                    }
+                },
+                "TokenArray" => {
+                    if let Ok(v) = val.extract::<Vec<String>>(py) {
+                        return AttributeValue::TokenArray(v);
+                    }
+                },
+                "Float3Array" => {
+                    if let Ok(v) = val.extract::<Vec<Vec<f32>>>(py) {
+                        let vec3_array: Vec<Vec3> = v.into_iter()
+                            .filter(|arr| arr.len() >= 3)
+                            .map(|arr| Vec3::new(arr[0], arr[1], arr[2]))
+                            .collect();
+                        return AttributeValue::Float3Array(vec3_array);
+                    }
+                },
+                "Color3fArray" => {
+                    if let Ok(v) = val.extract::<Vec<Vec<f32>>>(py) {
+                        let vec3_array: Vec<Vec3> = v.into_iter()
+                            .filter(|arr| arr.len() >= 3)
+                            .map(|arr| Vec3::new(arr[0], arr[1], arr[2]))
+                            .collect();
+                        return AttributeValue::Color3fArray(vec3_array);
+                    }
+                },
+                "Unknown" => {
+                    if let Ok(v) = val.extract::<String>(py) {
+                        return AttributeValue::Unknown(v);
+                    }
+                },
+                _ => {}
+            }
+        }
+    }
     
+    // Fallback
+    AttributeValue::Unknown("Failed to extract value".to_string())
+}
+
+impl USDEngine {
     /// Extract lightweight metadata from full USD scene data for scenegraph display
     pub fn extract_scenegraph_metadata(scene_data: &USDSceneData) -> USDScenegraphMetadata {
         let mut total_vertices = 0;
@@ -190,6 +407,247 @@ impl USDEngine {
             up_axis: scene_data.up_axis.clone(),
             total_vertices,
             total_triangles,
+        }
+    }
+
+    /// Extract attribute value from Python object to Rust enum
+    #[cfg(feature = "usd")]
+    fn extract_attribute_value(value_obj: &pyo3::PyObject, py: Python) -> AttributeValue {
+        use pyo3::types::PyDict;
+        
+        // The Python code structures values as {'Bool': value}, {'Float': value}, etc.
+        if let Ok(value_dict) = value_obj.extract::<HashMap<String, pyo3::PyObject>>(py) {
+            for (key, val) in value_dict {
+                match key.as_str() {
+                    "Bool" => {
+                        if let Ok(b) = val.extract::<bool>(py) {
+                            return AttributeValue::Bool(b);
+                        }
+                    },
+                    "Int" => {
+                        if let Ok(i) = val.extract::<i32>(py) {
+                            return AttributeValue::Int(i);
+                        }
+                    },
+                    "Float" => {
+                        if let Ok(f) = val.extract::<f32>(py) {
+                            return AttributeValue::Float(f);
+                        }
+                    },
+                    "Double" => {
+                        if let Ok(d) = val.extract::<f64>(py) {
+                            return AttributeValue::Double(d);
+                        }
+                    },
+                    "String" => {
+                        if let Ok(s) = val.extract::<String>(py) {
+                            return AttributeValue::String(s);
+                        }
+                    },
+                    "Token" => {
+                        if let Ok(s) = val.extract::<String>(py) {
+                            return AttributeValue::Token(s);
+                        }
+                    },
+                    "Asset" => {
+                        if let Ok(s) = val.extract::<String>(py) {
+                            return AttributeValue::Asset(s);
+                        }
+                    },
+                    "Float2" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 2 {
+                                return AttributeValue::Float2(Vec2::new(vec[0], vec[1]));
+                            }
+                        }
+                    },
+                    "Float3" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 3 {
+                                return AttributeValue::Float3(Vec3::new(vec[0], vec[1], vec[2]));
+                            }
+                        }
+                    },
+                    "Color3f" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 3 {
+                                return AttributeValue::Color3f(Vec3::new(vec[0], vec[1], vec[2]));
+                            }
+                        }
+                    },
+                    "Normal3f" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 3 {
+                                return AttributeValue::Normal3f(Vec3::new(vec[0], vec[1], vec[2]));
+                            }
+                        }
+                    },
+                    "Point3f" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 3 {
+                                return AttributeValue::Point3f(Vec3::new(vec[0], vec[1], vec[2]));
+                            }
+                        }
+                    },
+                    "Vector3f" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 3 {
+                                return AttributeValue::Vector3f(Vec3::new(vec[0], vec[1], vec[2]));
+                            }
+                        }
+                    },
+                    "TexCoord2f" => {
+                        if let Ok(vec) = val.extract::<Vec<f32>>(py) {
+                            if vec.len() >= 2 {
+                                return AttributeValue::TexCoord2f(Vec2::new(vec[0], vec[1]));
+                            }
+                        }
+                    },
+                    "Matrix4d" => {
+                        if let Ok(matrix_array) = val.extract::<Vec<f32>>(py) {
+                            if matrix_array.len() >= 16 {
+                                return AttributeValue::Matrix4d(Mat4::from_cols_array(&[
+                                    matrix_array[0], matrix_array[1], matrix_array[2], matrix_array[3],
+                                    matrix_array[4], matrix_array[5], matrix_array[6], matrix_array[7],
+                                    matrix_array[8], matrix_array[9], matrix_array[10], matrix_array[11],
+                                    matrix_array[12], matrix_array[13], matrix_array[14], matrix_array[15],
+                                ]));
+                            }
+                        }
+                    },
+                    // Array types
+                    "BoolArray" => {
+                        if let Ok(arr) = val.extract::<Vec<bool>>(py) {
+                            return AttributeValue::BoolArray(arr);
+                        }
+                    },
+                    "IntArray" => {
+                        if let Ok(arr) = val.extract::<Vec<i32>>(py) {
+                            return AttributeValue::IntArray(arr);
+                        }
+                    },
+                    "FloatArray" => {
+                        if let Ok(arr) = val.extract::<Vec<f32>>(py) {
+                            return AttributeValue::FloatArray(arr);
+                        }
+                    },
+                    "DoubleArray" => {
+                        if let Ok(arr) = val.extract::<Vec<f64>>(py) {
+                            return AttributeValue::DoubleArray(arr);
+                        }
+                    },
+                    "StringArray" => {
+                        if let Ok(arr) = val.extract::<Vec<String>>(py) {
+                            return AttributeValue::StringArray(arr);
+                        }
+                    },
+                    "TokenArray" => {
+                        if let Ok(arr) = val.extract::<Vec<String>>(py) {
+                            return AttributeValue::TokenArray(arr);
+                        }
+                    },
+                    "AssetArray" => {
+                        if let Ok(arr) = val.extract::<Vec<String>>(py) {
+                            return AttributeValue::AssetArray(arr);
+                        }
+                    },
+                    "Float2Array" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec2_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 2)
+                                .map(|v| Vec2::new(v[0], v[1]))
+                                .collect();
+                            return AttributeValue::Float2Array(vec2_arr);
+                        }
+                    },
+                    "Float3Array" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec3_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 3)
+                                .map(|v| Vec3::new(v[0], v[1], v[2]))
+                                .collect();
+                            return AttributeValue::Float3Array(vec3_arr);
+                        }
+                    },
+                    "Color3fArray" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec3_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 3)
+                                .map(|v| Vec3::new(v[0], v[1], v[2]))
+                                .collect();
+                            return AttributeValue::Color3fArray(vec3_arr);
+                        }
+                    },
+                    "Normal3fArray" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec3_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 3)
+                                .map(|v| Vec3::new(v[0], v[1], v[2]))
+                                .collect();
+                            return AttributeValue::Normal3fArray(vec3_arr);
+                        }
+                    },
+                    "Point3fArray" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec3_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 3)
+                                .map(|v| Vec3::new(v[0], v[1], v[2]))
+                                .collect();
+                            return AttributeValue::Point3fArray(vec3_arr);
+                        }
+                    },
+                    "Vector3fArray" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec3_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 3)
+                                .map(|v| Vec3::new(v[0], v[1], v[2]))
+                                .collect();
+                            return AttributeValue::Vector3fArray(vec3_arr);
+                        }
+                    },
+                    "TexCoord2fArray" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let vec2_arr = arr.into_iter()
+                                .filter(|v| v.len() >= 2)
+                                .map(|v| Vec2::new(v[0], v[1]))
+                                .collect();
+                            return AttributeValue::TexCoord2fArray(vec2_arr);
+                        }
+                    },
+                    "Matrix4dArray" => {
+                        if let Ok(arr) = val.extract::<Vec<Vec<f32>>>(py) {
+                            let mat4_arr = arr.into_iter()
+                                .filter(|m| m.len() >= 16)
+                                .map(|m| Mat4::from_cols_array(&[
+                                    m[0], m[1], m[2], m[3],
+                                    m[4], m[5], m[6], m[7],
+                                    m[8], m[9], m[10], m[11],
+                                    m[12], m[13], m[14], m[15],
+                                ]))
+                                .collect();
+                            return AttributeValue::Matrix4dArray(mat4_arr);
+                        }
+                    },
+                    "Unknown" => {
+                        if let Ok(s) = val.extract::<String>(py) {
+                            return AttributeValue::Unknown(s);
+                        }
+                    },
+                    _ => {
+                        // Unknown key, try to convert to string
+                        if let Ok(s) = val.extract::<String>(py) {
+                            return AttributeValue::Unknown(format!("{}:{}", key, s));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback: convert the whole object to string
+        if let Ok(s) = value_obj.extract::<String>(py) {
+            AttributeValue::Unknown(s)
+        } else {
+            AttributeValue::Unknown("Failed to extract attribute value".to_string())
         }
     }
 
@@ -266,6 +724,8 @@ impl USDEngine {
             primvars = []
             primvars_api = UsdGeom.PrimvarsAPI(mesh)
             
+            # Debug: print all primvars found (commented out due to Rust syntax conflicts)
+            
             for primvar in primvars_api.GetPrimvars():
                 primvar_name = primvar.GetPrimvarName()
                 interpolation = primvar.GetInterpolation()
@@ -335,7 +795,121 @@ impl USDEngine {
                 if primvar_indices:
                     primvar_data['indices'] = primvar_indices
                 
+                # Debug: Processing primvar (commented out due to Rust syntax conflicts)
                 primvars.append(primvar_data)
+            
+            # Extract ALL USD prim attributes (not just primvars)
+            all_attributes = []
+            
+            # Get all attributes on this prim
+            for attr in prim.GetAttributes():
+                attr_name = attr.GetName()
+                
+                # Skip if no value or already covered by primvars/geometry
+                if not attr.HasValue():
+                    continue
+                    
+                # Skip attributes we already handle elsewhere
+                if attr_name in ['points', 'faceVertexIndices', 'faceVertexCounts', 'normals', 'primvars:displayColor']:
+                    continue
+                    
+                # Skip primvars (we handle those separately)
+                if attr_name.startswith('primvars:'):
+                    continue
+                
+                # Get attribute info
+                value = attr.Get()
+                if value is None:
+                    continue
+                    
+                type_name = str(attr.GetTypeName())
+                is_custom = attr.IsCustom()
+                
+                # Convert value to appropriate format
+                attr_data = {
+                    'name': attr_name,
+                    'value_type': type_name,
+                    'is_custom': is_custom,
+                    'metadata': {}  # TODO: extract metadata if needed
+                }
+                
+                # Convert values based on USD type
+                try:
+                    if type_name == 'bool':
+                        attr_data['value'] = {'Bool': bool(value)}
+                    elif type_name in ['int', 'uint', 'int64', 'uint64']:
+                        attr_data['value'] = {'Int': int(value)}
+                    elif type_name == 'float':
+                        attr_data['value'] = {'Float': float(value)}
+                    elif type_name == 'double':
+                        attr_data['value'] = {'Double': float(value)}
+                    elif type_name in ['string', 'token']:
+                        attr_data['value'] = {'String' if type_name == 'string' else 'Token': str(value)}
+                    elif type_name == 'asset':
+                        attr_data['value'] = {'Asset': str(value)}
+                    elif type_name in ['float2', 'double2']:
+                        if hasattr(value, '__len__') and len(value) >= 2:
+                            attr_data['value'] = {'Float2': [float(value[0]), float(value[1])]}
+                        else:
+                            attr_data['value'] = {'Float2': [0.0, 0.0]}
+                    elif type_name in ['float3', 'double3', 'point3f', 'point3d', 'vector3f', 'vector3d', 'normal3f', 'normal3d', 'color3f', 'color3d']:
+                        if hasattr(value, '__len__') and len(value) >= 3:
+                            if 'color' in type_name.lower():
+                                attr_data['value'] = {'Color3f': [float(value[0]), float(value[1]), float(value[2])]}
+                            elif 'normal' in type_name.lower():
+                                attr_data['value'] = {'Normal3f': [float(value[0]), float(value[1]), float(value[2])]}
+                            elif 'point' in type_name.lower():
+                                attr_data['value'] = {'Point3f': [float(value[0]), float(value[1]), float(value[2])]}
+                            elif 'vector' in type_name.lower():
+                                attr_data['value'] = {'Vector3f': [float(value[0]), float(value[1]), float(value[2])]}
+                            else:
+                                attr_data['value'] = {'Float3': [float(value[0]), float(value[1]), float(value[2])]}
+                        else:
+                            attr_data['value'] = {'Float3': [0.0, 0.0, 0.0]}
+                    elif type_name in ['matrix4d', 'matrix4f']:
+                        # Convert matrix to flat array
+                        if hasattr(value, 'GetArray'):
+                            matrix_array = list(value.GetArray())
+                        else:
+                            matrix_array = [1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0]
+                        attr_data['value'] = {'Matrix4d': matrix_array}
+                    # Array types
+                    elif '[]' in type_name or type_name.endswith('Array'):
+                        base_type = type_name.replace('[]', '').replace('Array', '')
+                        if hasattr(value, '__iter__'):
+                            if base_type in ['bool']:
+                                attr_data['value'] = {'BoolArray': [bool(v) for v in value]}
+                            elif base_type in ['int', 'uint']:
+                                attr_data['value'] = {'IntArray': [int(v) for v in value]}
+                            elif base_type in ['float', 'double']:
+                                attr_data['value'] = {'FloatArray': [float(v) for v in value]}
+                            elif base_type in ['string', 'token']:
+                                attr_data['value'] = {'StringArray' if base_type == 'string' else 'TokenArray': [str(v) for v in value]}
+                            elif base_type in ['float3', 'point3f', 'vector3f', 'normal3f', 'color3f']:
+                                if 'color' in base_type:
+                                    attr_data['value'] = {'Color3fArray': [[float(v[0]), float(v[1]), float(v[2])] for v in value]}
+                                elif 'normal' in base_type:
+                                    attr_data['value'] = {'Normal3fArray': [[float(v[0]), float(v[1]), float(v[2])] for v in value]}
+                                elif 'point' in base_type:
+                                    attr_data['value'] = {'Point3fArray': [[float(v[0]), float(v[1]), float(v[2])] for v in value]}
+                                elif 'vector' in base_type:
+                                    attr_data['value'] = {'Vector3fArray': [[float(v[0]), float(v[1]), float(v[2])] for v in value]}
+                                else:
+                                    attr_data['value'] = {'Float3Array': [[float(v[0]), float(v[1]), float(v[2])] for v in value]}
+                            else:
+                                attr_data['value'] = {'StringArray': [str(v) for v in value]}
+                        else:
+                            attr_data['value'] = {'StringArray': [str(value)]}
+                    else:
+                        # Unknown type, convert to string
+                        attr_data['value'] = {'Unknown': str(value)}
+                        
+                    all_attributes.append(attr_data)
+                    
+                except Exception as e:
+                    # If conversion fails, store as unknown
+                    attr_data['value'] = {'Unknown': f'Error: {str(e)}'}
+                    all_attributes.append(attr_data)
             
             # Fast triangulation in Python
             triangles = []
@@ -425,7 +999,8 @@ impl USDEngine {
                 'indices': indices_array,
                 'normals': normals_array,
                 'uvs': uvs_array,
-                'primvars': primvars  # Include all primvars with their interpolation
+                'primvars': primvars,  # Include all primvars with their interpolation
+                'attributes': all_attributes  # Include ALL USD prim attributes
             }
             
             # Add vertex colors if available
@@ -433,6 +1008,7 @@ impl USDEngine {
                 vertex_colors_array = np.array(vertex_colors, dtype=np.float32)
                 mesh_data['vertex_colors'] = vertex_colors_array
             
+            # Debug: Final counts (commented out due to Rust syntax conflicts)
             meshes.append(mesh_data)
             
         elif prim_type == 'Cube':
@@ -1132,8 +1708,10 @@ impl USDEngine {
                                     let colors: Vec<Vec3> = colors_slice.chunks_exact(3)
                                         .map(|chunk| Vec3::new(chunk[0], chunk[1], chunk[2]))
                                         .collect();
+                                    println!("🎨 Found {} vertex colors for mesh {}", colors.len(), prim_path);
                                     Some(colors)
                                 } else {
+                                    println!("🎨 Vertex colors found but failed to extract for mesh {}", prim_path);
                                     None
                                 }
                             } else {
@@ -1211,6 +1789,39 @@ impl USDEngine {
                                 }
                             }
                             
+                            // Extract attributes if available
+                            let mut attributes = Vec::new();
+                            if let Some(attributes_obj) = mesh_dict.get("attributes") {
+                                if let Ok(attr_list) = attributes_obj.extract::<Vec<HashMap<String, pyo3::PyObject>>>(py) {
+                                    for attr_dict in attr_list {
+                                        if let (Ok(name), Ok(value_type), Ok(is_custom)) = (
+                                            attr_dict.get("name").unwrap().extract::<String>(py),
+                                            attr_dict.get("value_type").unwrap().extract::<String>(py),
+                                            attr_dict.get("is_custom").unwrap().extract::<bool>(py),
+                                        ) {
+                                            if let Some(value_obj) = attr_dict.get("value") {
+                                                // Extract the attribute value based on its structure
+                                                let value = Self::extract_attribute_value(value_obj, py);
+                                                
+                                                let metadata = if let Some(metadata_obj) = attr_dict.get("metadata") {
+                                                    metadata_obj.extract::<std::collections::HashMap<String, String>>(py).unwrap_or_default()
+                                                } else {
+                                                    std::collections::HashMap::new()
+                                                };
+                                                
+                                                attributes.push(USDAttribute {
+                                                    name,
+                                                    value_type,
+                                                    value,
+                                                    is_custom,
+                                                    metadata,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
                             let mesh_geom = USDMeshGeometry {
                                 prim_path,
                                 vertices,
@@ -1220,6 +1831,7 @@ impl USDEngine {
                                 vertex_colors,
                                 transform: Mat4::IDENTITY,
                                 primvars,
+                                attributes,
                             };
                             scene_data.meshes.push(mesh_geom);
                         }
@@ -1302,6 +1914,7 @@ impl USDEngine {
                 ]),
                 transform: Mat4::IDENTITY,
                 primvars: vec![],  // Mock data has no primvars
+                attributes: vec![], // Mock data has no attributes
             });
             
             Ok(scene_data)
@@ -1344,6 +1957,7 @@ impl USDEngine {
             vertex_colors: None,
             transform: Mat4::IDENTITY,
             primvars: vec![],
+            attributes: vec![],
         };
         
         scene_data.meshes.push(mock_mesh);

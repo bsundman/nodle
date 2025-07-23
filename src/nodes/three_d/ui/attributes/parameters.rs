@@ -22,9 +22,7 @@ const HEADER_HEIGHT: f32 = 32.0;
 const TAB_HEIGHT: f32 = 28.0;
 const FILTER_HEIGHT: f32 = 32.0;
 
-// CRITICAL: Limit attributes to prevent UI freezing
-const MAX_ATTRIBUTES_TO_DISPLAY: usize = 500; // Absolute maximum for UI performance
-const MAX_PRIMITIVES_TO_PROCESS: usize = 100; // Limit number of primitives processed
+// Performance optimizations - virtual scrolling handles large datasets
 
 /// Attribute display state for UI
 pub struct AttributeDisplayState {
@@ -212,8 +210,10 @@ fn build_point_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_d
         width: 60.0,
     });
     
-    // Take first mesh for sampling
-    if let Some(first_mesh) = scene_data.meshes.first() {
+    // Process ALL meshes to show complete scene data
+    if !scene_data.meshes.is_empty() {
+        // Take first mesh for column structure
+        let first_mesh = &scene_data.meshes[0];
         // Add position columns (from points array)
         columns.push(AttributeColumn {
             name: "P.x".to_string(),
@@ -231,10 +231,111 @@ fn build_point_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_d
             width: 80.0,
         });
         
-        // Add columns for USD primvars with "vertex" interpolation (point attributes)
-        let vertex_primvars: Vec<_> = first_mesh.primvars.iter()
-            .filter(|pv| pv.interpolation == "vertex")
-            .collect();
+        // Check if we have normals as primvars or need to add them as fallback
+        let has_normals_primvar = scene_data.meshes.iter().any(|m| 
+            m.primvars.iter().any(|pv| pv.interpolation == "vertex" && (pv.name.contains("normal") || pv.name == "N"))
+        );
+        
+        // Add normals columns if not in primvars but available in mesh data
+        if !has_normals_primvar && scene_data.meshes.iter().any(|m| !m.normals.is_empty()) {
+            columns.push(AttributeColumn {
+                name: "N.x".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+            columns.push(AttributeColumn {
+                name: "N.y".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+            columns.push(AttributeColumn {
+                name: "N.z".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+        }
+        
+        // Add UV coordinates if available in mesh data
+        let has_uv_primvar = scene_data.meshes.iter().any(|m| 
+            m.primvars.iter().any(|pv| pv.interpolation == "vertex" && (pv.name.contains("uv") || pv.name == "st" || pv.name.contains("texCoord")))
+        );
+        
+        if !has_uv_primvar && scene_data.meshes.iter().any(|m| !m.uvs.is_empty()) {
+            columns.push(AttributeColumn {
+                name: "uv.u".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+            columns.push(AttributeColumn {
+                name: "uv.v".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+        }
+        
+        // Add vertex colors if available in mesh data
+        let has_color_primvar = scene_data.meshes.iter().any(|m| 
+            m.primvars.iter().any(|pv| pv.interpolation == "vertex" && (pv.name.contains("color") || pv.name == "Cd" || pv.name == "displayColor"))
+        );
+        
+        if !has_color_primvar && scene_data.meshes.iter().any(|m| m.vertex_colors.is_some()) {
+            columns.push(AttributeColumn {
+                name: "Cd.r".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+            columns.push(AttributeColumn {
+                name: "Cd.g".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+            columns.push(AttributeColumn {
+                name: "Cd.b".to_string(),
+                type_name: "float".to_string(),
+                width: 80.0,
+            });
+        }
+        
+        // Collect ALL unique vertex primvars from ALL meshes (not just first mesh)
+        let mut all_vertex_primvars = std::collections::HashMap::new();
+        for (mesh_idx, mesh) in scene_data.meshes.iter().enumerate() {
+            let mesh_vertex_primvars: Vec<_> = mesh.primvars.iter().filter(|pv| pv.interpolation == "vertex").collect();
+            if mesh_idx < 5 && !mesh_vertex_primvars.is_empty() {  // Debug first 5 meshes
+                println!("📊 Mesh[{}] {} has {} vertex primvars:", mesh_idx, mesh.prim_path, mesh_vertex_primvars.len());
+                for pv in &mesh_vertex_primvars {
+                    println!("    - {} ({})", pv.name, pv.data_type);
+                }
+            }
+            for primvar in mesh_vertex_primvars {
+                all_vertex_primvars.insert(primvar.name.clone(), primvar.clone());
+            }
+        }
+        let vertex_primvars: Vec<_> = all_vertex_primvars.values().collect();
+        
+        // Debug: Summary of unique vertex primvars
+        println!("📊 Total unique vertex primvars: {}", all_vertex_primvars.len());
+        for (name, primvar) in &all_vertex_primvars {
+            println!("    - {} ({})", name, primvar.data_type);
+        }
+        println!("📊 Point Attributes: Found {} unique vertex primvars across {} meshes", vertex_primvars.len(), scene_data.meshes.len());
+        
+        // Also debug total primvars per mesh
+        if !scene_data.meshes.is_empty() {
+            let total_primvars: usize = scene_data.meshes.iter().map(|m| m.primvars.len()).sum();
+            println!("📊 Total primvars across all meshes: {}", total_primvars);
+            
+            // Count by interpolation type
+            let mut interp_counts = std::collections::HashMap::new();
+            for mesh in &scene_data.meshes {
+                for primvar in &mesh.primvars {
+                    *interp_counts.entry(primvar.interpolation.clone()).or_insert(0) += 1;
+                }
+            }
+            println!("📊 Primvars by interpolation type:");
+            for (interp, count) in &interp_counts {
+                println!("    - {}: {}", interp, count);
+            }
+        }
             
         for primvar in &vertex_primvars {
             match &primvar.values {
@@ -291,20 +392,175 @@ fn build_point_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_d
             }
         }
         
-        // Limit points for performance
-        const MAX_POINTS_TO_SHOW: usize = 1000;
-        let num_points = first_mesh.vertices.len().min(MAX_POINTS_TO_SHOW);
+        // Combine ALL vertices from ALL meshes for complete scene view
+        let mut all_vertices = Vec::new();
+        let mut all_normals = Vec::new(); // Collect normals if not in primvars
+        let mut all_uvs = Vec::new(); // Collect UVs if not in primvars
+        let mut all_vertex_colors = Vec::new(); // Collect vertex colors if not in primvars
+        let mut all_vertex_primvars: Vec<Vec<f32>> = Vec::new();
+        let mut all_vertex_primvars_float2: Vec<Vec<glam::Vec2>> = Vec::new();
+        let mut all_vertex_primvars_float3: Vec<Vec<glam::Vec3>> = Vec::new();
+        let mut all_vertex_primvars_int: Vec<Vec<i32>> = Vec::new();
+        let mut all_vertex_primvars_string: Vec<Vec<String>> = Vec::new();
         
-        // Create rows for each point
-        for i in 0..num_points {
+        // Initialize primvar storage based on first mesh structure
+        for primvar in &vertex_primvars {
+            match &primvar.values {
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => all_vertex_primvars.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => all_vertex_primvars_float2.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => all_vertex_primvars_float3.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => all_vertex_primvars_int.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => all_vertex_primvars_string.push(Vec::new()),
+            }
+        }
+        
+        // Collect vertices from ALL meshes
+        for mesh in &scene_data.meshes {
+            // Add all vertices from this mesh
+            all_vertices.extend(mesh.vertices.iter().cloned());
+            
+            // Add normals if not in primvars
+            if !has_normals_primvar {
+                if !mesh.normals.is_empty() {
+                    all_normals.extend(mesh.normals.iter().cloned());
+                } else {
+                    // Fill with default normals
+                    all_normals.extend(vec![glam::Vec3::new(0.0, 1.0, 0.0); mesh.vertices.len()]);
+                }
+            }
+            
+            // Add UVs if not in primvars
+            if !has_uv_primvar {
+                if !mesh.uvs.is_empty() {
+                    all_uvs.extend(mesh.uvs.iter().cloned());
+                } else {
+                    // Fill with default UVs
+                    all_uvs.extend(vec![glam::Vec2::new(0.0, 0.0); mesh.vertices.len()]);
+                }
+            }
+            
+            // Add vertex colors if not in primvars
+            if !has_color_primvar {
+                if let Some(ref vertex_colors) = mesh.vertex_colors {
+                    if vertex_colors.len() >= mesh.vertices.len() {
+                        // Use per-vertex colors
+                        all_vertex_colors.extend(vertex_colors.iter().cloned());
+                    } else if !vertex_colors.is_empty() {
+                        // Use single color for all vertices (constant color)
+                        let single_color = vertex_colors[0];
+                        all_vertex_colors.extend(vec![single_color; mesh.vertices.len()]);
+                    } else {
+                        // Fill with default white
+                        all_vertex_colors.extend(vec![glam::Vec3::new(1.0, 1.0, 1.0); mesh.vertices.len()]);
+                    }
+                } else {
+                    // Fill with default white
+                    all_vertex_colors.extend(vec![glam::Vec3::new(1.0, 1.0, 1.0); mesh.vertices.len()]);
+                }
+            }
+            
+            // Add primvar data from this mesh (matching by name and type)
+            let mut float_idx = 0;
+            let mut float2_idx = 0;
+            let mut float3_idx = 0;
+            let mut int_idx = 0;
+            let mut string_idx = 0;
+            
+            for primvar in &vertex_primvars {
+                // Find matching primvar in current mesh
+                if let Some(mesh_primvar) = mesh.primvars.iter().find(|p| p.name == primvar.name && p.interpolation == "vertex") {
+                    match (&primvar.values, &mesh_primvar.values) {
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(vals)) => {
+                            all_vertex_primvars[float_idx].extend(vals.iter().cloned());
+                            float_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(vals)) => {
+                            all_vertex_primvars_float2[float2_idx].extend(vals.iter().cloned());
+                            float2_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(vals)) => {
+                            all_vertex_primvars_float3[float3_idx].extend(vals.iter().cloned());
+                            float3_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(vals)) => {
+                            all_vertex_primvars_int[int_idx].extend(vals.iter().cloned());
+                            int_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(vals)) => {
+                            all_vertex_primvars_string[string_idx].extend(vals.iter().cloned());
+                            string_idx += 1;
+                        },
+                        _ => {
+                            // Type mismatch or missing primvar - fill with defaults
+                            match &primvar.values {
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                                    all_vertex_primvars[float_idx].extend(vec![0.0; mesh.vertices.len()]);
+                                    float_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                                    all_vertex_primvars_float2[float2_idx].extend(vec![glam::Vec2::ZERO; mesh.vertices.len()]);
+                                    float2_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                                    all_vertex_primvars_float3[float3_idx].extend(vec![glam::Vec3::ZERO; mesh.vertices.len()]);
+                                    float3_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                                    all_vertex_primvars_int[int_idx].extend(vec![0; mesh.vertices.len()]);
+                                    int_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                                    all_vertex_primvars_string[string_idx].extend(vec![String::new(); mesh.vertices.len()]);
+                                    string_idx += 1;
+                                },
+                            }
+                        }
+                    }
+                } else {
+                    // Primvar not found in this mesh - fill with defaults
+                    match &primvar.values {
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                            all_vertex_primvars[float_idx].extend(vec![0.0; mesh.vertices.len()]);
+                            float_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                            all_vertex_primvars_float2[float2_idx].extend(vec![glam::Vec2::ZERO; mesh.vertices.len()]);
+                            float2_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                            all_vertex_primvars_float3[float3_idx].extend(vec![glam::Vec3::ZERO; mesh.vertices.len()]);
+                            float3_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                            all_vertex_primvars_int[int_idx].extend(vec![0; mesh.vertices.len()]);
+                            int_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                            all_vertex_primvars_string[string_idx].extend(vec![String::new(); mesh.vertices.len()]);
+                            string_idx += 1;
+                        },
+                    }
+                }
+            }
+        }
+        
+        let total_points = all_vertices.len();
+        
+        // Create rows for ALL points from ALL meshes
+        for i in 0..total_points {
             let mut values = Vec::new();
             
             // Point index
             values.push(i.to_string());
             
-            // Position (from points array)
-            if i < first_mesh.vertices.len() {
-                let vertex = first_mesh.vertices[i];
+            // Position (from combined vertices array)
+            if i < all_vertices.len() {
+                let vertex = all_vertices[i];
                 values.push(format!("{:.3}", vertex.x));
                 values.push(format!("{:.3}", vertex.y));
                 values.push(format!("{:.3}", vertex.z));
@@ -314,49 +570,96 @@ fn build_point_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_d
                 values.push("0.000".to_string());
             }
             
-            // Add values for vertex primvars (point attributes)
+            // Add normals if not in primvars but available
+            if !has_normals_primvar && i < all_normals.len() {
+                let normal = all_normals[i];
+                values.push(format!("{:.3}", normal.x));
+                values.push(format!("{:.3}", normal.y));
+                values.push(format!("{:.3}", normal.z));
+            } else if !has_normals_primvar {
+                values.push("0.000".to_string());
+                values.push("1.000".to_string()); // Default up
+                values.push("0.000".to_string());
+            }
+            
+            // Add UVs if not in primvars but available
+            if !has_uv_primvar && i < all_uvs.len() {
+                let uv = all_uvs[i];
+                values.push(format!("{:.3}", uv.x));
+                values.push(format!("{:.3}", uv.y));
+            } else if !has_uv_primvar {
+                values.push("0.000".to_string());
+                values.push("0.000".to_string());
+            }
+            
+            // Add vertex colors if not in primvars but available
+            if !has_color_primvar && i < all_vertex_colors.len() {
+                let color = all_vertex_colors[i];
+                values.push(format!("{:.3}", color.x));
+                values.push(format!("{:.3}", color.y));
+                values.push(format!("{:.3}", color.z));
+            } else if !has_color_primvar {
+                values.push("1.000".to_string()); // Default white
+                values.push("1.000".to_string());
+                values.push("1.000".to_string());
+            }
+            
+            // Add values for vertex primvars (point attributes) from combined arrays
+            let mut float_idx = 0;
+            let mut float2_idx = 0;
+            let mut float3_idx = 0;
+            let mut int_idx = 0;
+            let mut string_idx = 0;
+            
             for primvar in &vertex_primvars {
                 match &primvar.values {
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(vals) => {
-                        if i < vals.len() {
-                            values.push(format!("{:.3}", vals[i]));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                        if float_idx < all_vertex_primvars.len() && i < all_vertex_primvars[float_idx].len() {
+                            values.push(format!("{:.3}", all_vertex_primvars[float_idx][i]));
                         } else {
                             values.push("0.000".to_string());
                         }
+                        float_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(vals) => {
-                        if i < vals.len() {
-                            values.push(format!("{:.3}", vals[i].x));
-                            values.push(format!("{:.3}", vals[i].y));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                        if float2_idx < all_vertex_primvars_float2.len() && i < all_vertex_primvars_float2[float2_idx].len() {
+                            let val = all_vertex_primvars_float2[float2_idx][i];
+                            values.push(format!("{:.3}", val.x));
+                            values.push(format!("{:.3}", val.y));
                         } else {
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                         }
+                        float2_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(vals) => {
-                        if i < vals.len() {
-                            values.push(format!("{:.3}", vals[i].x));
-                            values.push(format!("{:.3}", vals[i].y));
-                            values.push(format!("{:.3}", vals[i].z));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                        if float3_idx < all_vertex_primvars_float3.len() && i < all_vertex_primvars_float3[float3_idx].len() {
+                            let val = all_vertex_primvars_float3[float3_idx][i];
+                            values.push(format!("{:.3}", val.x));
+                            values.push(format!("{:.3}", val.y));
+                            values.push(format!("{:.3}", val.z));
                         } else {
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                         }
+                        float3_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(vals) => {
-                        if i < vals.len() {
-                            values.push(vals[i].to_string());
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                        if int_idx < all_vertex_primvars_int.len() && i < all_vertex_primvars_int[int_idx].len() {
+                            values.push(all_vertex_primvars_int[int_idx][i].to_string());
                         } else {
                             values.push("0".to_string());
                         }
+                        int_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(vals) => {
-                        if i < vals.len() {
-                            values.push(vals[i].clone());
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                        if string_idx < all_vertex_primvars_string.len() && i < all_vertex_primvars_string[string_idx].len() {
+                            values.push(all_vertex_primvars_string[string_idx][i].clone());
                         } else {
                             values.push("".to_string());
                         }
+                        string_idx += 1;
                     }
                 }
             }
@@ -395,12 +698,26 @@ fn build_face_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_da
         width: 80.0,
     });
     
-    // Take first mesh for sampling
-    if let Some(first_mesh) = scene_data.meshes.first() {
-        // Add columns for USD primvars with "uniform" interpolation (face attributes)
-        let uniform_primvars: Vec<_> = first_mesh.primvars.iter()
-            .filter(|pv| pv.interpolation == "uniform")
-            .collect();
+    // Process ALL meshes to show complete scene data
+    if !scene_data.meshes.is_empty() {
+        // Take first mesh for column structure
+        let first_mesh = &scene_data.meshes[0];
+        // Collect ALL unique uniform primvars from ALL meshes (not just first mesh)
+        let mut all_uniform_primvars = std::collections::HashMap::new();
+        for (mesh_idx, mesh) in scene_data.meshes.iter().enumerate() {
+            let mesh_uniform_primvars: Vec<_> = mesh.primvars.iter().filter(|pv| pv.interpolation == "uniform").collect();
+            if mesh_idx < 5 && !mesh_uniform_primvars.is_empty() {  // Debug first 5 meshes
+                println!("📊 Mesh[{}] {} has {} uniform primvars:", mesh_idx, mesh.prim_path, mesh_uniform_primvars.len());
+                for pv in &mesh_uniform_primvars {
+                    println!("    - {} ({})", pv.name, pv.data_type);
+                }
+            }
+            for primvar in mesh_uniform_primvars {
+                all_uniform_primvars.insert(primvar.name.clone(), primvar.clone());
+            }
+        }
+        let uniform_primvars: Vec<_> = all_uniform_primvars.values().collect();
+        println!("📊 Face Attributes: Found {} unique uniform primvars across {} meshes", uniform_primvars.len(), scene_data.meshes.len());
             
         for primvar in &uniform_primvars {
             match &primvar.values {
@@ -457,11 +774,123 @@ fn build_face_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_da
             }
         }
         
-        const MAX_FACES_TO_SHOW: usize = 1000;
-        let num_faces = (first_mesh.indices.len() / 3).min(MAX_FACES_TO_SHOW);
+        // Combine ALL face primvars from ALL meshes for complete scene view
+        let mut all_face_primvars: Vec<Vec<f32>> = Vec::new();
+        let mut all_face_primvars_float2: Vec<Vec<glam::Vec2>> = Vec::new();
+        let mut all_face_primvars_float3: Vec<Vec<glam::Vec3>> = Vec::new();
+        let mut all_face_primvars_int: Vec<Vec<i32>> = Vec::new();
+        let mut all_face_primvars_string: Vec<Vec<String>> = Vec::new();
         
-        // Create rows for each face (triangle)
-        for face_idx in 0..num_faces {
+        // Initialize primvar storage based on first mesh structure
+        for primvar in &uniform_primvars {
+            match &primvar.values {
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => all_face_primvars.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => all_face_primvars_float2.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => all_face_primvars_float3.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => all_face_primvars_int.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => all_face_primvars_string.push(Vec::new()),
+            }
+        }
+        
+        let mut total_faces = 0;
+        
+        // Collect face primvars from ALL meshes
+        for mesh in &scene_data.meshes {
+            let mesh_faces = mesh.indices.len() / 3;
+            total_faces += mesh_faces;
+            
+            // Add primvar data from this mesh (matching by name and type)
+            let mut float_idx = 0;
+            let mut float2_idx = 0;
+            let mut float3_idx = 0;
+            let mut int_idx = 0;
+            let mut string_idx = 0;
+            
+            for primvar in &uniform_primvars {
+                // Find matching primvar in current mesh
+                if let Some(mesh_primvar) = mesh.primvars.iter().find(|p| p.name == primvar.name && p.interpolation == "uniform") {
+                    match (&primvar.values, &mesh_primvar.values) {
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(vals)) => {
+                            all_face_primvars[float_idx].extend(vals.iter().cloned());
+                            float_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(vals)) => {
+                            all_face_primvars_float2[float2_idx].extend(vals.iter().cloned());
+                            float2_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(vals)) => {
+                            all_face_primvars_float3[float3_idx].extend(vals.iter().cloned());
+                            float3_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(vals)) => {
+                            all_face_primvars_int[int_idx].extend(vals.iter().cloned());
+                            int_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(vals)) => {
+                            all_face_primvars_string[string_idx].extend(vals.iter().cloned());
+                            string_idx += 1;
+                        },
+                        _ => {
+                            // Type mismatch or missing primvar - fill with defaults
+                            match &primvar.values {
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                                    all_face_primvars[float_idx].extend(vec![0.0; mesh_faces]);
+                                    float_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                                    all_face_primvars_float2[float2_idx].extend(vec![glam::Vec2::ZERO; mesh_faces]);
+                                    float2_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                                    all_face_primvars_float3[float3_idx].extend(vec![glam::Vec3::ZERO; mesh_faces]);
+                                    float3_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                                    all_face_primvars_int[int_idx].extend(vec![0; mesh_faces]);
+                                    int_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                                    all_face_primvars_string[string_idx].extend(vec![String::new(); mesh_faces]);
+                                    string_idx += 1;
+                                },
+                            }
+                        }
+                    }
+                } else {
+                    // Primvar not found in this mesh - fill with defaults
+                    match &primvar.values {
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                            all_face_primvars[float_idx].extend(vec![0.0; mesh_faces]);
+                            float_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                            all_face_primvars_float2[float2_idx].extend(vec![glam::Vec2::ZERO; mesh_faces]);
+                            float2_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                            all_face_primvars_float3[float3_idx].extend(vec![glam::Vec3::ZERO; mesh_faces]);
+                            float3_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                            all_face_primvars_int[int_idx].extend(vec![0; mesh_faces]);
+                            int_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                            all_face_primvars_string[string_idx].extend(vec![String::new(); mesh_faces]);
+                            string_idx += 1;
+                        },
+                    }
+                }
+            }
+        }
+        
+        // Create rows for ALL faces from ALL meshes
+        for face_idx in 0..total_faces {
             let mut values = Vec::new();
             
             // Face index
@@ -470,49 +899,62 @@ fn build_face_attributes_spreadsheet(state: &mut AttributeDisplayState, scene_da
             // Vertex count (always 3 for triangles)
             values.push("3".to_string());
             
-            // Add values for uniform primvars (face attributes)
+            // Add values for uniform primvars (face attributes) from combined arrays
+            let mut float_idx = 0;
+            let mut float2_idx = 0;
+            let mut float3_idx = 0;
+            let mut int_idx = 0;
+            let mut string_idx = 0;
+            
             for primvar in &uniform_primvars {
                 match &primvar.values {
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(vals) => {
-                        if face_idx < vals.len() {
-                            values.push(format!("{:.3}", vals[face_idx]));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                        if float_idx < all_face_primvars.len() && face_idx < all_face_primvars[float_idx].len() {
+                            values.push(format!("{:.3}", all_face_primvars[float_idx][face_idx]));
                         } else {
                             values.push("0.000".to_string());
                         }
+                        float_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(vals) => {
-                        if face_idx < vals.len() {
-                            values.push(format!("{:.3}", vals[face_idx].x));
-                            values.push(format!("{:.3}", vals[face_idx].y));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                        if float2_idx < all_face_primvars_float2.len() && face_idx < all_face_primvars_float2[float2_idx].len() {
+                            let val = all_face_primvars_float2[float2_idx][face_idx];
+                            values.push(format!("{:.3}", val.x));
+                            values.push(format!("{:.3}", val.y));
                         } else {
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                         }
+                        float2_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(vals) => {
-                        if face_idx < vals.len() {
-                            values.push(format!("{:.3}", vals[face_idx].x));
-                            values.push(format!("{:.3}", vals[face_idx].y));
-                            values.push(format!("{:.3}", vals[face_idx].z));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                        if float3_idx < all_face_primvars_float3.len() && face_idx < all_face_primvars_float3[float3_idx].len() {
+                            let val = all_face_primvars_float3[float3_idx][face_idx];
+                            values.push(format!("{:.3}", val.x));
+                            values.push(format!("{:.3}", val.y));
+                            values.push(format!("{:.3}", val.z));
                         } else {
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                         }
+                        float3_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(vals) => {
-                        if face_idx < vals.len() {
-                            values.push(vals[face_idx].to_string());
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                        if int_idx < all_face_primvars_int.len() && face_idx < all_face_primvars_int[int_idx].len() {
+                            values.push(all_face_primvars_int[int_idx][face_idx].to_string());
                         } else {
                             values.push("0".to_string());
                         }
+                        int_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(vals) => {
-                        if face_idx < vals.len() {
-                            values.push(vals[face_idx].clone());
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                        if string_idx < all_face_primvars_string.len() && face_idx < all_face_primvars_string[string_idx].len() {
+                            values.push(all_face_primvars_string[string_idx][face_idx].clone());
                         } else {
                             values.push("".to_string());
                         }
+                        string_idx += 1;
                     }
                 }
             }
@@ -551,12 +993,26 @@ fn build_face_corner_attributes_spreadsheet(state: &mut AttributeDisplayState, s
         width: 60.0,
     });
     
-    // Take first mesh for sampling
-    if let Some(first_mesh) = scene_data.meshes.first() {
-        // Add columns for USD primvars with "faceVarying" interpolation (corner attributes)
-        let face_varying_primvars: Vec<_> = first_mesh.primvars.iter()
-            .filter(|pv| pv.interpolation == "faceVarying")
-            .collect();
+    // Process ALL meshes to show complete scene data
+    if !scene_data.meshes.is_empty() {
+        // Take first mesh for column structure
+        let first_mesh = &scene_data.meshes[0];
+        // Collect ALL unique faceVarying primvars from ALL meshes (not just first mesh)
+        let mut all_face_varying_primvars = std::collections::HashMap::new();
+        for (mesh_idx, mesh) in scene_data.meshes.iter().enumerate() {
+            let mesh_facevarying_primvars: Vec<_> = mesh.primvars.iter().filter(|pv| pv.interpolation == "faceVarying").collect();
+            if mesh_idx < 5 && !mesh_facevarying_primvars.is_empty() {  // Debug first 5 meshes
+                println!("📊 Mesh[{}] {} has {} faceVarying primvars:", mesh_idx, mesh.prim_path, mesh_facevarying_primvars.len());
+                for pv in &mesh_facevarying_primvars {
+                    println!("    - {} ({})", pv.name, pv.data_type);
+                }
+            }
+            for primvar in mesh_facevarying_primvars {
+                all_face_varying_primvars.insert(primvar.name.clone(), primvar.clone());
+            }
+        }
+        let face_varying_primvars: Vec<_> = all_face_varying_primvars.values().collect();
+        println!("📊 Corner Attributes: Found {} unique faceVarying primvars across {} meshes", face_varying_primvars.len(), scene_data.meshes.len());
             
         for primvar in &face_varying_primvars {
             match &primvar.values {
@@ -627,82 +1083,215 @@ fn build_face_corner_attributes_spreadsheet(state: &mut AttributeDisplayState, s
             });
         }
         
-        // Limit corners for performance
-        const MAX_CORNERS_TO_SHOW: usize = 3000; // 1000 faces * 3 corners
-        let num_corners = first_mesh.indices.len().min(MAX_CORNERS_TO_SHOW);
+        // Combine ALL corner indices and primvars from ALL meshes for complete scene view
+        let mut all_indices = Vec::new();
+        let mut all_uvs = Vec::new();
+        let mut all_corner_primvars: Vec<Vec<f32>> = Vec::new();
+        let mut all_corner_primvars_float2: Vec<Vec<glam::Vec2>> = Vec::new();
+        let mut all_corner_primvars_float3: Vec<Vec<glam::Vec3>> = Vec::new();
+        let mut all_corner_primvars_int: Vec<Vec<i32>> = Vec::new();
+        let mut all_corner_primvars_string: Vec<Vec<String>> = Vec::new();
         
-        // Create rows for each corner (face vertex index)
-        for corner_idx in 0..num_corners {
+        // Initialize primvar storage based on first mesh structure
+        for primvar in &face_varying_primvars {
+            match &primvar.values {
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => all_corner_primvars.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => all_corner_primvars_float2.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => all_corner_primvars_float3.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => all_corner_primvars_int.push(Vec::new()),
+                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => all_corner_primvars_string.push(Vec::new()),
+            }
+        }
+        
+        let mut vertex_offset = 0; // Track vertex offset for proper point indexing
+        
+        // Collect corner data from ALL meshes
+        for mesh in &scene_data.meshes {
+            // Add indices from this mesh (adjusted by vertex offset)
+            let adjusted_indices: Vec<u32> = mesh.indices.iter().map(|&idx| idx + vertex_offset).collect();
+            all_indices.extend(adjusted_indices);
+            
+            // Add UVs from this mesh
+            all_uvs.extend(mesh.uvs.iter().cloned());
+            
+            // Update vertex offset for next mesh
+            vertex_offset += mesh.vertices.len() as u32;
+            
+            // Add primvar data from this mesh (matching by name and type)
+            let mut float_idx = 0;
+            let mut float2_idx = 0;
+            let mut float3_idx = 0;
+            let mut int_idx = 0;
+            let mut string_idx = 0;
+            
+            for primvar in &face_varying_primvars {
+                // Find matching primvar in current mesh
+                if let Some(mesh_primvar) = mesh.primvars.iter().find(|p| p.name == primvar.name && p.interpolation == "faceVarying") {
+                    match (&primvar.values, &mesh_primvar.values) {
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(vals)) => {
+                            all_corner_primvars[float_idx].extend(vals.iter().cloned());
+                            float_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(vals)) => {
+                            all_corner_primvars_float2[float2_idx].extend(vals.iter().cloned());
+                            float2_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(vals)) => {
+                            all_corner_primvars_float3[float3_idx].extend(vals.iter().cloned());
+                            float3_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(vals)) => {
+                            all_corner_primvars_int[int_idx].extend(vals.iter().cloned());
+                            int_idx += 1;
+                        },
+                        (crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_), 
+                         crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(vals)) => {
+                            all_corner_primvars_string[string_idx].extend(vals.iter().cloned());
+                            string_idx += 1;
+                        },
+                        _ => {
+                            // Type mismatch or missing primvar - fill with defaults
+                            match &primvar.values {
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                                    all_corner_primvars[float_idx].extend(vec![0.0; mesh.indices.len()]);
+                                    float_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                                    all_corner_primvars_float2[float2_idx].extend(vec![glam::Vec2::ZERO; mesh.indices.len()]);
+                                    float2_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                                    all_corner_primvars_float3[float3_idx].extend(vec![glam::Vec3::ZERO; mesh.indices.len()]);
+                                    float3_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                                    all_corner_primvars_int[int_idx].extend(vec![0; mesh.indices.len()]);
+                                    int_idx += 1;
+                                },
+                                crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                                    all_corner_primvars_string[string_idx].extend(vec![String::new(); mesh.indices.len()]);
+                                    string_idx += 1;
+                                },
+                            }
+                        }
+                    }
+                } else {
+                    // Primvar not found in this mesh - fill with defaults
+                    match &primvar.values {
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                            all_corner_primvars[float_idx].extend(vec![0.0; mesh.indices.len()]);
+                            float_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                            all_corner_primvars_float2[float2_idx].extend(vec![glam::Vec2::ZERO; mesh.indices.len()]);
+                            float2_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                            all_corner_primvars_float3[float3_idx].extend(vec![glam::Vec3::ZERO; mesh.indices.len()]);
+                            float3_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                            all_corner_primvars_int[int_idx].extend(vec![0; mesh.indices.len()]);
+                            int_idx += 1;
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                            all_corner_primvars_string[string_idx].extend(vec![String::new(); mesh.indices.len()]);
+                            string_idx += 1;
+                        },
+                    }
+                }
+            }
+        }
+        
+        let total_corners = all_indices.len();
+        
+        // Create rows for ALL corners from ALL meshes
+        for corner_idx in 0..total_corners {
             let mut values = Vec::new();
             
             // Corner index
             values.push(corner_idx.to_string());
             
-            // Point index (from faceVertexIndices)
-            if corner_idx < first_mesh.indices.len() {
-                let point_idx = first_mesh.indices[corner_idx];
+            // Point index (from combined faceVertexIndices)
+            if corner_idx < all_indices.len() {
+                let point_idx = all_indices[corner_idx];
                 values.push(point_idx.to_string());
             } else {
                 values.push("0".to_string());
             }
             
-            // Add values for faceVarying primvars (corner attributes)
+            // Add values for faceVarying primvars (corner attributes) from combined arrays
+            let mut float_idx = 0;
+            let mut float2_idx = 0;
+            let mut float3_idx = 0;
+            let mut int_idx = 0;
+            let mut string_idx = 0;
+            
             for primvar in &face_varying_primvars {
                 match &primvar.values {
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(vals) => {
-                        if corner_idx < vals.len() {
-                            values.push(format!("{:.3}", vals[corner_idx]));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float(_) => {
+                        if float_idx < all_corner_primvars.len() && corner_idx < all_corner_primvars[float_idx].len() {
+                            values.push(format!("{:.3}", all_corner_primvars[float_idx][corner_idx]));
                         } else {
                             values.push("0.000".to_string());
                         }
+                        float_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(vals) => {
-                        if corner_idx < vals.len() {
-                            values.push(format!("{:.3}", vals[corner_idx].x));
-                            values.push(format!("{:.3}", vals[corner_idx].y));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float2(_) => {
+                        if float2_idx < all_corner_primvars_float2.len() && corner_idx < all_corner_primvars_float2[float2_idx].len() {
+                            let val = all_corner_primvars_float2[float2_idx][corner_idx];
+                            values.push(format!("{:.3}", val.x));
+                            values.push(format!("{:.3}", val.y));
                         } else {
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                         }
+                        float2_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(vals) => {
-                        if corner_idx < vals.len() {
-                            values.push(format!("{:.3}", vals[corner_idx].x));
-                            values.push(format!("{:.3}", vals[corner_idx].y));
-                            values.push(format!("{:.3}", vals[corner_idx].z));
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Float3(_) => {
+                        if float3_idx < all_corner_primvars_float3.len() && corner_idx < all_corner_primvars_float3[float3_idx].len() {
+                            let val = all_corner_primvars_float3[float3_idx][corner_idx];
+                            values.push(format!("{:.3}", val.x));
+                            values.push(format!("{:.3}", val.y));
+                            values.push(format!("{:.3}", val.z));
                         } else {
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                             values.push("0.000".to_string());
                         }
+                        float3_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(vals) => {
-                        if corner_idx < vals.len() {
-                            values.push(vals[corner_idx].to_string());
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::Int(_) => {
+                        if int_idx < all_corner_primvars_int.len() && corner_idx < all_corner_primvars_int[int_idx].len() {
+                            values.push(all_corner_primvars_int[int_idx][corner_idx].to_string());
                         } else {
                             values.push("0".to_string());
                         }
+                        int_idx += 1;
                     }
-                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(vals) => {
-                        if corner_idx < vals.len() {
-                            values.push(vals[corner_idx].clone());
+                    crate::workspaces::three_d::usd::usd_engine::PrimvarValues::String(_) => {
+                        if string_idx < all_corner_primvars_string.len() && corner_idx < all_corner_primvars_string[string_idx].len() {
+                            values.push(all_corner_primvars_string[string_idx][corner_idx].clone());
                         } else {
                             values.push("".to_string());
                         }
+                        string_idx += 1;
                     }
                 }
             }
             
             // Fallback: Legacy UVs if no faceVarying primvars
-            if face_varying_primvars.is_empty() && !first_mesh.uvs.is_empty() {
-                if corner_idx < first_mesh.uvs.len() {
-                    let uv = first_mesh.uvs[corner_idx];
-                    values.push(format!("{:.3}", uv.x));
-                    values.push(format!("{:.3}", uv.y));
-                } else {
-                    values.push("0.000".to_string());
-                    values.push("0.000".to_string());
-                }
+            if face_varying_primvars.is_empty() && corner_idx < all_uvs.len() {
+                let uv = all_uvs[corner_idx];
+                values.push(format!("{:.3}", uv.x));
+                values.push(format!("{:.3}", uv.y));
+            } else if face_varying_primvars.is_empty() {
+                values.push("0.000".to_string());
+                values.push("0.000".to_string());
             }
             
             rows.push(GeometryRow {
@@ -738,8 +1327,10 @@ fn build_geometry_attributes_spreadsheet(state: &mut AttributeDisplayState, scen
     
     let mut row_index = 0;
     
-    // Add USD constant primvars from the first mesh
-    if let Some(first_mesh) = scene_data.meshes.first() {
+    // Add ALL USD attributes from ALL meshes (not just primvars)
+    if !scene_data.meshes.is_empty() {
+        // First add constant primvars
+        let first_mesh = &scene_data.meshes[0];
         let constant_primvars: Vec<_> = first_mesh.primvars.iter()
             .filter(|pv| pv.interpolation == "constant")
             .collect();
@@ -790,6 +1381,186 @@ fn build_geometry_attributes_spreadsheet(state: &mut AttributeDisplayState, scen
             });
             row_index += 1;
         }
+        
+        // Add separator row
+        rows.push(GeometryRow {
+            element_index: row_index,
+            attribute_values: vec!["--- Primvars ---".to_string(), "".to_string()],
+            row_height: MIN_ROW_HEIGHT,
+        });
+        row_index += 1;
+        
+        // Add ALL USD attributes from ALL meshes
+        for (mesh_idx, mesh) in scene_data.meshes.iter().enumerate() {
+            if !mesh.attributes.is_empty() {
+                // Add mesh header
+                rows.push(GeometryRow {
+                    element_index: row_index,
+                    attribute_values: vec![format!("Mesh[{}]: {}", mesh_idx, mesh.prim_path), "".to_string()],
+                    row_height: MIN_ROW_HEIGHT,
+                });
+                row_index += 1;
+                
+                // Add all attributes for this mesh
+                for attr in &mesh.attributes {
+                    let value_str = match &attr.value {
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Bool(v) => v.to_string(),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Int(v) => v.to_string(),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Float(v) => format!("{:.3}", v),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Double(v) => format!("{:.6}", v),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::String(v) => format!("\"{}\"", v),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Token(v) => v.clone(),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Asset(v) => format!("@{}@", v),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Float2(v) => format!("({:.3}, {:.3})", v.x, v.y),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Float3(v) => format!("({:.3}, {:.3}, {:.3})", v.x, v.y, v.z),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Color3f(v) => format!("color({:.3}, {:.3}, {:.3})", v.x, v.y, v.z),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Normal3f(v) => format!("normal({:.3}, {:.3}, {:.3})", v.x, v.y, v.z),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Point3f(v) => format!("point({:.3}, {:.3}, {:.3})", v.x, v.y, v.z),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Vector3f(v) => format!("vector({:.3}, {:.3}, {:.3})", v.x, v.y, v.z),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::TexCoord2f(v) => format!("uv({:.3}, {:.3})", v.x, v.y),
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Matrix4d(m) => {
+                            format!("matrix4d[{:.2},{:.2},{:.2},{:.2}...]", m.x_axis.x, m.x_axis.y, m.x_axis.z, m.x_axis.w)
+                        },
+                        // Array types - show count and first element
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::BoolArray(arr) => {
+                            if arr.is_empty() {
+                                format!("bool[0]")
+                            } else {
+                                format!("bool[{}] ({}...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::IntArray(arr) => {
+                            if arr.is_empty() {
+                                format!("int[0]")
+                            } else {
+                                format!("int[{}] ({}...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::FloatArray(arr) => {
+                            if arr.is_empty() {
+                                format!("float[0]")
+                            } else {
+                                format!("float[{}] ({:.3}...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::DoubleArray(arr) => {
+                            if arr.is_empty() {
+                                format!("double[0]")
+                            } else {
+                                format!("double[{}] ({:.6}...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::StringArray(arr) => {
+                            if arr.is_empty() {
+                                format!("string[0]")
+                            } else {
+                                format!("string[{}] (\"{}\"...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::TokenArray(arr) => {
+                            if arr.is_empty() {
+                                format!("token[0]")
+                            } else {
+                                format!("token[{}] ({}...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::AssetArray(arr) => {
+                            if arr.is_empty() {
+                                format!("asset[0]")
+                            } else {
+                                format!("asset[{}] (@{}@...)", arr.len(), arr[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Float2Array(arr) => {
+                            if arr.is_empty() {
+                                format!("float2[0]")
+                            } else {
+                                format!("float2[{}] ({:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Float3Array(arr) => {
+                            if arr.is_empty() {
+                                format!("float3[0]")
+                            } else {
+                                format!("float3[{}] ({:.3},{:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y, arr[0].z)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Color3fArray(arr) => {
+                            if arr.is_empty() {
+                                format!("color3f[0]")
+                            } else {
+                                format!("color3f[{}] ({:.3},{:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y, arr[0].z)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Normal3fArray(arr) => {
+                            if arr.is_empty() {
+                                format!("normal3f[0]")
+                            } else {
+                                format!("normal3f[{}] ({:.3},{:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y, arr[0].z)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Point3fArray(arr) => {
+                            if arr.is_empty() {
+                                format!("point3f[0]")
+                            } else {
+                                format!("point3f[{}] ({:.3},{:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y, arr[0].z)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Vector3fArray(arr) => {
+                            if arr.is_empty() {
+                                format!("vector3f[0]")
+                            } else {
+                                format!("vector3f[{}] ({:.3},{:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y, arr[0].z)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::TexCoord2fArray(arr) => {
+                            if arr.is_empty() {
+                                format!("texCoord2f[0]")
+                            } else {
+                                format!("texCoord2f[{}] ({:.3},{:.3}...)", arr.len(), arr[0].x, arr[0].y)
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Matrix4dArray(arr) => {
+                            format!("matrix4d[{}]", arr.len())
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Relationship(paths) => {
+                            if paths.is_empty() {
+                                format!("relationship[0]")
+                            } else {
+                                format!("relationship[{}] ({}...)", paths.len(), paths[0])
+                            }
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::TimeSamples(samples) => {
+                            format!("timeSamples[{}]", samples.len())
+                        },
+                        crate::workspaces::three_d::usd::usd_engine::AttributeValue::Unknown(s) => {
+                            format!("unknown: {}", s)
+                        },
+                    };
+                    
+                    let attr_name = if attr.is_custom {
+                        format!("{} [custom]", attr.name)
+                    } else {
+                        attr.name.clone()
+                    };
+                    
+                    rows.push(GeometryRow {
+                        element_index: row_index,
+                        attribute_values: vec![attr_name, value_str],
+                        row_height: MIN_ROW_HEIGHT,
+                    });
+                    row_index += 1;
+                }
+            }
+        }
+        
+        // Add separator row
+        rows.push(GeometryRow {
+            element_index: row_index,
+            attribute_values: vec!["--- Summary ---".to_string(), "".to_string()],
+            row_height: MIN_ROW_HEIGHT,
+        });
+        row_index += 1;
     }
     
     // Add summary information about the geometry
@@ -965,12 +1736,14 @@ fn render_spreadsheet_content(
     
     let columns = &state.geometry_spreadsheet.columns;
     
-    // Create TableBuilder with proper spreadsheet styling
+    // Create TableBuilder with proper spreadsheet styling and optimizations
     let mut table_builder = TableBuilder::new(ui)
         .striped(true)  // Alternating row colors like Excel
         .resizable(true)  // Allow column resizing
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .max_scroll_height(400.0);  // Cap height and add scrolling
+        .max_scroll_height(600.0)  // Larger viewport for better UX
+        .stick_to_bottom(false)  // Don't auto-scroll to bottom
+        .auto_shrink([false, true]);  // Don't shrink width, allow height shrinking
     
     // Add columns with appropriate widths
     for column in columns {
@@ -990,21 +1763,24 @@ fn render_spreadsheet_content(
         .body(|mut body| {
             let row_height = MIN_ROW_HEIGHT;
             
-            // Use body.rows() for efficient rendering of many rows
+            // Use body.rows() for efficient virtual scrolling of many rows
             body.rows(row_height, total_items, |mut row| {
                 let row_index = row.index();
                 if let Some(geometry_row) = state.geometry_spreadsheet.rows.get(row_index) {
-                    // Render each column in this row
+                    // Pre-cache attribute values to avoid repeated indexing
+                    let attribute_values = &geometry_row.attribute_values;
+                    
+                    // Render each column in this row with optimized rendering
                     for (col_index, _column) in columns.iter().enumerate() {
                         row.col(|ui| {
-                            let empty_string = String::new();
-                            let value = geometry_row.attribute_values.get(col_index).unwrap_or(&empty_string);
-                            
-                            // Color code the first column (element index) like Excel row numbers
-                            if col_index == 0 {
-                                ui.colored_label(Color32::from_rgb(100, 100, 140), value);
-                            } else {
-                                ui.label(value);
+                            if let Some(value) = attribute_values.get(col_index) {
+                                // Color code the first column (element index) like Excel row numbers
+                                if col_index == 0 {
+                                    ui.colored_label(Color32::from_rgb(100, 100, 140), value);
+                                } else {
+                                    // Use optimized label rendering for data cells
+                                    ui.label(value);
+                                }
                             }
                         });
                     }
@@ -1028,13 +1804,12 @@ fn render_status_bar(ui: &mut Ui, state: &AttributeDisplayState) {
             total_columns.saturating_sub(1) // Subtract 1 for element index column
         ));
         
-        // Show sampling warning if data was limited
-        const MAX_ELEMENTS_TO_SHOW: usize = 1000;
-        if total_rows >= MAX_ELEMENTS_TO_SHOW {
+        // Show performance info for large datasets
+        if total_rows > 10000 {
             ui.separator();
             ui.colored_label(
-                egui::Color32::LIGHT_RED,
-                format!("Limited to {} elements for performance", MAX_ELEMENTS_TO_SHOW)
+                egui::Color32::LIGHT_YELLOW,
+                format!("Large dataset ({} elements) - using virtual scrolling for performance", total_rows)
             );
         }
         

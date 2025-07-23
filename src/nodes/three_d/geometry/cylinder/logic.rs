@@ -155,6 +155,7 @@ impl CylinderLogic {
                     vertex_colors: None,
                     transform: Mat4::IDENTITY,
                     primvars: vec![],
+                    attributes: vec![],
                 }
             ],
             lights: vec![],
@@ -259,6 +260,7 @@ impl CylinderLogic {
                     vertex_colors: None,
                     transform: Mat4::IDENTITY,
                     primvars: vec![],
+                    attributes: vec![],
                 }
             ],
             lights: vec![],

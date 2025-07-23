@@ -267,13 +267,27 @@ impl USDRenderer {
                     Vec2::new(0.0, 0.0) // Default UV
                 };
                 let color = if let Some(ref vertex_colors) = usd_mesh.vertex_colors {
-                    if i < vertex_colors.len() {
-                        vertex_colors[i]
+                    if !vertex_colors.is_empty() {
+                        if i < vertex_colors.len() {
+                            // Per-vertex color
+                            let color = vertex_colors[i];
+                            if i < 5 { // Debug first few vertices
+                                println!("🎨 USD Vertex[{}] per-vertex color: {:?}", i, color);
+                            }
+                            color
+                        } else {
+                            // Constant color per mesh - use the first (and likely only) color for all vertices
+                            let mesh_color = vertex_colors[0];
+                            if i < 5 { // Debug first few vertices
+                                println!("🎨 USD Vertex[{}] mesh constant color: {:?}", i, mesh_color);
+                            }
+                            mesh_color
+                        }
                     } else {
-                        Vec3::new(1.0, 1.0, 1.0) // Default white color
+                        Vec3::new(1.0, 1.0, 1.0) // Default white color for empty array
                     }
                 } else {
-                    Vec3::new(1.0, 1.0, 1.0) // Default white color
+                    Vec3::new(1.0, 1.0, 1.0) // Default white color when no vertex colors
                 };
                 Vertex3D {
                     position: pos.into(),

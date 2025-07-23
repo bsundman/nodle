@@ -578,6 +578,11 @@ impl NodeRegistry {
                 nodle_plugin_sdk::PanelType::Parameter => crate::nodes::interface::PanelType::Parameter,
                 nodle_plugin_sdk::PanelType::Viewport => crate::nodes::interface::PanelType::Viewport,
                 nodle_plugin_sdk::PanelType::Combined => crate::nodes::interface::PanelType::Parameter, // Fallback
+                nodle_plugin_sdk::PanelType::Viewer => crate::nodes::interface::PanelType::Viewport, // Map to viewport
+                nodle_plugin_sdk::PanelType::Editor => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Inspector => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Tree => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Spreadsheet => crate::nodes::interface::PanelType::Parameter, // Map to parameter
             };
             debug!("Converted to core panel type: {:?}", panel_type);
             
@@ -693,6 +698,11 @@ impl NodeRegistry {
                     nodle_plugin_sdk::PanelType::Parameter => crate::nodes::interface::PanelType::Parameter,
                     nodle_plugin_sdk::PanelType::Viewport => crate::nodes::interface::PanelType::Viewport,
                     nodle_plugin_sdk::PanelType::Combined => crate::nodes::interface::PanelType::Parameter, // Fallback to Parameter
+                    nodle_plugin_sdk::PanelType::Viewer => crate::nodes::interface::PanelType::Viewport, // Map to viewport
+                    nodle_plugin_sdk::PanelType::Editor => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                    nodle_plugin_sdk::PanelType::Inspector => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                    nodle_plugin_sdk::PanelType::Tree => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                    nodle_plugin_sdk::PanelType::Spreadsheet => crate::nodes::interface::PanelType::Parameter, // Map to parameter
                 },
                 default_panel_position: match plugin_meta.default_panel_position {
                     nodle_plugin_sdk::PanelPosition::TopLeft => PanelPosition::TopLeft,
@@ -719,6 +729,15 @@ impl NodeRegistry {
                         nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
                         nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
                         nodle_plugin_sdk::DataType::Any => DataType::Any,
+                        // Map new rich types to appropriate core types
+                        nodle_plugin_sdk::DataType::Integer => DataType::Float, // Map integers to floats
+                        nodle_plugin_sdk::DataType::Scene => DataType::USDScene, // Map scene to USD
+                        nodle_plugin_sdk::DataType::Geometry => DataType::USDScene, // Map geometry to USD
+                        nodle_plugin_sdk::DataType::Material => DataType::USDScene, // Map material to USD
+                        nodle_plugin_sdk::DataType::Stage => DataType::USDScene, // Map stage to USD
+                        nodle_plugin_sdk::DataType::USDScenegraph => DataType::USDScene, // Map USD scenegraph to USD
+                        nodle_plugin_sdk::DataType::Light => DataType::USDScene, // Map light to USD
+                        nodle_plugin_sdk::DataType::Image => DataType::String, // Map image to string for now
                     },
                     optional: p.optional,
                     description: p.description.clone(),
@@ -733,6 +752,15 @@ impl NodeRegistry {
                         nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
                         nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
                         nodle_plugin_sdk::DataType::Any => DataType::Any,
+                        // Map new rich types to appropriate core types
+                        nodle_plugin_sdk::DataType::Integer => DataType::Float, // Map integers to floats
+                        nodle_plugin_sdk::DataType::Scene => DataType::USDScene, // Map scene to USD
+                        nodle_plugin_sdk::DataType::Geometry => DataType::USDScene, // Map geometry to USD
+                        nodle_plugin_sdk::DataType::Material => DataType::USDScene, // Map material to USD
+                        nodle_plugin_sdk::DataType::Stage => DataType::USDScene, // Map stage to USD
+                        nodle_plugin_sdk::DataType::USDScenegraph => DataType::USDScene, // Map USD scenegraph to USD
+                        nodle_plugin_sdk::DataType::Light => DataType::USDScene, // Map light to USD
+                        nodle_plugin_sdk::DataType::Image => DataType::String, // Map image to string for now
                     },
                     optional: p.optional,
                     description: p.description.clone(),
@@ -807,6 +835,11 @@ impl NodeRegistry {
                 nodle_plugin_sdk::PanelType::Parameter => PanelType::Parameter,
                 nodle_plugin_sdk::PanelType::Viewport => PanelType::Viewport,
                 nodle_plugin_sdk::PanelType::Combined => PanelType::Parameter, // Fallback to Parameter
+                nodle_plugin_sdk::PanelType::Viewer => PanelType::Viewport, // Map to viewport
+                nodle_plugin_sdk::PanelType::Editor => PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Inspector => PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Tree => PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Spreadsheet => PanelType::Parameter, // Map to parameter
             },
             default_panel_position: match plugin_meta.default_panel_position {
                 nodle_plugin_sdk::PanelPosition::TopLeft => PanelPosition::TopLeft,
@@ -871,6 +904,15 @@ impl NodeRegistry {
             nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
             nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
             nodle_plugin_sdk::DataType::Any => DataType::Any,
+            // Map new rich types to appropriate core types
+            nodle_plugin_sdk::DataType::Integer => DataType::Float, // Map integers to floats
+            nodle_plugin_sdk::DataType::Scene => DataType::USDScene, // Map scene to USD
+            nodle_plugin_sdk::DataType::Geometry => DataType::USDScene, // Map geometry to USD
+            nodle_plugin_sdk::DataType::Material => DataType::USDScene, // Map material to USD
+            nodle_plugin_sdk::DataType::Stage => DataType::USDScene, // Map stage to USD
+            nodle_plugin_sdk::DataType::USDScenegraph => DataType::USDScene, // Map USD scenegraph to USD
+            nodle_plugin_sdk::DataType::Light => DataType::USDScene, // Map light to USD
+            nodle_plugin_sdk::DataType::Image => DataType::String, // Map image to string for now
         }
     }
     

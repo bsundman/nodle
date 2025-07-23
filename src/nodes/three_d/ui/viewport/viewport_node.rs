@@ -1087,7 +1087,32 @@ impl ViewportNode {
             
             // Extract vertex colors if available
             let vertex_colors = if let Some(ref colors) = usd_mesh.vertex_colors {
-                Some(colors.iter().flat_map(|c| [c.x, c.y, c.z]).collect())
+                if !colors.is_empty() {
+                    let num_vertices = usd_mesh.vertices.len();
+                    if colors.len() == 1 {
+                        // Constant color per mesh - expand to all vertices
+                        let mesh_color = colors[0];
+                        if mesh_idx < 5 { // Only log first few meshes to reduce verbosity
+                            println!("🎨 Viewport: Expanding constant color {:?} to {} vertices for mesh {}", mesh_color, num_vertices, mesh_idx);
+                        }
+                        Some((0..num_vertices).flat_map(|_| [mesh_color.x, mesh_color.y, mesh_color.z]).collect())
+                    } else if colors.len() == num_vertices {
+                        // Per-vertex colors
+                        if mesh_idx < 5 { // Only log first few meshes to reduce verbosity
+                            println!("🎨 Viewport: Using per-vertex colors ({} colors) for mesh {}", colors.len(), mesh_idx);
+                        }
+                        Some(colors.iter().flat_map(|c| [c.x, c.y, c.z]).collect())
+                    } else {
+                        // Mismatched color count - use first color for all vertices
+                        if mesh_idx < 5 { // Only log first few meshes to reduce verbosity
+                            println!("🎨 Viewport: Color count mismatch ({} colors, {} vertices), using first color for mesh {}", colors.len(), num_vertices, mesh_idx);
+                        }
+                        let first_color = colors[0];
+                        Some((0..num_vertices).flat_map(|_| [first_color.x, first_color.y, first_color.z]).collect())
+                    }
+                } else {
+                    None
+                }
             } else {
                 None
             };

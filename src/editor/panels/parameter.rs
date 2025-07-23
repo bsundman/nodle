@@ -721,11 +721,28 @@ impl ParameterPanel {
                                     crate::plugins::NodeData::String(s) => crate::nodes::interface::NodeData::String(s),
                                     crate::plugins::NodeData::Boolean(b) => crate::nodes::interface::NodeData::Boolean(b),
                                     crate::plugins::NodeData::USDScene(s) => crate::nodes::interface::NodeData::String(s), // Convert USD to string
+                                    // Rich data types - convert to JSON strings for now
+                                    crate::plugins::NodeData::Scene(_) => crate::nodes::interface::NodeData::String("[Scene Data]".to_string()),
+                                    crate::plugins::NodeData::Geometry(_) => crate::nodes::interface::NodeData::String("[Geometry Data]".to_string()),
+                                    crate::plugins::NodeData::Material(_) => crate::nodes::interface::NodeData::String("[Material Data]".to_string()),
+                                    crate::plugins::NodeData::Stage(_) => crate::nodes::interface::NodeData::String("[Stage Data]".to_string()),
+                                    crate::plugins::NodeData::USDSceneData(_) => crate::nodes::interface::NodeData::String("[USD Scene Data]".to_string()),
+                                    crate::plugins::NodeData::USDScenegraphMetadata(_) => crate::nodes::interface::NodeData::String("[USD Metadata]".to_string()),
+                                    crate::plugins::NodeData::Light(_) => crate::nodes::interface::NodeData::String("[Light Data]".to_string()),
+                                    crate::plugins::NodeData::Image(_) => crate::nodes::interface::NodeData::String("[Image Data]".to_string()),
+                                    crate::plugins::NodeData::Integer(i) => crate::nodes::interface::NodeData::Integer(i),
+                                    crate::plugins::NodeData::Any(s) => crate::nodes::interface::NodeData::String(s),
+                                    crate::plugins::NodeData::None => crate::nodes::interface::NodeData::String("None".to_string()),
                                 };
                                 node.parameters.insert(parameter, core_value);
                             }
                             crate::plugins::UIAction::ButtonClicked { action } => {
                                 // Handle button clicks if needed - for now just log
+                            }
+                            crate::plugins::UIAction::FileSelected { parameter, path } => {
+                                // Handle file selections - convert to string parameter
+                                let core_value = crate::nodes::interface::NodeData::String(path);
+                                node.parameters.insert(parameter, core_value);
                             }
                         }
                     }
@@ -1247,7 +1264,7 @@ impl ParameterPanel {
                         if ui.color_edit_button_rgb(&mut color_value).changed() {
                             actions.push(crate::plugins::UIAction::ParameterChanged {
                                 parameter: parameter_name.clone(),
-                                value: crate::plugins::NodeData::Color(color_value),
+                                value: crate::plugins::NodeData::Color([color_value[0], color_value[1], color_value[2], 1.0]),
                             });
                         }
                     });
@@ -1261,6 +1278,89 @@ impl ParameterPanel {
                 crate::plugins::UIElement::Vertical(sub_elements) => {
                     ui.vertical(|ui| {
                         let sub_actions = self.render_ui_elements(ui, sub_elements);
+                        actions.extend(sub_actions);
+                    });
+                }
+                crate::plugins::UIElement::ColorPicker { label, value, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut color_value = *value;
+                        if ui.color_edit_button_srgba(&mut egui::Color32::from_rgba_premultiplied(
+                            (color_value[0] * 255.0) as u8,
+                            (color_value[1] * 255.0) as u8,
+                            (color_value[2] * 255.0) as u8,
+                            (color_value[3] * 255.0) as u8,
+                        )).changed() {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::Color(color_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::ComboBox { label, selected, options, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let current_text = &options[*selected];
+                        egui::ComboBox::from_id_salt(label)
+                            .selected_text(current_text)
+                            .show_ui(ui, |ui| {
+                                for (i, option) in options.iter().enumerate() {
+                                    let mut temp_selected = *selected;
+                                    if ui.selectable_value(&mut temp_selected, i, option).changed() {
+                                        actions.push(crate::plugins::UIAction::ParameterChanged {
+                                            parameter: parameter_name.clone(),
+                                            value: crate::plugins::NodeData::String(option.clone()),
+                                        });
+                                    }
+                                }
+                            });
+                    });
+                }
+                crate::plugins::UIElement::Vector3Input { label, value, parameter_name } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut local_value = *value;
+                        let mut changed = false;
+                        changed |= ui.add(egui::DragValue::new(&mut local_value[0]).prefix("X:")).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut local_value[1]).prefix("Y:")).changed();
+                        changed |= ui.add(egui::DragValue::new(&mut local_value[2]).prefix("Z:")).changed();
+                        if changed {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::Vector3(local_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::FilePicker { label, value, parameter_name, .. } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut local_value = value.clone();
+                        let mut changed = ui.text_edit_singleline(&mut local_value).changed();
+                        if ui.button("Browse").clicked() {
+                            // File dialog would be handled by the main application
+                            // For now, just mark as changed
+                            changed = true;
+                        }
+                        if changed {
+                            actions.push(crate::plugins::UIAction::ParameterChanged {
+                                parameter: parameter_name.clone(),
+                                value: crate::plugins::NodeData::String(local_value),
+                            });
+                        }
+                    });
+                }
+                crate::plugins::UIElement::Group { label, children } => {
+                    ui.group(|ui| {
+                        ui.label(label);
+                        let sub_actions = self.render_ui_elements(ui, children);
+                        actions.extend(sub_actions);
+                    });
+                }
+                crate::plugins::UIElement::Collapsible { label, children, .. } => {
+                    ui.collapsing(label, |ui| {
+                        let sub_actions = self.render_ui_elements(ui, children);
                         actions.extend(sub_actions);
                     });
                 }

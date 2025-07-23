@@ -4,6 +4,21 @@
 
 Nōdle (pronounced like "noodle") is a high-performance node-based visual programming editor built in Rust using the egui/eframe framework. It implements a vertical flow design with GPU-accelerated rendering and an extensible plugin architecture supporting unlimited node types and specialized workspaces.
 
+## Recent Major Updates
+
+### Plugin SDK Modernization (2024)
+- **Complete NodeData System**: Plugin SDK now matches main application's rich type system with Scene, Geometry, Material, USD, Light, and Image data types
+- **Advanced Caching**: Multi-stage caching system with strategies for simple and complex plugins (like USD File Reader pattern)
+- **Execution Hooks**: NodeExecutionHooks system for plugin lifecycle management and smart cache invalidation
+- **Rich UI Components**: Comprehensive InterfaceParameter system with all modern UI elements
+- **USD Integration**: Full USD data structures available to plugins for 3D scene processing
+- **Performance Optimization**: Unified cache system exposed to plugins for high-performance operations
+
+### Architecture Improvements
+- **Manual Cook Button Fix**: Now correctly executes nodes in current workspace rather than root graph
+- **Pattern Matching**: All enum variants properly handled across plugin interface
+- **Type Safety**: Complete type conversion system between core and plugin data types
+
 ## 🌟 Node-Centric Architecture
 
 Nōdle follows a pure node-centric philosophy where **"nodes are the star of the show"**. Everything in the system is driven by node metadata - from visual appearance to interface panel behavior. This approach ensures consistency, extensibility, and maintainability across the entire codebase.

@@ -321,22 +321,14 @@ impl Default for AttributeChangeTracker {
 pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute> {
     let mut attributes = Vec::new();
     
-    // CRITICAL: Add sampling limits to prevent memory explosion
-    const MAX_VERTICES_TO_CLONE: usize = 1000; // Limit to prevent 5GB+ clones
-    const MAX_INDICES_TO_CLONE: usize = 3000;   // 3 per triangle, ~1000 triangles
+    // Extract ALL vertices and indices - no sampling limits
     
     // Get string interner lock
     if let Ok(mut interner) = STRING_INTERNER.lock() {
         // Geometric attributes (non-primvar)
         
-        // Points - FIXED: Sample vertices instead of cloning all
-        let sampled_vertices = if mesh.vertices.len() > MAX_VERTICES_TO_CLONE {
-            // Use stratified sampling to get representative data
-            let stride = mesh.vertices.len() / MAX_VERTICES_TO_CLONE;
-            mesh.vertices.iter().step_by(stride).cloned().collect::<Vec<_>>()
-        } else {
-            mesh.vertices.clone() // Only clone if small enough
-        };
+        // Points - Use all vertices
+        let sampled_vertices = mesh.vertices.clone();
         
         attributes.push(USDAttribute {
             name: interner.intern("points"),
@@ -348,21 +340,12 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
             indices: None,
             type_display: interner.intern("point3f[]"),
             interpolation_display: interner.intern("N/A"),
-            count_display: interner.intern(&format!("{} (sampled from {})", 
-                std::cmp::min(mesh.vertices.len(), MAX_VERTICES_TO_CLONE), 
-                mesh.vertices.len())),
-            preview_display: interner.intern(&format!("[{}] vertex positions{}", 
-                std::cmp::min(mesh.vertices.len(), MAX_VERTICES_TO_CLONE),
-                if mesh.vertices.len() > MAX_VERTICES_TO_CLONE { " (sampled)" } else { "" })),
+            count_display: interner.intern(&mesh.vertices.len().to_string()),
+            preview_display: interner.intern(&format!("[{}] vertex positions", mesh.vertices.len())),
         });
         
-        // Face vertex indices - FIXED: Sample indices instead of converting all
-        let sampled_indices = if mesh.indices.len() > MAX_INDICES_TO_CLONE {
-            let stride = mesh.indices.len() / MAX_INDICES_TO_CLONE;
-            mesh.indices.iter().step_by(stride).map(|&i| i as i32).collect::<Vec<_>>()
-        } else {
-            mesh.indices.iter().map(|&i| i as i32).collect()
-        };
+        // Face vertex indices - Use all indices
+        let sampled_indices: Vec<i32> = mesh.indices.iter().map(|&i| i as i32).collect();
         
         attributes.push(USDAttribute {
             name: interner.intern("faceVertexIndices"),
@@ -374,12 +357,8 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
             indices: None,
             type_display: interner.intern("int[]"),
             interpolation_display: interner.intern("N/A"),
-            count_display: interner.intern(&format!("{} (sampled from {})", 
-                std::cmp::min(mesh.indices.len(), MAX_INDICES_TO_CLONE), 
-                mesh.indices.len())),
-            preview_display: interner.intern(&format!("[{}] face connectivity{}", 
-                std::cmp::min(mesh.indices.len(), MAX_INDICES_TO_CLONE),
-                if mesh.indices.len() > MAX_INDICES_TO_CLONE { " (sampled)" } else { "" })),
+            count_display: interner.intern(&mesh.indices.len().to_string()),
+            preview_display: interner.intern(&format!("[{}] face connectivity", mesh.indices.len())),
         });
         
         // Extract primvars from USD data with their actual interpolation types
@@ -395,73 +374,45 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
             // Convert primvar values to attribute values with sampling
             let (value, count, preview) = match &primvar.values {
                 PrimvarValues::Float3(values) => {
-                    let sampled = if values.len() > MAX_VERTICES_TO_CLONE {
-                        let stride = values.len() / MAX_VERTICES_TO_CLONE;
-                        values.iter().step_by(stride).cloned().collect::<Vec<_>>()
-                    } else {
-                        values.clone()
-                    };
-                    let count = sampled.len();
-                    let total = values.len();
+                    let count = values.len();
                     
                     // Use appropriate attribute type based on primvar name
                     let attr_value = if primvar.name.contains("normal") {
-                        AttributeValue::Normal3fArray(sampled)
+                        AttributeValue::Normal3fArray(values.clone())
                     } else if primvar.name.contains("color") || primvar.name == "displayColor" {
-                        AttributeValue::Color3fArray(sampled)
+                        AttributeValue::Color3fArray(values.clone())
                     } else {
-                        AttributeValue::Point3fArray(sampled)
+                        AttributeValue::Point3fArray(values.clone())
                     };
                     
                     (
                         attr_value,
-                        if count < total { format!("{} (sampled from {})", count, total) } else { count.to_string() },
-                        format!("[{}] {}{}", count, primvar.name, if count < total { " (sampled)" } else { "" })
+                        count.to_string(),
+                        format!("[{}] {}", count, primvar.name)
                     )
                 },
                 PrimvarValues::Float2(values) => {
-                    let sampled = if values.len() > MAX_VERTICES_TO_CLONE {
-                        let stride = values.len() / MAX_VERTICES_TO_CLONE;
-                        values.iter().step_by(stride).cloned().collect::<Vec<_>>()
-                    } else {
-                        values.clone()
-                    };
-                    let count = sampled.len();
-                    let total = values.len();
+                    let count = values.len();
                     (
-                        AttributeValue::TexCoord2fArray(sampled),
-                        if count < total { format!("{} (sampled from {})", count, total) } else { count.to_string() },
-                        format!("[{}] {}{}", count, primvar.name, if count < total { " (sampled)" } else { "" })
+                        AttributeValue::TexCoord2fArray(values.clone()),
+                        count.to_string(),
+                        format!("[{}] {}", count, primvar.name)
                     )
                 },
                 PrimvarValues::Float(values) => {
-                    let sampled = if values.len() > MAX_VERTICES_TO_CLONE {
-                        let stride = values.len() / MAX_VERTICES_TO_CLONE;
-                        values.iter().step_by(stride).cloned().collect::<Vec<_>>()
-                    } else {
-                        values.clone()
-                    };
-                    let count = sampled.len();
-                    let total = values.len();
+                    let count = values.len();
                     (
-                        AttributeValue::FloatArray(sampled),
-                        if count < total { format!("{} (sampled from {})", count, total) } else { count.to_string() },
-                        format!("[{}] {}{}", count, primvar.name, if count < total { " (sampled)" } else { "" })
+                        AttributeValue::FloatArray(values.clone()),
+                        count.to_string(),
+                        format!("[{}] {}", count, primvar.name)
                     )
                 },
                 PrimvarValues::Int(values) => {
-                    let sampled = if values.len() > MAX_INDICES_TO_CLONE {
-                        let stride = values.len() / MAX_INDICES_TO_CLONE;
-                        values.iter().step_by(stride).cloned().collect::<Vec<_>>()
-                    } else {
-                        values.clone()
-                    };
-                    let count = sampled.len();
-                    let total = values.len();
+                    let count = values.len();
                     (
-                        AttributeValue::IntArray(sampled),
-                        if count < total { format!("{} (sampled from {})", count, total) } else { count.to_string() },
-                        format!("[{}] {}{}", count, primvar.name, if count < total { " (sampled)" } else { "" })
+                        AttributeValue::IntArray(values.clone()),
+                        count.to_string(),
+                        format!("[{}] {}", count, primvar.name)
                     )
                 },
                 PrimvarValues::String(values) => {
@@ -519,12 +470,7 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
         let has_color_primvar = mesh.primvars.iter().any(|p| p.name == "displayColor");
         
         if !has_normals_primvar && !mesh.normals.is_empty() {
-            let sampled_normals = if mesh.normals.len() > MAX_VERTICES_TO_CLONE {
-                let stride = mesh.normals.len() / MAX_VERTICES_TO_CLONE;
-                mesh.normals.iter().step_by(stride).cloned().collect::<Vec<_>>()
-            } else {
-                mesh.normals.clone()
-            };
+            let sampled_normals = mesh.normals.clone();
             
             attributes.push(USDAttribute {
                 name: interner.intern("normals"),
@@ -536,22 +482,13 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
                 indices: None,
                 type_display: interner.intern("normal3f[]"),
                 interpolation_display: interner.intern("vertex"),
-                count_display: interner.intern(&format!("{} (sampled from {})", 
-                    std::cmp::min(mesh.normals.len(), MAX_VERTICES_TO_CLONE), 
-                    mesh.normals.len())),
-                preview_display: interner.intern(&format!("[{}] normals{}", 
-                    std::cmp::min(mesh.normals.len(), MAX_VERTICES_TO_CLONE),
-                    if mesh.normals.len() > MAX_VERTICES_TO_CLONE { " (sampled)" } else { "" })),
+                count_display: interner.intern(&mesh.normals.len().to_string()),
+                preview_display: interner.intern(&format!("[{}] normals", mesh.normals.len())),
             });
         }
         
         if !has_uv_primvar && !mesh.uvs.is_empty() {
-            let sampled_uvs = if mesh.uvs.len() > MAX_VERTICES_TO_CLONE {
-                let stride = mesh.uvs.len() / MAX_VERTICES_TO_CLONE;
-                mesh.uvs.iter().step_by(stride).cloned().collect::<Vec<_>>()
-            } else {
-                mesh.uvs.clone()
-            };
+            let sampled_uvs = mesh.uvs.clone();
             
             attributes.push(USDAttribute {
                 name: interner.intern("uvs"),
@@ -563,23 +500,14 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
                 indices: None,
                 type_display: interner.intern("texCoord2f[]"),
                 interpolation_display: interner.intern("faceVarying"),
-                count_display: interner.intern(&format!("{} (sampled from {})", 
-                    std::cmp::min(mesh.uvs.len(), MAX_VERTICES_TO_CLONE), 
-                    mesh.uvs.len())),
-                preview_display: interner.intern(&format!("[{}] UVs{}", 
-                    std::cmp::min(mesh.uvs.len(), MAX_VERTICES_TO_CLONE),
-                    if mesh.uvs.len() > MAX_VERTICES_TO_CLONE { " (sampled)" } else { "" })),
+                count_display: interner.intern(&mesh.uvs.len().to_string()),
+                preview_display: interner.intern(&format!("[{}] UVs", mesh.uvs.len())),
             });
         }
         
         if !has_color_primvar && mesh.vertex_colors.is_some() {
             if let Some(ref colors) = mesh.vertex_colors {
-                let sampled_colors = if colors.len() > MAX_VERTICES_TO_CLONE {
-                    let stride = colors.len() / MAX_VERTICES_TO_CLONE;
-                    colors.iter().step_by(stride).cloned().collect::<Vec<_>>()
-                } else {
-                    colors.clone()
-                };
+                let sampled_colors = colors.clone();
                 
                 attributes.push(USDAttribute {
                     name: interner.intern("vertexColors"),
@@ -591,12 +519,8 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
                     indices: None,
                     type_display: interner.intern("color3f[]"),
                     interpolation_display: interner.intern("vertex"),
-                    count_display: interner.intern(&format!("{} (sampled from {})", 
-                        std::cmp::min(colors.len(), MAX_VERTICES_TO_CLONE), 
-                        colors.len())),
-                    preview_display: interner.intern(&format!("[{}] vertex colors{}", 
-                        std::cmp::min(colors.len(), MAX_VERTICES_TO_CLONE),
-                        if colors.len() > MAX_VERTICES_TO_CLONE { " (sampled)" } else { "" })),
+                    count_display: interner.intern(&colors.len().to_string()),
+                    preview_display: interner.intern(&format!("[{}] vertex colors", colors.len())),
                 });
             }
         }
@@ -624,18 +548,10 @@ pub fn extract_attributes_from_mesh(mesh: &USDMeshGeometry) -> Vec<USDAttribute>
 pub fn extract_primitives_from_scene(scene_data: &USDSceneData) -> Vec<USDPrimitive> {
     let mut primitives = Vec::new();
     
-    // CRITICAL: Limit processing to prevent memory explosion
-    const MAX_MESHES_TO_PROCESS: usize = 100; // Absolute limit for performance
-    
+    // Process ALL meshes - no limits, virtual scrolling handles performance
     if let Ok(mut interner) = STRING_INTERNER.lock() {
-        // STREAMING: Process meshes in batches, not all at once
-        let meshes_to_process = if scene_data.meshes.len() > MAX_MESHES_TO_PROCESS {
-            // Use stratified sampling to get representative data
-            let stride = scene_data.meshes.len() / MAX_MESHES_TO_PROCESS;
-            scene_data.meshes.iter().step_by(stride).take(MAX_MESHES_TO_PROCESS).collect::<Vec<_>>()
-        } else {
-            scene_data.meshes.iter().take(MAX_MESHES_TO_PROCESS).collect::<Vec<_>>()
-        };
+        // Process all meshes in the scene
+        let meshes_to_process: Vec<_> = scene_data.meshes.iter().collect();
         
         for (idx, mesh) in meshes_to_process.iter().enumerate() {
             // LAZY: Only extract essential attributes, not all data
@@ -653,10 +569,7 @@ pub fn extract_primitives_from_scene(scene_data: &USDSceneData) -> Vec<USDPrimit
                 attributes,
             });
             
-            // SAFETY: Break if we've processed enough for UI performance
-            if primitives.len() >= MAX_MESHES_TO_PROCESS {
-                break;
-            }
+            // Process all meshes - no artificial limits
         }
     }
     
@@ -769,8 +682,8 @@ pub fn calculate_usd_scene_hash(scene_data: &crate::workspaces::three_d::usd::us
     scene_data.materials.len().hash(&mut hasher);
     scene_data.up_axis.hash(&mut hasher);
     
-    // Hash a subset of mesh data to detect content changes without hashing everything
-    for (idx, mesh) in scene_data.meshes.iter().enumerate().take(10) { // Only first 10 meshes for performance
+    // Hash all mesh data to detect content changes
+    for (idx, mesh) in scene_data.meshes.iter().enumerate() { // Hash all meshes
         mesh.prim_path.hash(&mut hasher);
         mesh.vertices.len().hash(&mut hasher);
         mesh.indices.len().hash(&mut hasher);

@@ -1202,6 +1202,7 @@ impl Renderer3D {
         let vertex_count = mesh_data.vertices.len() / 3;
         let normal_count = mesh_data.normals.len() / 3;
         let uv_count = mesh_data.uvs.len() / 2;
+        let color_count = mesh_data.vertex_colors.as_ref().map_or(0, |colors| colors.len() / 3);
         
         if vertex_count == 0 {
             return Err(format!("Mesh {} has no vertices", mesh_id));
@@ -1210,6 +1211,18 @@ impl Renderer3D {
         // Ensure we have matching counts or can handle mismatches
         let has_normals = normal_count == vertex_count;
         let has_uvs = uv_count == vertex_count;
+        let has_colors = color_count == vertex_count;
+        
+        if has_colors {
+            println!("🎨 GPU: Mesh {} has {} vertex colors for {} vertices", mesh_id, color_count, vertex_count);
+            if let Some(ref vertex_colors) = mesh_data.vertex_colors {
+                // Debug first few colors
+                for i in 0..vertex_count.min(3) {
+                    println!("🎨 GPU: Vertex {} color: [{:.3}, {:.3}, {:.3}]", 
+                        i, vertex_colors[i * 3], vertex_colors[i * 3 + 1], vertex_colors[i * 3 + 2]);
+                }
+            }
+        }
         
         let mut vertices = Vec::with_capacity(vertex_count);
         
@@ -1239,8 +1252,20 @@ impl Renderer3D {
                 [0.0, 0.0] // Default UV
             };
             
-            // Default color is light gray
-            let color = [0.8, 0.8, 0.8];
+            // Use vertex colors if available, otherwise default to light gray
+            let color = if has_colors {
+                if let Some(ref vertex_colors) = mesh_data.vertex_colors {
+                    [
+                        vertex_colors[i * 3],
+                        vertex_colors[i * 3 + 1], 
+                        vertex_colors[i * 3 + 2],
+                    ]
+                } else {
+                    [0.8, 0.8, 0.8] // Fallback
+                }
+            } else {
+                [0.8, 0.8, 0.8] // Default light gray
+            };
             
             vertices.push(Vertex3D {
                 position,
