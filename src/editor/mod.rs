@@ -164,7 +164,9 @@ impl NodeEditor {
     /// Execute dirty nodes if in auto mode
     fn execute_if_auto(&mut self) {
         if self.should_execute_automatically() {
-            if let Err(e) = self.execution_engine.execute_dirty_nodes(&self.graph) {
+            // Get the current workspace's graph, not the root graph
+            let current_graph = self.navigation.get_active_graph(&self.graph);
+            if let Err(e) = self.execution_engine.execute_dirty_nodes(current_graph) {
                 eprintln!("Auto execution failed: {}", e);
             }
         }
@@ -875,7 +877,8 @@ impl eframe::App for NodeEditor {
                         self.execution_mode = ExecutionMode::Auto;
                         self.sync_execution_mode();
                         // Execute any dirty nodes when switching to auto mode
-                        if let Err(e) = self.execution_engine.execute_dirty_nodes(&self.graph) {
+                        let current_graph = self.navigation.get_active_graph(&self.graph);
+                        if let Err(e) = self.execution_engine.execute_dirty_nodes(current_graph) {
                             eprintln!("Auto mode execution failed: {}", e);
                         }
                     }
@@ -895,7 +898,9 @@ impl eframe::App for NodeEditor {
                         .on_hover_text("Execute dirty nodes (Manual mode only)")
                         .clicked() && cook_enabled 
                     {
-                        if let Err(e) = self.execution_engine.execute_dirty_nodes(&self.graph) {
+                        // Get the current workspace's graph, not the root graph
+                        let current_graph = self.navigation.get_active_graph(&self.graph);
+                        if let Err(e) = self.execution_engine.execute_dirty_nodes(current_graph) {
                             eprintln!("Cook execution failed: {}", e);
                         }
                     }
