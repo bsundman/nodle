@@ -38,6 +38,19 @@ pub trait NodeExecutionHooks: Send + Sync {
         Ok(())
     }
     
+    /// Override node execution with custom logic - return None to use default dispatch
+    /// This allows nodes to implement custom execution while keeping execution engine generic
+    fn custom_execution(
+        &mut self, 
+        node_id: NodeId,
+        node: &Node, 
+        inputs: Vec<NodeData>, 
+        engine: &mut crate::nodes::NodeGraphEngine
+    ) -> Option<Result<Vec<NodeData>, String>> {
+        // Default: no custom execution, use standard dispatch
+        None
+    }
+    
     /// Clone the hooks for registration
     fn clone_box(&self) -> Box<dyn NodeExecutionHooks>;
 }

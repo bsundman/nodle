@@ -48,10 +48,6 @@ pub struct NodeGraphEngine {
     execution_mode: EngineExecutionMode,
     /// Ownership optimizer for reducing data clones
     ownership_optimizer: OwnershipOptimizer,
-    /// Persistent USD File Reader logic instances for parameter tracking
-    usd_reader_instances: HashMap<NodeId, crate::nodes::data::usd_file_reader::logic::UsdFileReaderLogic>,
-    /// Global persistent USD file data storage keyed by file hash (survives cache invalidations)
-    persistent_usd_file_data: HashMap<String, crate::workspaces::three_d::usd::usd_engine::USDSceneData>,
 }
 
 impl NodeGraphEngine {
@@ -62,8 +58,8 @@ impl NodeGraphEngine {
         // Register hooks for nodes that need special handling
         
         // USD File Reader
-        hooks.insert("Data_UsdFileReader".to_string(), 
-                    Box::new(crate::nodes::data::usd_file_reader::hooks::UsdFileReaderHooks));
+        hooks.insert("Data_UsdFileReader".to_string(),
+                    Box::new(crate::nodes::data::usd_file_reader::hooks::UsdFileReaderHooks::new()));
         
         // Viewport
         hooks.insert("Viewport".to_string(),
@@ -94,8 +90,6 @@ impl NodeGraphEngine {
             execution_hooks: hooks,
             execution_mode: EngineExecutionMode::Auto, // Default to auto
             ownership_optimizer: OwnershipOptimizer::with_default_config(),
-            usd_reader_instances: HashMap::new(),
-            persistent_usd_file_data: HashMap::new(),
         }
     }
 
@@ -122,52 +116,8 @@ impl NodeGraphEngine {
         self.execution_order_cache = None;
     }
     
-    /// Handle USD File Reader parameter changes with granular cache invalidation
-    fn on_usd_file_reader_parameter_changed(&mut self, node_id: NodeId, graph: &NodeGraph) {
-        println!("🔧 ExecutionEngine: USD File Reader parameter changed for node {} in {} mode", 
-                 node_id, if self.execution_mode == EngineExecutionMode::Auto { "Auto" } else { "Manual" });
-        
-        // Mark as dirty without blanket cache invalidation - the USD logic will handle granular invalidation
-        self.mark_dirty_without_cache_invalidation(node_id, graph);
-        
-        // Execute immediately in Auto mode
-        if self.execution_mode == EngineExecutionMode::Auto {
-            println!("🔧 ExecutionEngine: Executing USD File Reader immediately due to parameter change");
-            if let Err(e) = self.execute_dirty_nodes(graph) {
-                eprintln!("❌ ExecutionEngine: Failed to execute dirty nodes: {}", e);
-            }
-        }
-    }
     
-    /// Mark a node as dirty without invalidating its cache (for nodes that handle their own cache)
-    fn mark_dirty_without_cache_invalidation(&mut self, node_id: NodeId, graph: &NodeGraph) {
-        if self.node_states.get(&node_id) == Some(&NodeState::Dirty) {
-            return; // Already dirty
-        }
-
-        // Marking node as dirty without cache invalidation
-        self.node_states.insert(node_id, NodeState::Dirty);
-        self.dirty_nodes.insert(node_id);
-        
-        println!("🗑️ Node {} marked dirty - cache invalidation handled by node", node_id);
-        
-        // Propagate dirty state to downstream nodes
-        self.propagate_dirty_downstream(node_id, graph);
-        
-        // Invalidate execution order cache
-        self.execution_order_cache = None;
-    }
     
-    /// Check if a node handles its own cache invalidation
-    fn node_handles_own_cache_invalidation(&self, node_id: NodeId, graph: &NodeGraph) -> bool {
-        // Find the node in the graph
-        if let Some(node) = graph.nodes.get(&node_id) {
-            // USD File Reader nodes handle their own cache invalidation
-            node.type_id == "USD File Reader"
-        } else {
-            false
-        }
-    }
 
     /// Propagate dirty state to all downstream nodes
     fn propagate_dirty_downstream(&mut self, node_id: NodeId, graph: &NodeGraph) {
@@ -371,27 +321,21 @@ impl NodeGraphEngine {
         // Collect inputs from upstream nodes
         let inputs = self.collect_node_inputs(node_id, graph);
         
-        // Special handling for USD File Reader to use unified cache system
-        let outputs = if node.type_id == "Data_UsdFileReader" {
-            // Get or create persistent logic instance
-            if !self.usd_reader_instances.contains_key(&node_id) {
-                let logic = crate::nodes::data::usd_file_reader::logic::UsdFileReaderLogic::from_node(node);
-                self.usd_reader_instances.insert(node_id, logic);
-            }
-            
-            // Extract the logic instance temporarily to avoid borrow conflicts
-            let mut logic = self.usd_reader_instances.remove(&node_id).unwrap();
-            logic.update_from_node(node);
-            
-            // Process with the logic instance
-            let result = logic.process_with_unified_cache(node_id, inputs, self);
-            
-            // Put the logic instance back
-            self.usd_reader_instances.insert(node_id, logic);
-            
-            Ok(result)
+        // Check for custom execution via hooks first, then fall back to standard dispatch
+        let outputs = if self.execution_hooks.contains_key(&node.type_id) {
+            // Extract the hook temporarily to avoid borrow conflicts
+            let mut hook = self.execution_hooks.remove(&node.type_id).unwrap();
+            let result = if let Some(custom_result) = hook.custom_execution(node_id, node, inputs.clone(), self) {
+                custom_result
+            } else {
+                // No custom execution, use standard dispatch
+                self.dispatch_node_execution(node, inputs)
+            };
+            // Put the hook back
+            self.execution_hooks.insert(node.type_id.clone(), hook);
+            result
         } else {
-            // Execute the node using the factory dispatch system
+            // No hooks, use standard dispatch
             self.dispatch_node_execution(node, inputs)
         };
         
@@ -812,16 +756,8 @@ impl NodeGraphEngine {
         // When we clear a node's cache, it needs to be re-executed when reconnected
         self.unified_cache.invalidate(&CacheKeyPattern::Node(connection.from_node));
         
-        // Mark source node dirty with proper cache handling
-        if let Some(source_node) = graph.nodes.get(&connection.from_node) {
-            if source_node.type_id == "Data_UsdFileReader" {
-                // USD File Reader handles its own cache - use special method
-                self.mark_dirty_without_cache_invalidation(connection.from_node, graph);
-            } else {
-                // Standard nodes get standard dirty marking
-                self.mark_dirty(connection.from_node, graph);
-            }
-        }
+        // Mark source node dirty with standard cache handling
+        self.mark_dirty(connection.from_node, graph);
         
         // Execute immediately if in auto mode
         if self.execution_mode == EngineExecutionMode::Auto {
@@ -926,26 +862,11 @@ impl NodeGraphEngine {
 
     /// Handle a node parameter change
     pub fn on_node_parameter_changed(&mut self, node_id: NodeId, graph: &NodeGraph) {
-        // Special handling for USD File Reader nodes - they manage their own cache invalidation
-        if let Some(node) = graph.nodes.get(&node_id) {
-            if node.type_id == "Data_UsdFileReader" {
-                // USD File Reader handles its own granular cache invalidation
-                // Use the special method that doesn't invalidate cache
-                return self.on_usd_file_reader_parameter_changed(node_id, graph);
-            }
-        }
         println!("🔧 ExecutionEngine: Parameter changed for node {} in {} mode", node_id, 
                  if self.execution_mode == EngineExecutionMode::Auto { "Auto" } else { "Manual" });
         
-        // Check if this node handles its own cache invalidation
-        if self.node_handles_own_cache_invalidation(node_id, graph) {
-            // Node handles its own cache invalidation - just mark dirty without clearing cache
-            println!("🔧 ExecutionEngine: Node {} handles own cache invalidation", node_id);
-            self.mark_dirty_without_cache_invalidation(node_id, graph);
-        } else {
-            // Standard cache invalidation for nodes that don't manage their own caches
-            self.mark_dirty(node_id, graph);
-        }
+        // Standard cache invalidation for all nodes
+        self.mark_dirty(node_id, graph);
         
         // Execute immediately if in auto mode
         if self.execution_mode == EngineExecutionMode::Auto {
@@ -1068,31 +989,6 @@ impl NodeGraphEngine {
         }
     }
     
-    /// GLOBAL FILE CACHE: Store USD file data persistently (survives cache invalidations)
-    /// This provides a global catch-all to prevent unnecessary file reloads
-    pub fn store_persistent_usd_file_data(&mut self, hash_key: &str, data: crate::workspaces::three_d::usd::usd_engine::USDSceneData) {
-        self.persistent_usd_file_data.insert(hash_key.to_string(), data);
-        println!("🌍 STORED persistent USD data for hash: {}", hash_key);
-    }
-    
-    /// GLOBAL FILE CACHE: Retrieve USD file data if it exists and file hasn't changed
-    /// This provides a global catch-all to prevent unnecessary file reloads
-    pub fn get_persistent_usd_file_data(&self, hash_key: &str) -> Option<crate::workspaces::three_d::usd::usd_engine::USDSceneData> {
-        if let Some(data) = self.persistent_usd_file_data.get(hash_key) {
-            println!("🌍 FOUND persistent USD data for hash: {}", hash_key);
-            Some(data.clone())
-        } else {
-            println!("🌍 NO persistent USD data for hash: {}", hash_key);
-            None
-        }
-    }
-    
-    /// GLOBAL FILE CACHE: Clear persistent USD file data (for cleanup)
-    pub fn clear_persistent_usd_file_data(&mut self) {
-        let count = self.persistent_usd_file_data.len();
-        self.persistent_usd_file_data.clear();
-        println!("🌍 CLEARED {} persistent USD file data entries", count);
-    }
 }
 
 /// Statistics about the execution engine state

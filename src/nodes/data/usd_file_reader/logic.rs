@@ -219,10 +219,13 @@ impl UsdFileReaderLogic {
         engine: &mut crate::nodes::NodeGraphEngine
     ) -> Option<USDSceneData> {
         // Check if we have any persistent USD file data for this exact hash
-        // The execution engine stores file data keyed by timestamp hash
-        if let Some(persistent_data) = engine.get_persistent_usd_file_data(current_hash_key) {
-            println!("✅ FILE UNCHANGED: Found persistent data for hash {} - reusing", current_hash_key);
-            return Some(persistent_data);
+        // The USD engine stores file data keyed by timestamp hash
+        use crate::workspaces::three_d::usd::usd_engine::GLOBAL_USD_ENGINE;
+        if let Ok(usd_engine) = GLOBAL_USD_ENGINE.lock() {
+            if let Some(persistent_data) = usd_engine.get_persistent_usd_file_data(current_hash_key) {
+                println!("✅ FILE UNCHANGED: Found persistent data for hash {} - reusing", current_hash_key);
+                return Some(persistent_data);
+            }
         }
         
         println!("💾 NO PERSISTENT DATA: File needs to be loaded from disk for hash {}", current_hash_key);
@@ -315,9 +318,12 @@ impl UsdFileReaderLogic {
                 engine.cache_stage_output_by_key(stage_qualified_key, hash_key, stage1_data);
                 println!("💽 CACHED STAGE 1 DATA with stage key: {} hash: {}", stage_qualified_key, hash_key);
                 
-                // GLOBAL FILE CACHE: Store persistently to survive cache invalidations
-                engine.store_persistent_usd_file_data(hash_key, scene_data.clone());
-                println!("🌍 STORED PERSISTENT FILE DATA for hash: {}", hash_key);
+                // GLOBAL FILE CACHE: Store persistently to survive cache invalidations in USD engine
+                use crate::workspaces::three_d::usd::usd_engine::GLOBAL_USD_ENGINE;
+                if let Ok(mut usd_engine) = GLOBAL_USD_ENGINE.lock() {
+                    usd_engine.store_persistent_usd_file_data(hash_key, scene_data.clone());
+                    println!("🌍 STORED PERSISTENT FILE DATA for hash: {}", hash_key);
+                }
                 
                 // Update tracking
                 self.last_file_path = self.file_path.clone();

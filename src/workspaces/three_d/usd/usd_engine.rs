@@ -7,6 +7,7 @@ use pyo3::types::{PyDict, PyList, PyString};
 #[cfg(feature = "usd")]
 use numpy::{PyArray1, PyArray2, PyArrayMethods};
 use std::collections::HashMap;
+use std::sync::{Mutex, LazyLock};
 use glam::{Mat4, Vec3, Vec2};
 use serde::{Serialize, Deserialize};
 
@@ -185,6 +186,8 @@ pub struct USDEngine {
     #[cfg(feature = "usd")]
     _python_initialized: bool,
     stages: HashMap<String, USDStage>,
+    /// Global persistent USD file data storage keyed by file hash
+    persistent_usd_file_data: HashMap<String, USDSceneData>,
 }
 
 impl USDEngine {
@@ -198,7 +201,32 @@ impl USDEngine {
             #[cfg(feature = "usd")]
             _python_initialized: true,
             stages: HashMap::new(),
+            persistent_usd_file_data: HashMap::new(),
         }
+    }
+    
+    /// Store USD file data persistently (survives cache invalidations)
+    pub fn store_persistent_usd_file_data(&mut self, hash_key: &str, data: USDSceneData) {
+        self.persistent_usd_file_data.insert(hash_key.to_string(), data);
+        println!("🌍 USD Engine: STORED persistent USD data for hash: {}", hash_key);
+    }
+    
+    /// Retrieve USD file data if it exists and file hasn't changed
+    pub fn get_persistent_usd_file_data(&self, hash_key: &str) -> Option<USDSceneData> {
+        if let Some(data) = self.persistent_usd_file_data.get(hash_key) {
+            println!("🌍 USD Engine: FOUND persistent USD data for hash: {}", hash_key);
+            Some(data.clone())
+        } else {
+            println!("🌍 USD Engine: NO persistent USD data for hash: {}", hash_key);
+            None
+        }
+    }
+    
+    /// Clear all persistent USD file data (for cleanup)
+    pub fn clear_persistent_usd_file_data(&mut self) {
+        let count = self.persistent_usd_file_data.len();
+        self.persistent_usd_file_data.clear();
+        println!("🌍 USD Engine: CLEARED {} persistent USD file data entries", count);
     }
 }
 
@@ -1991,3 +2019,8 @@ impl USDEngine {
     }
     
 }
+
+/// Global USD engine instance for persistent file caching
+pub static GLOBAL_USD_ENGINE: LazyLock<Mutex<USDEngine>> = LazyLock::new(|| {
+    Mutex::new(USDEngine::new())
+});
