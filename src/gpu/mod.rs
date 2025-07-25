@@ -9,15 +9,24 @@
 //! 
 //! ## Architecture
 //! 
-//! - [`instance`] - Instance data structures and management
-//! - [`renderer`] - Core GPU renderer and pipeline management  
-//! - [`callback`] - egui paint callback integration
+//! - [`canvas_instance`] - Canvas instance data structures and management
+//! - [`canvas_rendering`] - Core GPU canvas renderer and pipeline management  
+//! - [`canvas_callback`] - egui paint callback integration for canvas
+//! - [`viewport_3d_rendering`] - 3D viewport renderer and pipeline management
+//! - [`viewport_3d_callback`] - egui paint callback integration for 3D viewport
 //! - `shaders/` - WGSL shader files for nodes and ports
 
-pub mod instance;
-pub mod renderer;
-pub mod callback;
+pub mod config;
+pub mod canvas_instance;
+pub mod canvas_rendering;
+pub mod viewport_3d_rendering;
+pub mod canvas_callback;
+pub mod viewport_3d_callback;
 
-pub use instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms, GpuInstanceManager};
-pub use renderer::{GpuNodeRenderer, GLOBAL_GPU_RENDERER};
-pub use callback::NodeRenderCallback;
+// Config re-exports removed - only used internally
+pub use canvas_instance::{NodeInstanceData, PortInstanceData, ButtonInstanceData, FlagInstanceData, Uniforms, GpuInstanceManager};
+pub use canvas_rendering::{GpuNodeRenderer, GLOBAL_GPU_RENDERER};
+// 3D rendering re-exports removed - only used internally
+// USD rendering now handled by USD plugin
+pub use canvas_callback::NodeRenderCallback;
+pub use viewport_3d_callback::{ViewportRenderCallback};

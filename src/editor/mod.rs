@@ -1,168 +1,190 @@
 //! Node editor implementation
 
 // Module declarations
-pub mod viewport;
+pub mod canvas;
 pub mod input;
 pub mod interaction;
 pub mod menus;
-pub mod rendering;
+pub mod canvas_rendering;
 pub mod navigation;
+pub mod file_manager;
+pub mod panels;
+pub mod debug_tools;
+pub mod workspace_builder;
 
 // Re-exports
-pub use viewport::Viewport;
+pub use canvas::Canvas;
 pub use input::InputState;
 pub use interaction::InteractionManager;
 pub use menus::MenuManager;
-pub use rendering::MeshRenderer;
-pub use navigation::{NavigationManager, NavigationAction};
+pub use canvas_rendering::MeshRenderer;
+pub use navigation::{NavigationManager, NavigationAction, GraphView};
+pub use file_manager::FileManager;
+pub use panels::PanelManager;
+pub use debug_tools::DebugToolsManager;
+pub use workspace_builder::WorkspaceBuilder;
 
 use eframe::egui;
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use egui_wgpu;
 use crate::nodes::{
-    NodeGraph, Node, NodeId, Connection,
+    NodeGraph, Node, NodeId, Connection, NodeGraphEngine,
 };
 use std::collections::HashMap;
+use std::path::Path;
+use log::{info, error, debug};
 use crate::workspace::WorkspaceManager;
 use crate::workspaces::WorkspaceRegistry;
 use crate::gpu::NodeRenderCallback;
 use crate::gpu::GpuInstanceManager;
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
-/// Save file data structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveData {
-    pub version: String,
-    pub metadata: SaveMetadata,
-    pub viewport: ViewportData,
-    pub root_graph: NodeGraph,
-}
-
-/// Metadata for save files
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveMetadata {
-    pub created: String,    // ISO 8601 timestamp
-    pub modified: String,   // ISO 8601 timestamp
-    pub creator: String,    // "Nōdle 1.0"
-    pub description: String,
-}
-
-/// Viewport state for save files
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ViewportData {
-    pub pan_offset: [f32; 2],
-    pub zoom: f32,
+/// Execution mode for the node graph
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExecutionMode {
+    /// Execute immediately when parameters or connections change
+    Auto,
+    /// Only execute when Cook button is pressed
+    Manual,
 }
 
 /// Main application state for the node editor
 pub struct NodeEditor {
     graph: NodeGraph,
-    viewport: Viewport,
+    execution_engine: NodeGraphEngine,
+    canvas: Canvas,
     input_state: InputState,      // Centralized input handling
     interaction: InteractionManager, // Node selection and dragging
     menus: MenuManager,           // Context menu management
     navigation: NavigationManager, // Workspace navigation and breadcrumbs
     workspace_manager: WorkspaceManager,
-    // Performance tracking
-    show_performance_info: bool,
-    frame_times: Vec<f32>,
-    last_frame_time: std::time::Instant,
+    // Interface panel system
+    panel_manager: PanelManager,
+    // Debug and performance monitoring
+    debug_tools: DebugToolsManager,
     // GPU rendering toggle
     use_gpu_rendering: bool,
     // Persistent GPU instance manager
     gpu_instance_manager: GpuInstanceManager,
-    // Current view state - which graph we're looking at
-    current_view: GraphView,
     // File management
-    current_file_path: Option<std::path::PathBuf>,
-    is_modified: bool,
+    file_manager: FileManager,
     // Menu state
     show_file_menu: bool,
+    // Layout constraints
+    current_menu_bar_height: f32,
+    // Execution mode
+    execution_mode: ExecutionMode,
 }
 
-/// Tracks which graph we're currently viewing
-#[derive(Debug, Clone)]
-enum GraphView {
-    /// Viewing the root graph
-    Root,
-    /// Viewing a workspace node's internal graph
-    WorkspaceNode(NodeId),
-}
 
 impl NodeEditor {
+    /// Creates a window that automatically respects the menu bar constraint
+    /// Use this instead of egui::Window::new() for all windows in the app
+    fn create_window<'a>(title: &'a str, ctx: &egui::Context, menu_bar_height: f32) -> egui::Window<'a> {
+        egui::Window::new(title)
+            .constrain_to(egui::Rect::from_min_size(
+                egui::Pos2::new(0.0, menu_bar_height), 
+                egui::Vec2::new(ctx.screen_rect().width(), ctx.screen_rect().height() - menu_bar_height)
+            ))
+    }
+
     pub fn new() -> Self {
         // Use the workspace registry to create a manager with all available workspaces
         let workspace_manager = WorkspaceRegistry::create_workspace_manager();
         
-        let editor = Self {
+        let mut editor = Self {
             graph: NodeGraph::new(),
-            viewport: Viewport::new(),
+            execution_engine: NodeGraphEngine::new(),
+            canvas: Canvas::new(),
             input_state: InputState::new(),
             interaction: InteractionManager::new(),
             menus: MenuManager::new(),
             navigation: NavigationManager::new(),
             workspace_manager,
-            // Performance tracking
-            show_performance_info: false,
-            frame_times: Vec::new(),
-            last_frame_time: std::time::Instant::now(),
+            // Interface panel system
+            panel_manager: PanelManager::new(),
+            // Debug and performance monitoring
+            debug_tools: DebugToolsManager::new(),
             // GPU rendering
             use_gpu_rendering: true, // Start with GPU rendering enabled
             // Persistent GPU instance manager
             gpu_instance_manager: GpuInstanceManager::new(),
-            // Start viewing the root graph
-            current_view: GraphView::Root,
             // File management
-            current_file_path: None,
-            is_modified: false,
+            file_manager: FileManager::new(),
             // Menu state
             show_file_menu: false,
+            // Layout constraints
+            current_menu_bar_height: 0.0,
+            // Execution mode - start in Auto mode
+            execution_mode: ExecutionMode::Auto,
         };
 
-        // Start with empty node graph - use F2/F3/F4 to add test nodes
+        // Start with empty node graph - nodes created at 150.0px x 30.0px
+        
+        // Sync execution mode with engine
+        editor.sync_execution_mode();
 
         editor
     }
     
+    /// Store the current menu bar height for window constraints
+    fn store_menu_bar_height(&mut self, height: f32) {
+        self.current_menu_bar_height = height;
+    }
+    
     /// Get the nodes to render based on current view
     fn get_viewed_nodes(&self) -> HashMap<NodeId, Node> {
-        match &self.current_view {
-            GraphView::Root => self.graph.nodes.clone(),
-            GraphView::WorkspaceNode(node_id) => {
-                if let Some(node) = self.graph.nodes.get(node_id) {
-                    if let Some(internal_graph) = node.get_internal_graph() {
-                        return internal_graph.nodes.clone();
-                    }
+        let nodes = self.navigation.get_viewed_nodes(&self.graph);
+        // Debug prints removed for performance
+        
+        // Also check workspace internal graphs
+        if let crate::editor::navigation::GraphView::WorkspaceNode(workspace_id) = self.navigation.current_view() {
+            if let Some(workspace_node) = self.graph.nodes.get(workspace_id) {
+                if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                    // Debug print removed for performance
                 }
-                // Fallback to empty if node not found
-                HashMap::new()
             }
         }
+        
+        // Node listing removed for performance
+        nodes
     }
     
     /// Get the connections to render based on current view
     fn get_viewed_connections(&self) -> Vec<Connection> {
-        match &self.current_view {
-            GraphView::Root => self.graph.connections.clone(),
-            GraphView::WorkspaceNode(node_id) => {
-                if let Some(node) = self.graph.nodes.get(node_id) {
-                    if let Some(internal_graph) = node.get_internal_graph() {
-                        return internal_graph.connections.clone();
-                    }
-                }
-                // Fallback to empty if node not found
-                Vec::new()
+        let connections = self.navigation.get_viewed_connections(&self.graph);
+        // Debug prints removed for performance
+        connections
+    }
+    
+    /// Check if execution should happen automatically based on current execution mode
+    fn should_execute_automatically(&self) -> bool {
+        self.execution_mode == ExecutionMode::Auto
+    }
+    
+    /// Execute dirty nodes if in auto mode
+    fn execute_if_auto(&mut self) {
+        if self.should_execute_automatically() {
+            // Get the current workspace's graph, not the root graph
+            let current_graph = self.navigation.get_active_graph(&self.graph);
+            if let Err(e) = self.execution_engine.execute_dirty_nodes(current_graph) {
+                eprintln!("Auto execution failed: {}", e);
             }
         }
     }
     
+    /// Sync execution mode with the execution engine
+    fn sync_execution_mode(&mut self) {
+        use crate::nodes::execution_engine::EngineExecutionMode;
+        let engine_mode = match self.execution_mode {
+            ExecutionMode::Auto => EngineExecutionMode::Auto,
+            ExecutionMode::Manual => EngineExecutionMode::Manual,
+        };
+        self.execution_engine.set_execution_mode(engine_mode);
+    }
+    
     /// Build a temporary graph for GPU processing
     fn build_temp_graph(&self, nodes: &HashMap<NodeId, Node>) -> NodeGraph {
-        let mut temp_graph = NodeGraph::new();
-        temp_graph.nodes = nodes.clone();
-        temp_graph.connections = self.get_viewed_connections();
-        temp_graph
+        self.navigation.build_temp_graph(nodes, &self.graph)
     }
     
     /// Get mutable reference to a workspace node's internal graph
@@ -176,13 +198,135 @@ impl NodeEditor {
     
     /// Get the currently active graph for reading (root or workspace internal graph)
     fn get_active_graph(&self) -> &NodeGraph {
-        match self.current_view {
+        self.navigation.get_active_graph(&self.graph)
+    }
+    
+    /// Add a connection to the appropriate graph based on current view
+    fn add_connection_to_active_graph(&mut self, connection: Connection) -> Result<(), &'static str> {
+        // Debug prints removed for performance
+        
+        // Check if we need to auto-open a panel BEFORE making the connection
+        let should_auto_open_panel = self.should_auto_open_panel_for_connection(&connection);
+        debug!("🔍 should_auto_open_panel: {}", should_auto_open_panel);
+        
+        let result = match self.navigation.current_view() {
+            GraphView::Root => {
+                // Debug print removed
+                let result = self.graph.add_connection(connection.clone());
+                
+                // Notify execution engine about the new connection
+                if result.is_ok() {
+                    self.execution_engine.on_connection_added(&connection, &self.graph);
+                    // Note: execution_engine.on_connection_added now handles Auto mode execution internally
+                }
+                
+                // Debug print removed
+                result
+            }
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                // Debug print removed
+                if let Some(workspace_node) = self.graph.nodes.get_mut(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        let result = internal_graph.add_connection(connection.clone());
+                        
+                        // Notify execution engine about the new connection
+                        if result.is_ok() {
+                            self.execution_engine.on_connection_added(&connection, internal_graph);
+                            // Note: execution_engine.on_connection_added now handles Auto mode execution internally
+                        }
+                        
+                        // Debug print removed
+                        result
+                    } else {
+                        Err("Workspace node has no internal graph")
+                    }
+                } else {
+                    Err("Workspace node not found")
+                }
+            }
+        };
+        
+        // Auto-open panel after connection is made if needed
+        if result.is_ok() && should_auto_open_panel {
+            debug!("🌳 Connection successful, calling auto_open_panel_after_connection");
+            self.auto_open_panel_after_connection(&connection);
+        } else {
+            debug!("🌳 Not auto-opening panel: result.is_ok()={}, should_auto_open_panel={}", result.is_ok(), should_auto_open_panel);
+        }
+        
+        result
+    }
+
+    /// Check if we should auto-open a panel for this connection (before making the connection)
+    fn should_auto_open_panel_for_connection(&self, connection: &Connection) -> bool {
+        debug!("🔍 Checking if should auto-open panel for connection: {} -> {}", connection.from_node, connection.to_node);
+        
+        let graph = match self.navigation.current_view() {
             GraphView::Root => &self.graph,
             GraphView::WorkspaceNode(workspace_node_id) => {
-                if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                    workspace_node.get_internal_graph().unwrap_or(&self.graph)
+                if let Some(workspace_node) = self.graph.nodes.get(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                        internal_graph
+                    } else {
+                        debug!("🔍 No internal graph found for workspace node {}", workspace_node_id);
+                        return false;
+                    }
                 } else {
-                    &self.graph
+                    debug!("🔍 Workspace node {} not found", workspace_node_id);
+                    return false;
+                }
+            }
+        };
+
+        // Check if the target node (to_node) is a Scenegraph node (Tree panel type)
+        if let Some(target_node) = graph.nodes.get(&connection.to_node) {
+            let is_scenegraph = target_node.type_id == "Scenegraph";
+            debug!("🔍 Target node {} type_id: '{}', is_scenegraph: {}", connection.to_node, target_node.type_id, is_scenegraph);
+            is_scenegraph
+        } else {
+            debug!("🔍 Target node {} not found in graph", connection.to_node);
+            false
+        }
+    }
+
+    /// Auto-open tree panel after connection is made
+    fn auto_open_panel_after_connection(&mut self, connection: &Connection) {
+        debug!("🌳 Auto-opening tree panel for Scenegraph node {} after USD connection", connection.to_node);
+        
+        // Auto-open the tree panel
+        let panel_manager = self.panel_manager.interface_panel_manager_mut();
+        panel_manager.set_panel_visibility(connection.to_node, true);
+        panel_manager.set_panel_open(connection.to_node, true);
+        
+        // Force immediate cache update for the tree panel
+        self.panel_manager.tree_panel_mut().force_cache_update(connection.to_node);
+        
+        debug!("🌳 Tree panel auto-open completed for node {}", connection.to_node);
+    }
+    
+    /// Remove a connection from the appropriate graph based on current view
+    fn remove_connection_from_active_graph(&mut self, idx: usize) {
+        match self.navigation.current_view() {
+            GraphView::Root => {
+                if let Some(connection) = self.graph.connections.get(idx) {
+                    let connection_copy = connection.clone();
+                    self.graph.remove_connection(idx);
+                    // Notify execution engine about the removed connection
+                    self.execution_engine.on_connection_removed(&connection_copy, &self.graph);
+                    // Note: execution_engine.on_connection_removed now handles Auto mode execution internally
+                }
+            }
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = self.graph.nodes.get_mut(workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        if let Some(connection) = internal_graph.connections.get(idx) {
+                            let connection_copy = connection.clone();
+                            internal_graph.remove_connection(idx);
+                            // Notify execution engine about the removed connection
+                            self.execution_engine.on_connection_removed(&connection_copy, internal_graph);
+                            // Note: execution_engine.on_connection_removed now handles Auto mode execution internally
+                        }
+                    }
                 }
             }
         }
@@ -192,14 +336,14 @@ impl NodeEditor {
     fn zoom_at_point(&mut self, screen_point: Pos2, zoom_delta: f32) {
         // Convert zoom delta to multiplication factor for viewport compatibility
         let zoom_factor = 1.0 + zoom_delta;
-        self.viewport.zoom_at_point(screen_point, zoom_factor);
+        self.canvas.zoom_at_point(screen_point, zoom_factor);
     }
 
     /// Handle context menu rendering and interactions
     fn handle_context_menu(&mut self, ui: &mut egui::Ui, _response: &egui::Response) {
         // Apply transforms for coordinate conversions
-        let zoom = self.viewport.zoom;
-        let pan_offset = self.viewport.pan_offset;
+        let zoom = self.canvas.zoom;
+        let pan_offset = self.canvas.pan_offset;
 
         let inverse_transform_pos = |pos: Pos2| -> Pos2 {
             Pos2::new(
@@ -221,7 +365,7 @@ impl NodeEditor {
                 if node_type.starts_with("SUBWORKSPACE:") {
                     // Handle subworkspace navigation
                     let workspace_name = node_type.strip_prefix("SUBWORKSPACE:").unwrap();
-                    self.navigation.navigate_to_workspace(workspace_name);
+                    self.navigation.enter_workspace(workspace_name);
                     // Synchronize workspace manager with navigation state
                     self.workspace_manager.set_active_workspace_by_id(Some(workspace_name));
                 } else {
@@ -267,181 +411,85 @@ impl NodeEditor {
     }
 
     fn create_node(&mut self, node_type: &str, position: Pos2) {
-        // Check if this is a workspace node creation
-        if node_type == "WORKSPACE:2D" {
-            let mut workspace_node = Node::new_workspace(0, "2D", position);
-            
-            // Add some sample nodes to the 2D workspace for demonstration
-            self.populate_2d_workspace(&mut workspace_node);
-            
-            // Workspace nodes can only be created in the root graph
-            if matches!(self.current_view, GraphView::Root) {
-                self.graph.add_node(workspace_node);
-                self.mark_modified();
-            } else if let GraphView::WorkspaceNode(node_id) = self.current_view {
-                // Add to the workspace node's internal graph
-                if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
-                    internal_graph.add_node(workspace_node);
-                    self.mark_modified();
-                }
-            }
-            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-            return;
-        }
-        
-        if node_type == "WORKSPACE:3D" {
-            let mut workspace_node = Node::new_workspace(0, "3D", position);
-            
-            // Add some sample nodes to the 3D workspace for demonstration
-            self.populate_3d_workspace(&mut workspace_node);
-            
-            // Workspace nodes can only be created in the root graph
-            if matches!(self.current_view, GraphView::Root) {
-                self.graph.add_node(workspace_node);
-                self.mark_modified();
-            } else if let GraphView::WorkspaceNode(node_id) = self.current_view {
-                // Add to the workspace node's internal graph
-                if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
-                    internal_graph.add_node(workspace_node);
-                    self.mark_modified();
-                }
-            }
-            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-            return;
-        }
-        
-        if node_type == "WORKSPACE:MaterialX" {
-            let mut workspace_node = Node::new_workspace(0, "MaterialX", position);
-            
-            // Add some sample nodes to the MaterialX workspace for demonstration
-            self.populate_materialx_workspace(&mut workspace_node);
-            
-            // Workspace nodes can only be created in the root graph
-            if matches!(self.current_view, GraphView::Root) {
-                self.graph.add_node(workspace_node);
-                self.mark_modified();
-            } else if let GraphView::WorkspaceNode(node_id) = self.current_view {
-                // Add to the workspace node's internal graph
-                if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
-                    internal_graph.add_node(workspace_node);
-                    self.mark_modified();
-                }
-            }
-            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-            return;
-        }
-        
-        // Map MaterialX display names to internal node types
-        let internal_node_type = match node_type {
-            "Noise" => "MaterialX_Noise",
-            "Texture" => "MaterialX_Texture", 
-            "Mix" => "MaterialX_Mix",
-            "Standard Surface" => "MaterialX_StandardSurface",
-            "3D View" => "MaterialX_3DView",
-            "2D View" => "MaterialX_2DView",
-            _ => node_type, // Use original name for generic nodes
-        };
-        
-        // Create the node
-        let new_node = if let Some(workspace) = self.workspace_manager.get_active_workspace() {
-            crate::NodeRegistry::create_workspace_node(workspace, internal_node_type, position)
-        } else {
-            None
-        }.or_else(|| crate::NodeRegistry::create_node(internal_node_type, position));
-        
-        // Add the node to the appropriate graph
-        if let Some(node) = new_node {
-            match self.current_view {
-                GraphView::Root => {
-                    self.graph.add_node(node);
-                    self.mark_modified();
-                }
-                GraphView::WorkspaceNode(node_id) => {
-                    if let Some(internal_graph) = self.get_workspace_graph_mut(node_id) {
-                        internal_graph.add_node(node);
-                        self.mark_modified();
+        // Debug print removed
+        // Delegate to WorkspaceBuilder for all node creation logic
+        if let Some(node_id) = WorkspaceBuilder::create_node(
+            node_type,
+            position,
+            &self.navigation,
+            &self.workspace_manager,
+            &mut self.graph,
+        ) {
+            // Debug prints removed
+            // Use the actual NodeId returned from create_node instead of unreliable HashMap iteration
+            let viewed_nodes = self.get_viewed_nodes();
+            if let Some(node) = viewed_nodes.get(&node_id) {
+                // The node should already have its panel type set by the factory
+                if let Some(panel_type) = node.get_panel_type() {
+                    // Mark the newly created node as dirty
+                    self.execution_engine.mark_dirty(node_id, &self.graph);
+                    
+                    // Set appropriate stacking defaults based on panel type
+                    // IMPORTANT: Keep viewport and parameter panels completely separate
+                    match panel_type {
+                        crate::nodes::interface::PanelType::Viewport => {
+                            // Viewport panels stack by default (simplified behavior)
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_stacked(node_id, true);
+                            info!("Set stacking to true for viewport node {}", node_id);
+                        },
+                        crate::nodes::interface::PanelType::Parameter => {
+                            // Parameter panels stack by default - separate from viewport panels
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_stacked(node_id, true);
+                        },
+                        _ => {
+                            // Other panel types stack by default
+                            self.panel_manager.interface_panel_manager_mut()
+                                .set_panel_stacked(node_id, true);
+                        }
+                    }
+                    
+                    // Automatically open panels for newly created nodes
+                    match panel_type {
+                        crate::nodes::interface::PanelType::Parameter |
+                        crate::nodes::interface::PanelType::Viewport |
+                        crate::nodes::interface::PanelType::Tree |
+                        crate::nodes::interface::PanelType::Spreadsheet => {
+                            let panel_manager = self.panel_manager.interface_panel_manager_mut();
+                            panel_manager.set_panel_visibility(node_id, true);
+                            panel_manager.set_panel_open(node_id, true);
+                            
+                            // Debug: Track panel visibility setting
+                            if panel_type == crate::nodes::interface::PanelType::Viewport {
+                                info!("Set viewport panel visibility for node {} to TRUE", node_id);
+                                info!("Set viewport panel open for node {} to TRUE", node_id);
+                                if let Some(node) = viewed_nodes.get(&node_id) {
+                                    info!("Node type: {:?}", node.node_type);
+                                }
+                            }
+                        },
+                        crate::nodes::interface::PanelType::Viewer |
+                        crate::nodes::interface::PanelType::Editor |
+                        crate::nodes::interface::PanelType::Inspector => {
+                            // Other panel types could auto-open in the future
+                        }
                     }
                 }
             }
-            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+            
+            self.mark_modified();
         }
     }
 
     /// Add benchmark nodes in a grid pattern for performance testing
     fn add_benchmark_nodes(&mut self, count: usize) {
-        
-        let node_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
-        let spacing = 120.0;
-        let grid_cols = (count as f32).sqrt().ceil() as usize;
-        
-        for i in 0..count {
-            let col = i % grid_cols;
-            let row = i / grid_cols;
-            let x = 50.0 + col as f32 * spacing;
-            let y = 100.0 + row as f32 * spacing;
-            let node_type = node_types[i % node_types.len()];
-            
-            if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
-                self.graph.add_node(node);
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-            }
-        }
+        DebugToolsManager::add_benchmark_nodes(&mut self.graph, count);
     }
 
     /// Add a large number of nodes with many connections for serious performance stress testing
     fn add_performance_stress_test(&mut self, count: usize) {
-        let start_time = std::time::Instant::now();
-        let node_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
-        
-        // Calculate grid that fits in reasonable space with compact spacing
-        let spacing = 80.0; // Tighter spacing for 1000 nodes
-        let grid_cols = (count as f32).sqrt().ceil() as usize;
-        
-        // Create all nodes first
-        let mut node_ids = Vec::new();
-        for i in 0..count {
-            let col = i % grid_cols;
-            let row = i / grid_cols;
-            let x = 50.0 + col as f32 * spacing;
-            let y = 100.0 + row as f32 * spacing;
-            let node_type = node_types[i % node_types.len()];
-            
-            if let Some(node) = crate::NodeRegistry::create_node(node_type, Pos2::new(x, y)) {
-                let node_id = self.graph.add_node(node);
-                node_ids.push(node_id);
-            }
-        }
-        
-        let _node_creation_time = start_time.elapsed();
-        
-        // Create many connections for performance testing
-        let connection_start = std::time::Instant::now();
-        let connection_count = (count / 2).min(500); // Create up to 500 connections
-        
-        for i in 0..connection_count {
-            if i + 1 < node_ids.len() {
-                let from_id = node_ids[i];
-                let to_id = node_ids[i + 1];
-                
-                // Try to create a connection (may fail if ports don't match)
-                let connection = crate::nodes::Connection::new(from_id, 0, to_id, 0);
-                let _ = self.graph.add_connection(connection); // Ignore errors for stress test
-            }
-            
-            // Also create some random long-distance connections
-            if i % 10 == 0 && i + 20 < node_ids.len() {
-                let from_id = node_ids[i];
-                let to_id = node_ids[i + 20];
-                let connection = crate::nodes::Connection::new(from_id, 0, to_id, 0);
-                let _ = self.graph.add_connection(connection);
-            }
-        }
-        
-        let _connection_time = connection_start.elapsed();
-        let _total_time = start_time.elapsed();
-        
-        // Force GPU instance rebuild after adding many nodes
-        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+        DebugToolsManager::add_performance_stress_test(&mut self.graph, count);
     }
 
     /// Draw a dashed path for connection cutting visualization
@@ -490,251 +538,248 @@ impl NodeEditor {
     // File operations
     
     /// Create a new empty graph
+    /// Create a new file (reset graph state)
     pub fn new_file(&mut self) {
         self.graph = NodeGraph::new();
-        self.current_view = GraphView::Root;
+        self.execution_engine = NodeGraphEngine::new();
+        self.navigation.set_root_view();
         self.navigation = NavigationManager::new();
         self.interaction.clear_selection();
-        self.current_file_path = None;
-        self.is_modified = false;
-        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+        self.file_manager.new_file();
         // Reset context manager to root (no active context)
         self.workspace_manager.set_active_workspace_by_id(None);
     }
     
-    /// Save the current graph to a file
+    /// Save the current graph to a specific file path
     pub fn save_to_file(&mut self, file_path: &Path) -> Result<(), String> {
-        // Create the save data structure
-        let save_data = SaveData {
-            version: "1.0".to_string(),
-            metadata: SaveMetadata {
-                created: chrono::Utc::now().to_rfc3339(),
-                modified: chrono::Utc::now().to_rfc3339(),
-                creator: "Nōdle 1.0".to_string(),
-                description: "Node graph project".to_string(),
-            },
-            viewport: ViewportData {
-                pan_offset: [self.viewport.pan_offset.x, self.viewport.pan_offset.y],
-                zoom: self.viewport.zoom,
-            },
-            root_graph: self.graph.clone(),
-        };
-        
-        // Serialize to JSON
-        let json_data = serde_json::to_string_pretty(&save_data)
-            .map_err(|e| format!("Failed to serialize graph: {}", e))?;
-        
-        // Write to file
-        std::fs::write(file_path, json_data)
-            .map_err(|e| format!("Failed to write file: {}", e))?;
-        
-        // Update state
-        self.current_file_path = Some(file_path.to_path_buf());
-        self.is_modified = false;
-        
-        Ok(())
+        self.file_manager.save_to_file(file_path, &self.graph, &self.canvas)
     }
     
-    /// Load a graph from a file
+    /// Load a graph from a specific file path
     pub fn load_from_file(&mut self, file_path: &Path) -> Result<(), String> {
-        // Read file
-        let file_content = std::fs::read_to_string(file_path)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
-        
-        // Deserialize from JSON
-        let save_data: SaveData = serde_json::from_str(&file_content)
-            .map_err(|e| format!("Failed to parse file: {}", e))?;
-        
-        // Apply loaded data
-        self.graph = save_data.root_graph;
-        self.viewport.pan_offset = Vec2::new(
-            save_data.viewport.pan_offset[0],
-            save_data.viewport.pan_offset[1],
-        );
-        self.viewport.zoom = save_data.viewport.zoom;
-        
-        // Reset view state
-        self.current_view = GraphView::Root;
-        self.navigation = NavigationManager::new();
-        self.interaction.clear_selection();
-        // Reset context manager to root (no active context)
-        self.workspace_manager.set_active_workspace_by_id(None);
-        
-        // Update file state
-        self.current_file_path = Some(file_path.to_path_buf());
-        self.is_modified = false;
-        
-        // Update port positions and rebuild GPU instances
-        self.graph.update_all_port_positions();
-        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-        
-        Ok(())
-    }
-    
-    /// Get the current file name for display
-    pub fn get_file_display_name(&self) -> String {
-        if let Some(path) = &self.current_file_path {
-            if let Some(name) = path.file_name() {
-                return name.to_string_lossy().to_string();
+        match self.file_manager.load_from_file(file_path) {
+            Ok((graph, canvas)) => {
+                self.graph = graph;
+                self.canvas = canvas;
+                
+                // Reset execution engine and mark all nodes dirty
+                self.execution_engine = NodeGraphEngine::new();
+                self.execution_engine.mark_all_dirty(&self.graph);
+                
+                // Reset view state
+                self.navigation.set_root_view();
+                self.navigation = NavigationManager::new();
+                self.interaction.clear_selection();
+                // Reset context manager to root (no active context)
+                self.workspace_manager.set_active_workspace_by_id(None);
+                
+                // Update port positions and rebuild GPU instances
+                self.graph.update_all_port_positions();
+                
+                Ok(())
             }
+            Err(error) => Err(error)
         }
-        "Untitled".to_string()
     }
     
-    /// Check if the current file has unsaved changes
+    /// Get display name for the current file
+    pub fn get_file_display_name(&self) -> String {
+        self.file_manager.get_file_display_name()
+    }
+    
+    /// Check if there are unsaved changes
     pub fn has_unsaved_changes(&self) -> bool {
-        self.is_modified
+        self.file_manager.has_unsaved_changes()
     }
     
-    /// Mark the current file as modified
+    /// Mark the file as modified
     pub fn mark_modified(&mut self) {
-        self.is_modified = true;
+        self.file_manager.mark_modified();
     }
     
     /// Open file dialog and load selected file
     pub fn open_file_dialog(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Nōdle files", &["nodle"])
-            .add_filter("JSON files", &["json"])
-            .pick_file()
-        {
-            if let Err(error) = self.load_from_file(&path) {
-                eprintln!("Failed to load file: {}", error);
+        match self.file_manager.open_file_dialog() {
+            Ok(Some((graph, canvas))) => {
+                self.graph = graph;
+                self.canvas = canvas;
+                
+                // Reset view state
+                self.navigation.set_root_view();
+                self.navigation = NavigationManager::new();
+                self.interaction.clear_selection();
+                // Reset context manager to root (no active context)
+                self.workspace_manager.set_active_workspace_by_id(None);
+                
+                // Update port positions and rebuild GPU instances
+                self.graph.update_all_port_positions();
+            }
+            Ok(None) => {
+                // User cancelled - do nothing
+            }
+            Err(error) => {
+                error!("Failed to load file: {}", error);
                 // TODO: Show error dialog to user
             }
         }
     }
     
-    /// Save current file, or open Save As dialog if no current file
+    /// Save to current file path, or prompt for new path if none exists
     pub fn save_file(&mut self) {
-        if let Some(current_path) = self.current_file_path.clone() {
-            if let Err(error) = self.save_to_file(&current_path) {
-                eprintln!("Failed to save file: {}", error);
-                // TODO: Show error dialog to user
+        match self.file_manager.save_file(&self.graph, &self.canvas) {
+            Ok(()) => {
+                // File saved successfully
             }
-        } else {
-            self.save_as_file_dialog();
+            Err(_) => {
+                // No current path, use save as dialog
+                self.save_as_file_dialog();
+            }
         }
     }
     
-    /// Open Save As dialog and save to selected file
+    /// Save as dialog
     pub fn save_as_file_dialog(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Nōdle files", &["nodle"])
-            .add_filter("JSON files", &["json"])
-            .set_file_name("untitled.nodle")
-            .save_file()
-        {
-            if let Err(error) = self.save_to_file(&path) {
-                eprintln!("Failed to save file: {}", error);
+        match self.file_manager.save_as_file_dialog(&self.graph, &self.canvas) {
+            Ok(true) => {
+                // File saved successfully
+            }
+            Ok(false) => {
+                // User cancelled - do nothing
+            }
+            Err(error) => {
+                error!("Failed to save file: {}", error);
                 // TODO: Show error dialog to user
             }
         }
     }
     
-    /// Populate a 2D workspace node with sample nodes for demonstration
-    fn populate_2d_workspace(&mut self, workspace_node: &mut Node) {
-        if let Some(_internal_graph) = workspace_node.get_internal_graph_mut() {
-            // 2D workspace starts empty - users can add nodes via context menu
+
+
+    /// Render interface panels for all nodes that have visibility enabled
+    fn render_interface_panels(&mut self, ui: &mut egui::Ui, viewed_nodes: &HashMap<NodeId, Node>, menu_bar_height: f32) {
+        // Store menu bar height in editor state for window constraints
+        self.store_menu_bar_height(menu_bar_height);
+        
+        // Debug: Check viewed_nodes for viewport nodes
+        let viewport_nodes: Vec<_> = viewed_nodes.iter()
+            .filter(|(_, node)| node.get_panel_type() == Some(crate::nodes::interface::PanelType::Viewport))
+            .collect();
+        if !viewport_nodes.is_empty() {
+            // Found viewport nodes - details logged at debug level
         }
-    }
-    
-    /// Populate a 3D workspace node with sample nodes for demonstration
-    fn populate_3d_workspace(&mut self, workspace_node: &mut Node) {
-        if let Some(_internal_graph) = workspace_node.get_internal_graph_mut() {
-            // 3D context starts empty - users can add nodes via context menu
-        }
-    }
-    
-    /// Populate a MaterialX context node with sample nodes for demonstration
-    fn populate_materialx_workspace(&mut self, workspace_node: &mut Node) {
-        if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
-            // Create sample MaterialX nodes
-            let mut image_node = Node::new(1, "Image", Pos2::new(50.0, 100.0))
-                .with_color(Color32::from_rgb(140, 180, 140));
-            image_node.add_input("File");
-            image_node.add_input("UV");
-            image_node.add_output("Color");
-            image_node.add_output("Alpha");
-            
-            let mut noise_node = Node::new(2, "Noise", Pos2::new(50.0, 200.0))
-                .with_color(Color32::from_rgb(140, 180, 140));
-            noise_node.add_input("UV");
-            noise_node.add_input("Scale");
-            noise_node.add_output("Color");
-            
-            let mut mix_node = Node::new(3, "Mix", Pos2::new(300.0, 150.0))
-                .with_color(Color32::from_rgb(200, 150, 100));
-            mix_node.add_input("Input A");
-            mix_node.add_input("Input B");
-            mix_node.add_input("Mix Factor");
-            mix_node.add_output("Output");
-            
-            let mut surface_node = Node::new(4, "Standard Surface", Pos2::new(500.0, 150.0))
-                .with_color(Color32::from_rgb(180, 140, 100));
-            surface_node.add_input("Base Color");
-            surface_node.add_input("Roughness");
-            surface_node.add_input("Metallic");
-            surface_node.add_output("Surface");
-            
-            // Add nodes to internal graph
-            internal_graph.add_node(image_node);
-            internal_graph.add_node(noise_node);
-            internal_graph.add_node(mix_node);
-            internal_graph.add_node(surface_node);
-            
-            // Create sample connections
-            let connection1 = Connection::new(1, 0, 3, 0); // image color to mix input A
-            let connection2 = Connection::new(2, 0, 3, 1); // noise color to mix input B
-            let connection3 = Connection::new(3, 0, 4, 0); // mix output to surface base color
-            
-            let _ = internal_graph.add_connection(connection1);
-            let _ = internal_graph.add_connection(connection2);
-            let _ = internal_graph.add_connection(connection3);
+        
+        // Delegate to the panel manager - use the correct graph based on current view
+        match self.navigation.current_view() {
+            crate::editor::navigation::GraphView::Root => {
+                // In root view, use the main graph
+                self.panel_manager.render_interface_panels(
+                    ui, 
+                    viewed_nodes, 
+                    menu_bar_height, 
+                    self.navigation.current_view(), 
+                    &mut self.graph,
+                    &mut self.execution_engine,
+                );
+            }
+            crate::editor::navigation::GraphView::WorkspaceNode(workspace_node_id) => {
+                // In workspace view, use the workspace's internal graph
+                if let Some(workspace_node) = self.graph.nodes.get_mut(&workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph_mut() {
+                        self.panel_manager.render_interface_panels(
+                            ui, 
+                            viewed_nodes, 
+                            menu_bar_height, 
+                            self.navigation.current_view(), 
+                            internal_graph,
+                            &mut self.execution_engine,
+                        );
+                    } else {
+                        // Fallback to main graph if workspace has no internal graph
+                        self.panel_manager.render_interface_panels(
+                            ui, 
+                            viewed_nodes, 
+                            menu_bar_height, 
+                            self.navigation.current_view(), 
+                            &mut self.graph,
+                            &mut self.execution_engine,
+                        );
+                    }
+                } else {
+                    // Fallback to main graph if workspace node not found
+                    self.panel_manager.render_interface_panels(
+                        ui, 
+                        viewed_nodes, 
+                        menu_bar_height, 
+                        self.navigation.current_view(), 
+                        &mut self.graph,
+                        &mut self.execution_engine,
+                    );
+                }
+            }
         }
     }
 
+    /// Check for node connections and execute automatic data flow
+    fn check_and_execute_connections(&mut self, _viewed_nodes: &HashMap<NodeId, Node>) {
+        // Debug print removed - executing connections
+        
+        // Get the current graph based on view context
+        let graph = match self.navigation.current_view() {
+            crate::editor::navigation::GraphView::Root => &self.graph,
+            crate::editor::navigation::GraphView::WorkspaceNode(workspace_id) => {
+                if let Some(workspace_node) = self.graph.nodes.get(workspace_id) {
+                    workspace_node.get_internal_graph().unwrap_or(&self.graph)
+                } else {
+                    &self.graph
+                }
+            }
+        };
+        
+        // Execute all dirty nodes using the new execution engine (only in Auto mode)
+        if self.execution_mode == ExecutionMode::Auto {
+                match self.execution_engine.execute_dirty_nodes(graph) {
+                Ok(_) => {
+                    // Success - no print needed
+                }
+                Err(e) => {
+                    error!("Connection execution failed: {}", e);
+                }
+            }
+        }
+        
+        // Print execution engine statistics
+        let stats = self.execution_engine.get_stats();
+        if stats.dirty_nodes > 0 || stats.error_nodes > 0 {
+            // Stats logging removed from main loop
+        }
+    }
 
-}
-
-impl eframe::App for NodeEditor {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    /// Initialize frame setup (repaint, timing, theme)
+    fn initialize_frame(&mut self, ctx: &egui::Context) {
         // Request repaint
         ctx.request_repaint();
 
         // Track frame time for performance monitoring
-        let current_time = std::time::Instant::now();
-        let frame_time = current_time.duration_since(self.last_frame_time).as_secs_f32();
-        self.last_frame_time = current_time;
-        
-        self.frame_times.push(frame_time);
-        if self.frame_times.len() > 60 { // Keep last 60 frames (1 second at 60fps)
-            self.frame_times.remove(0);
-        }
+        self.debug_tools.update_frame_time();
         
         // Set dark theme for window decorations
         ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
+    }
+}
 
-        egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(Color32::from_rgb(22, 27, 34)))
+impl eframe::App for NodeEditor {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Frame update started
+        // Initialize frame
+        self.initialize_frame(ctx);
+        // Frame initialized
+
+        // Render top menu bar as TopBottomPanel to ensure it's always on top with solid background
+        let menu_bar_height = egui::TopBottomPanel::top("top_menu_bar")
+            .frame(egui::Frame::default().fill(Color32::from_rgb(28, 28, 28)).inner_margin(8.0))
             .show(ctx, |ui| {
-            // Add padding around the top menu bar
-            ui.add_space(8.0); // Top padding
-            
-            // Draw menu bar background
-            let menu_height = 40.0; // Approximate height for menu bar
-            let menu_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(0.0, 8.0), 
-                egui::Vec2::new(ui.available_width(), menu_height)
-            );
-            ui.painter().rect_filled(
-                menu_rect,
-                0.0,
-                Color32::from_rgb(28, 28, 28), // Standard background color
-            );
-            
-            ui.horizontal(|ui| {
-                ui.add_space(12.0); // Left padding
+                ui.horizontal(|ui| {
+                    ui.add_space(4.0); // Left padding
                 
                 // File menu - uses EXACT same shared menu function as context menu
                 let file_button_response = ui.button("File");
@@ -793,7 +838,7 @@ impl eframe::App for NodeEditor {
                         
                         // Update current view based on path
                         if is_root {
-                            self.current_view = GraphView::Root;
+                            self.navigation.set_root_view();
                             // Clear workspace stack when going to root
                             self.navigation.workspace_stack.clear();
                         } else {
@@ -806,25 +851,7 @@ impl eframe::App for NodeEditor {
                         self.workspace_manager.set_active_workspace_by_id(workspace_id);
                         self.interaction.clear_selection();
                     }
-                    NavigationAction::EnterWorkspace(workspace_name) => {
-                        self.navigation.enter_workspace(&workspace_name);
-                        // Synchronize context manager with navigation state
-                        let workspace_id = self.navigation.current_path.current_workspace();
-                        self.workspace_manager.set_active_workspace_by_id(workspace_id);
-                    }
-                    NavigationAction::GoUp => {
-                        // Exit from context node view
-                        self.current_view = GraphView::Root;
-                        self.interaction.clear_selection();
-                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-                        // When going up, clear the active context (back to root)
-                        self.workspace_manager.set_active_workspace_by_id(None);
-                    }
-                    NavigationAction::GoToRoot => {
-                        self.navigation.go_to_root();
-                        // Synchronize context manager with navigation state (root = no active context)
-                        self.workspace_manager.set_active_workspace_by_id(None);
-                    }
+                    // All removed NavigationAction variants have been cleaned up
                     NavigationAction::None => {}
                 }
                 
@@ -840,16 +867,62 @@ impl eframe::App for NodeEditor {
                 ui.label(egui::RichText::new(file_display).color(Color32::LIGHT_BLUE));
                 
                 ui.separator();
-                ui.label(format!("Zoom: {:.1}x", self.viewport.zoom));
+                
+                // Execution mode controls
+                ui.horizontal(|ui| {
+                    // Auto button
+                    let auto_selected = self.execution_mode == ExecutionMode::Auto;
+                    let auto_color = if auto_selected { Color32::GREEN } else { Color32::DARK_GREEN };
+                    if ui.add(egui::Button::new("Auto").fill(auto_color)).clicked() {
+                        self.execution_mode = ExecutionMode::Auto;
+                        self.sync_execution_mode();
+                        // Execute any dirty nodes when switching to auto mode
+                        let current_graph = self.navigation.get_active_graph(&self.graph);
+                        if let Err(e) = self.execution_engine.execute_dirty_nodes(current_graph) {
+                            eprintln!("Auto mode execution failed: {}", e);
+                        }
+                    }
+                    
+                    // Manual button
+                    let manual_selected = self.execution_mode == ExecutionMode::Manual;
+                    let manual_color = if manual_selected { Color32::YELLOW } else { Color32::DARK_GRAY };
+                    if ui.add(egui::Button::new("Manual").fill(manual_color)).clicked() {
+                        self.execution_mode = ExecutionMode::Manual;
+                        self.sync_execution_mode();
+                    }
+                    
+                    // Cook button (only active in manual mode)
+                    let cook_enabled = self.execution_mode == ExecutionMode::Manual;
+                    let cook_color = if cook_enabled { Color32::ORANGE } else { Color32::DARK_GRAY };
+                    if ui.add(egui::Button::new("Cook").fill(cook_color))
+                        .on_hover_text("Execute dirty nodes (Manual mode only)")
+                        .clicked() && cook_enabled 
+                    {
+                        // Get the current workspace's graph, not the root graph
+                        let current_graph = self.navigation.get_active_graph(&self.graph);
+                        if let Err(e) = self.execution_engine.execute_dirty_nodes(current_graph) {
+                            eprintln!("Cook execution failed: {}", e);
+                        }
+                    }
+                });
+                
+                ui.separator();
+                ui.label(format!("Zoom: {:.1}x", self.canvas.zoom));
                 ui.label(format!(
                     "Pan: ({:.0}, {:.0})",
-                    self.viewport.pan_offset.x, self.viewport.pan_offset.y
+                    self.canvas.pan_offset.x, self.canvas.pan_offset.y
                 ));
                 
-                ui.add_space(12.0); // Right padding
-            });
-            ui.add_space(8.0); // Bottom padding
+                    ui.add_space(4.0); // Right padding
+                });
+            })
+            .response
+            .rect
+            .height();
 
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default().fill(Color32::from_rgb(22, 27, 34)))
+            .show(ctx, |ui| {
             let response = ui.allocate_response(ui.available_size(), egui::Sense::click_and_drag());
             
             // Set cursor based on special modes  
@@ -871,9 +944,9 @@ impl eframe::App for NodeEditor {
                 Color32::from_rgb(28, 28, 28), // Standard background color
             );
 
-            // Apply zoom and pan transforms using viewport
-            let zoom = self.viewport.zoom;
-            let pan_offset = self.viewport.pan_offset;
+            // Apply zoom and pan transforms using canvas
+            let zoom = self.canvas.zoom;
+            let pan_offset = self.canvas.pan_offset;
 
             let transform_pos = |pos: Pos2| -> Pos2 {
                 Pos2::new(
@@ -894,7 +967,7 @@ impl eframe::App for NodeEditor {
 
             // Handle pan and zoom using input state
             if let Some(pan_delta) = self.input_state.get_pan_delta(&response) {
-                self.viewport.pan(pan_delta);
+                self.canvas.pan(pan_delta);
             }
 
             // Handle zoom with mouse wheel using input state
@@ -919,43 +992,50 @@ impl eframe::App for NodeEditor {
                 if !self.input_state.is_panning {
                     // Handle clicks (not just drags)
                     if self.input_state.clicked_this_frame {
-                        // Check if we clicked on a port first
-                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(&self.build_temp_graph(&viewed_nodes), 10.0) {
+                        // Click detected
+                        // Check if we clicked on a port first - use active graph for consistency
+                        let active_graph = self.navigation.get_active_graph(&self.graph);
+                        // Active graph checked
+                        // Use smaller radius for precise clicks when not in connecting mode
+                        let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
+                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
+                            // Port click found
                             // Handle connection logic
                             if self.input_state.is_connecting_active() {
                                 // Try to complete connection
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
+                                    // Connection created
                                     // Check if target is an input port and already has a connection
                                     if is_input {
-                                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
                                             // Remove existing connection to input port
-                                            self.graph.remove_connection(existing_idx);
+                                            self.remove_connection_from_active_graph(existing_idx);
                                             self.mark_modified();
                                         }
                                     }
-                                    let _ = self.graph.add_connection(connection);
+                                    match self.add_connection_to_active_graph(connection) {
+                                        Ok(_) => {},
+                                        Err(e) => error!("Failed to add connection: {}", e),
+                                    }
                                     self.mark_modified();
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
                                     // Start new connection from this port
+                                    // Starting new connection
                                     self.input_state.start_connection(node_id, port_idx, is_input);
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 }
                             } else {
                                 // Not currently connecting - check if clicking on connected input port
                                 if is_input {
-                                    if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                    if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
                                         // Disconnect and start new connection from original source
-                                        self.graph.remove_connection(conn_idx);
+                                        self.remove_connection_from_active_graph(conn_idx);
                                         self.mark_modified();
                                         self.input_state.start_connection(from_node, from_port, false);
-                                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                         return; // Skip starting connection from input port
                                     }
                                 }
                                 // Start new connection from this port
                                 self.input_state.start_connection(node_id, port_idx, is_input);
-                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else if let Some(node_id) = self.input_state.find_node_under_mouse(&self.build_temp_graph(&viewed_nodes)) {
                             // Check for button clicks first
@@ -963,60 +1043,36 @@ impl eframe::App for NodeEditor {
                             let mut handled_button_click = false;
                             
                             // Get the correct graph for button interaction
-                            match self.current_view {
+                            match self.navigation.current_view() {
                                 GraphView::Root => {
                                     if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                         if node.is_point_in_left_button(mouse_pos) {
                                             node.toggle_left_button();
                                             self.mark_modified();
-                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
-                                            let viewed_nodes = match self.current_view {
-                                                GraphView::Root => self.graph.nodes.clone(),
-                                                GraphView::WorkspaceNode(workspace_node_id) => {
-                                                    if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                                                        if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                                                            internal_graph.nodes.clone()
-                                                        } else { HashMap::new() }
-                                                    } else { HashMap::new() }
-                                                }
-                                            };
+                                            let viewed_nodes = self.get_viewed_nodes();
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                             ui.ctx().request_repaint(); // Force immediate visual update
                                             handled_button_click = true;
                                         } else if node.is_point_in_right_button(mouse_pos) {
                                             node.toggle_right_button();
                                             self.mark_modified();
-                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
-                                            let viewed_nodes = match self.current_view {
-                                                GraphView::Root => self.graph.nodes.clone(),
-                                                GraphView::WorkspaceNode(workspace_node_id) => {
-                                                    if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                                                        if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                                                            internal_graph.nodes.clone()
-                                                        } else { HashMap::new() }
-                                                    } else { HashMap::new() }
-                                                }
-                                            };
+                                            let viewed_nodes = self.get_viewed_nodes();
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                             ui.ctx().request_repaint(); // Force immediate visual update
                                             handled_button_click = true;
                                         } else if node.is_point_in_visibility_flag(mouse_pos) {
                                             node.toggle_visibility();
+                                            // If toggling visibility ON, make panel visible and open
+                                            if node.visible {
+                                                let panel_manager = self.panel_manager.interface_panel_manager_mut();
+                                                panel_manager.set_panel_visibility(node_id, true);
+                                                panel_manager.set_panel_open(node_id, true);
+                                            }
                                             self.mark_modified();
-                                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                             // Force immediate instance update instead of waiting for next frame
-                                            let viewed_nodes = match self.current_view {
-                                                GraphView::Root => self.graph.nodes.clone(),
-                                                GraphView::WorkspaceNode(workspace_node_id) => {
-                                                    if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                                                        if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                                                            internal_graph.nodes.clone()
-                                                        } else { HashMap::new() }
-                                                    } else { HashMap::new() }
-                                                }
-                                            };
+                                            let viewed_nodes = self.get_viewed_nodes();
                                             let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                             ui.ctx().request_repaint(); // Force immediate visual update
                                             handled_button_click = true;
@@ -1030,54 +1086,30 @@ impl eframe::App for NodeEditor {
                                                 if node.is_point_in_left_button(mouse_pos) {
                                                     node.toggle_left_button();
                                                     self.mark_modified();
-                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
-                                                    let viewed_nodes = match self.current_view {
-                                                        GraphView::Root => self.graph.nodes.clone(),
-                                                        GraphView::WorkspaceNode(workspace_node_id) => {
-                                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                                                                    internal_graph.nodes.clone()
-                                                                } else { HashMap::new() }
-                                                            } else { HashMap::new() }
-                                                        }
-                                                    };
+                                                    let viewed_nodes = self.get_viewed_nodes();
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                                     ui.ctx().request_repaint(); // Force immediate visual update
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_right_button(mouse_pos) {
                                                     node.toggle_right_button();
                                                     self.mark_modified();
-                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
-                                                    let viewed_nodes = match self.current_view {
-                                                        GraphView::Root => self.graph.nodes.clone(),
-                                                        GraphView::WorkspaceNode(workspace_node_id) => {
-                                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                                                                    internal_graph.nodes.clone()
-                                                                } else { HashMap::new() }
-                                                            } else { HashMap::new() }
-                                                        }
-                                                    };
+                                                    let viewed_nodes = self.get_viewed_nodes();
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                                     ui.ctx().request_repaint(); // Force immediate visual update
                                                     handled_button_click = true;
                                                 } else if node.is_point_in_visibility_flag(mouse_pos) {
                                                     node.toggle_visibility();
+                                                    // If toggling visibility ON, make panel visible and open
+                                                    if node.visible {
+                                                        let panel_manager = self.panel_manager.interface_panel_manager_mut();
+                                                        panel_manager.set_panel_visibility(node_id, true);
+                                                        panel_manager.set_panel_open(node_id, true);
+                                                    }
                                                     self.mark_modified();
-                                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                     // Force immediate instance update for context nodes
-                                                    let viewed_nodes = match self.current_view {
-                                                        GraphView::Root => self.graph.nodes.clone(),
-                                                        GraphView::WorkspaceNode(workspace_node_id) => {
-                                                            if let Some(workspace_node) = self.graph.nodes.get(&workspace_node_id) {
-                                                                if let Some(internal_graph) = workspace_node.get_internal_graph() {
-                                                                    internal_graph.nodes.clone()
-                                                                } else { HashMap::new() }
-                                                            } else { HashMap::new() }
-                                                        }
-                                                    };
+                                                    let viewed_nodes = self.get_viewed_nodes();
                                                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
                                                     ui.ctx().request_repaint(); // Force immediate visual update
                                                     handled_button_click = true;
@@ -1096,7 +1128,7 @@ impl eframe::App for NodeEditor {
                                 // Check for double-click on workspace nodes
                                 if self.interaction.check_double_click(node_id) {
                                     // Check if the node exists in the active graph and is a workspace node
-                                    let is_workspace_node = match self.current_view {
+                                    let is_workspace_node = match self.navigation.current_view() {
                                         GraphView::Root => {
                                             self.graph.nodes.get(&node_id).map(|n| n.is_workspace()).unwrap_or(false)
                                         }
@@ -1115,7 +1147,7 @@ impl eframe::App for NodeEditor {
                                     
                                     if is_workspace_node {
                                         // Get workspace type from the node
-                                        let workspace_type = match self.current_view {
+                                        let workspace_type = match self.navigation.current_view() {
                                             GraphView::Root => {
                                                 self.graph.nodes.get(&node_id).and_then(|n| n.get_workspace_type())
                                             }
@@ -1134,10 +1166,9 @@ impl eframe::App for NodeEditor {
                                         
                                         if let Some(workspace_type) = workspace_type {
                                                 self.navigation.enter_workspace_node(node_id, workspace_type);
-                                                self.current_view = GraphView::WorkspaceNode(node_id);
+                                                self.navigation.set_workspace_view(node_id);
                                                 // Clear selections when entering a new graph
                                                 self.interaction.clear_selection();
-                                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                                 // Synchronize workspace manager with the node's workspace type
                                                 // Map workspace type to workspace ID (3D -> 3d, MaterialX -> materialx)
                                                 let workspace_id = match workspace_type {
@@ -1150,46 +1181,43 @@ impl eframe::App for NodeEditor {
                                     }
                                 }
                                 
-                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
-                        } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.build_temp_graph(&viewed_nodes), 8.0, self.viewport.zoom) {
+                        } else if let Some(connection_idx) = self.input_state.find_clicked_connection(&self.build_temp_graph(&viewed_nodes), 8.0, self.canvas.zoom) {
                             // Handle connection selection with multi-select support
                             self.interaction.select_connection_multi(connection_idx, self.input_state.is_multi_select());
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         } else {
                             // Clicked on empty space - deselect all and cancel connections
                             self.interaction.clear_selection();
                             self.input_state.cancel_connection();
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
 
                     // Handle drag start for connections, node movement and box selection
                     if self.input_state.drag_started_this_frame {
-                        // Check if we're starting to drag from a port for connections
-                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(&self.build_temp_graph(&viewed_nodes), 10.0) {
+                        // Check if we're starting to drag from a port for connections - use active graph for consistency
+                        let active_graph = self.navigation.get_active_graph(&self.graph);
+                        // Use smaller radius for precise clicks when not in connecting mode
+                        let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
+                        if let Some((node_id, port_idx, is_input)) = self.input_state.find_clicked_port(active_graph, click_radius) {
                             // Handle input port disconnection on drag
                             if is_input {
-                                if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(&self.graph, node_id, port_idx) {
+                                if let Some((conn_idx, from_node, from_port)) = self.input_state.find_input_connection(active_graph, node_id, port_idx) {
                                     // Disconnect and start new connection from original source
-                                    self.graph.remove_connection(conn_idx);
+                                    self.remove_connection_from_active_graph(conn_idx);
                                     self.mark_modified();
                                     self.input_state.start_connection(from_node, from_port, false);
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 } else {
                                     // No existing connection, start from input port
                                     self.input_state.start_connection(node_id, port_idx, is_input);
-                                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                 }
                             } else {
                                 // Output port - start connection normally
                                 self.input_state.start_connection(node_id, port_idx, is_input);
-                                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                             }
                         } else {
                             // Check if we're starting to drag a selected node
                             let mut dragging_selected = false;
-                            let current_graph = match self.current_view {
+                            let current_graph = match self.navigation.current_view() {
                                 GraphView::Root => &self.graph,
                                 GraphView::WorkspaceNode(node_id) => {
                                     if let Some(node) = self.graph.nodes.get(&node_id) {
@@ -1225,8 +1253,6 @@ impl eframe::App for NodeEditor {
                                     // Start box selection if not on any node and using left mouse button
                                     if self.input_state.is_primary_down(ui) {
                                         self.interaction.start_box_selection(pos);
-                                        // Force GPU rebuild for immediate visual feedback
-                                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                                     }
                                 }
                             }
@@ -1237,7 +1263,7 @@ impl eframe::App for NodeEditor {
                     if response.dragged() {
                         if !self.interaction.drag_offsets.is_empty() {
                             // Drag all selected nodes - use correct graph based on current view
-                            match self.current_view {
+                            match self.navigation.current_view() {
                                 GraphView::Root => {
                                     self.interaction.update_drag(pos, &mut self.graph);
                                 }
@@ -1249,43 +1275,40 @@ impl eframe::App for NodeEditor {
                                     }
                                 }
                             }
-                            // Force GPU instance manager to rebuild when nodes are moved
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         } else if self.interaction.box_selection_start.is_some() {
                             // Update box selection
                             self.interaction.update_box_selection(pos);
-                            // Force GPU rebuild for immediate visual feedback
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
 
                     // Handle connection completion
                     if self.input_state.drag_stopped_this_frame {
                         if self.input_state.is_connecting_active() {
-                            // Check if we released on a port to complete connection
-                            if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(&self.build_temp_graph(&viewed_nodes), 10.0) {
+                            // Check if we released on a port to complete connection - use active graph for consistency
+                            let active_graph = self.navigation.get_active_graph(&self.graph);
+                            // Use smaller radius for precise clicks when not in connecting mode
+                            let click_radius = if self.input_state.is_connecting_mode() { 80.0 } else { 8.0 };
+                            if let Some((node_id, port_idx, _)) = self.input_state.find_clicked_port(active_graph, click_radius) {
                                 if let Some(connection) = self.input_state.complete_connection(node_id, port_idx) {
-                                    let _ = self.graph.add_connection(connection);
+                                    // Connection created on drag release
+                                    match self.add_connection_to_active_graph(connection) {
+                                        Ok(_) => {},
+                                        Err(e) => error!("Failed to add connection: {}", e),
+                                    }
                                     self.mark_modified();
                                 }
                             } else {
                                 // Cancel connection if we didn't release on a port
                                 self.input_state.cancel_connection();
                             }
-                            // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                         }
                     }
                 }
 
                 if self.input_state.drag_stopped_this_frame {
-                    // Ensure final positions are updated in GPU
-                    if self.use_gpu_rendering {
-                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
-                    }
-
                     // Complete box selection
                     if self.interaction.box_selection_start.is_some() {
-                        match self.current_view {
+                        match self.navigation.current_view() {
                             GraphView::Root => {
                                 self.interaction.complete_box_selection(&self.graph, self.input_state.is_multi_select());
                             }
@@ -1297,7 +1320,6 @@ impl eframe::App for NodeEditor {
                                 }
                             }
                         }
-                        // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                     }
                     
                     // End any dragging operations
@@ -1308,27 +1330,39 @@ impl eframe::App for NodeEditor {
             // Handle keyboard input using input state
             if self.input_state.delete_pressed(ui) {
                 if !self.interaction.selected_nodes.is_empty() {
+                    // Clean up panel caches for deleted nodes
+                    for node_id in &self.interaction.selected_nodes {
+                        self.panel_manager.cleanup_deleted_node(*node_id);
+                    }
+                    
                     // Delete all selected nodes from the correct graph
-                    match self.current_view {
+                    match self.navigation.current_view() {
                         GraphView::Root => {
+                            // Notify execution engine about each node removal before deleting
+                            for node_id in &self.interaction.selected_nodes {
+                                self.execution_engine.on_node_removed(*node_id, &self.graph);
+                            }
                             self.interaction.delete_selected(&mut self.graph);
                         }
                         GraphView::WorkspaceNode(node_id) => {
                             if let Some(node) = self.graph.nodes.get_mut(&node_id) {
                                 if let Some(internal_graph) = node.get_internal_graph_mut() {
+                                    // Notify execution engine about each node removal before deleting
+                                    for selected_node_id in &self.interaction.selected_nodes {
+                                        self.execution_engine.on_node_removed(*selected_node_id, internal_graph);
+                                    }
                                     self.interaction.delete_selected(internal_graph);
                                 }
                             }
                         }
                     }
                     self.mark_modified();
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 } else if !self.interaction.selected_connections.is_empty() {
                     // Delete all selected connections (in reverse order to maintain indices)
                     let mut connection_indices: Vec<usize> = self.interaction.selected_connections.iter().copied().collect();
                     connection_indices.sort_by(|a, b| b.cmp(a)); // Sort in reverse order
                     
-                    match self.current_view {
+                    match self.navigation.current_view() {
                         GraphView::Root => {
                             for conn_idx in connection_indices {
                                 self.graph.remove_connection(conn_idx);
@@ -1348,20 +1382,24 @@ impl eframe::App for NodeEditor {
                     }
                     
                     self.interaction.clear_connection_selection();
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
             }
 
             // Handle ESC key to cancel connections
             if self.input_state.escape_pressed(ui) {
                 self.input_state.cancel_connection();
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
+            // Update port positions BEFORE connection handling
+            self.graph.update_all_port_positions();
+            
             // Handle connection cutting when X key is released
             if !self.input_state.is_cutting_mode() && (!self.input_state.get_cut_paths().is_empty() || !self.input_state.get_current_cut_path().is_empty()) {
                 // X key was just released - apply cuts
-                let cut_connections = self.input_state.find_cut_connections(&self.graph, self.viewport.zoom);
+                let cut_connections = {
+                    let active_graph = self.navigation.get_active_graph(&self.graph);
+                    self.input_state.find_cut_connections(active_graph, self.canvas.zoom)
+                };
                 
                 if !cut_connections.is_empty() {
                     // Sort in reverse order to maintain indices during deletion
@@ -1369,11 +1407,10 @@ impl eframe::App for NodeEditor {
                     sorted_cuts.sort_by(|a, b| b.cmp(a));
                     
                     for conn_idx in sorted_cuts {
-                        self.graph.remove_connection(conn_idx);
+                        self.remove_connection_from_active_graph(conn_idx);
                         self.mark_modified();
                     }
                     
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
                 }
                 
                 // Clear cut paths after applying
@@ -1383,22 +1420,34 @@ impl eframe::App for NodeEditor {
             // Handle connection drawing when C key is released
             if !self.input_state.is_connecting_mode() && (!self.input_state.get_connect_paths().is_empty() || !self.input_state.get_current_connect_path().is_empty()) {
                 // C key was just released - create connections from drawn paths
-                let new_connections = self.input_state.create_connections_from_paths(&self.graph);
+                let (new_connections, connections_to_remove) = {
+                    let active_graph = self.navigation.get_active_graph(&self.graph);
+                    let new_connections = self.input_state.create_connections_from_paths(active_graph);
+                    
+                    // Process connections to find existing ones to remove
+                    let mut connections_to_remove = Vec::new();
+                    for connection in &new_connections {
+                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(active_graph, connection.to_node, connection.to_port) {
+                            connections_to_remove.push(existing_idx);
+                        }
+                    }
+                    
+                    (new_connections, connections_to_remove)
+                };
                 
                 if !new_connections.is_empty() {
-                    for connection in new_connections {
-                        // Check if target is an input port and already has a connection
-                        if let Some((existing_idx, _, _)) = self.input_state.find_input_connection(&self.graph, connection.to_node, connection.to_port) {
-                            // Remove existing connection to input port
-                            self.graph.remove_connection(existing_idx);
-                            self.mark_modified();
-                        }
-                        
-                        let _ = self.graph.add_connection(connection);
+                    // Remove existing connections
+                    for existing_idx in connections_to_remove {
+                        self.remove_connection_from_active_graph(existing_idx);
                         self.mark_modified();
                     }
                     
-                    // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
+                    // Add new connections
+                    for connection in new_connections {
+                        let _ = self.add_connection_to_active_graph(connection);
+                        self.mark_modified();
+                    }
+                    
                 }
                 
                 // Clear connect paths after applying
@@ -1407,7 +1456,7 @@ impl eframe::App for NodeEditor {
 
             // Handle F1 to toggle performance info
             if self.input_state.f1_pressed(ui) {
-                self.show_performance_info = !self.show_performance_info;
+                self.debug_tools.toggle_performance_info();
             }
 
             // Handle F2-F4 to add different numbers of nodes
@@ -1427,7 +1476,6 @@ impl eframe::App for NodeEditor {
                 self.graph.connections.clear();
                 self.interaction.clear_selection();
                 self.input_state.cancel_connection();
-                // self.gpu_instance_manager.force_rebuild(); // DISABLED: rebuilding every frame now
             }
 
             // Handle F6 to toggle GPU/CPU rendering
@@ -1447,8 +1495,6 @@ impl eframe::App for NodeEditor {
             }
 
 
-            // Update port positions
-            self.graph.update_all_port_positions();
 
             // Draw nodes - GPU vs CPU rendering
             if self.use_gpu_rendering && !viewed_nodes.is_empty() {
@@ -1456,27 +1502,14 @@ impl eframe::App for NodeEditor {
                     let viewport_rect = response.rect;
                     
                     // Create GPU callback for node body rendering  
-                    // Use the full screen size, not just the response rect size, to match GPU viewport
+                    // Screen size in logical coordinates using full screen height
                     let screen_size = Vec2::new(
                         ui.ctx().screen_rect().width(),
                         ui.ctx().screen_rect().height()
                     );
                     
                     // Get current graph for box selection preview
-                    let current_graph = match self.current_view {
-                        GraphView::Root => &self.graph,
-                        GraphView::WorkspaceNode(node_id) => {
-                            if let Some(node) = self.graph.nodes.get(&node_id) {
-                                if let Some(internal_graph) = node.get_internal_graph() {
-                                    internal_graph
-                                } else {
-                                    &self.graph
-                                }
-                            } else {
-                                &self.graph
-                            }
-                        }
-                    };
+                    let current_graph = self.navigation.get_active_graph(&self.graph);
                     
                     // Combine selected nodes with box selection preview for immediate highlighting
                     let mut all_selected_nodes = self.interaction.selected_nodes.clone();
@@ -1499,8 +1532,8 @@ impl eframe::App for NodeEditor {
                         port_instances,
                         button_instances,
                         flag_instances,
-                        self.viewport.pan_offset,
-                        self.viewport.zoom,
+                        self.canvas.get_gpu_pan_offset(self.current_menu_bar_height),
+                        self.canvas.zoom,
                         screen_size,
                     );
                     
@@ -1511,15 +1544,79 @@ impl eframe::App for NodeEditor {
                     ));
                     
                     // Render node titles using CPU (GPU handles node bodies and ports)
-                    for (_node_id, node) in &viewed_nodes {
-                    // Node titles (CPU-rendered text)
-                    painter.text(
-                        transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
-                        egui::Align2::CENTER_CENTER,
-                        &node.title,
-                        egui::FontId::proportional(12.0 * self.viewport.zoom),
-                        Color32::WHITE,
-                    );
+                    for (node_id, node) in &viewed_nodes {
+                        // Check if fit name is enabled for this node
+                        let fit_name_enabled = self.panel_manager.interface_panel_manager().get_fit_name(*node_id);
+                        let font_id = egui::FontId::proportional(12.0 * self.canvas.zoom);
+                        
+                        // If fit name is enabled, always show full title without truncation
+                        let display_text = if fit_name_enabled {
+                            node.title.clone()
+                        } else {
+                            // Calculate available width for text (node width minus padding and visibility flag)
+                            let text_padding = 20.0; // 10px padding on each side
+                            let visibility_flag_space = 30.0; // More conservative space for visibility flag
+                            let available_width = (node.size.x - text_padding - visibility_flag_space) * self.canvas.zoom;
+                            
+                            // Measure the full title width using proper text layout
+                            let full_text_width = painter.fonts(|fonts| {
+                                fonts.layout_no_wrap(node.title.clone(), font_id.clone(), egui::Color32::WHITE).size().x
+                            });
+                            
+                            // Calculate ellipsis width upfront
+                            let ellipsis = "...";
+                            let ellipsis_width = painter.fonts(|fonts| {
+                                fonts.layout_no_wrap(ellipsis.to_string(), font_id.clone(), egui::Color32::WHITE).size().x
+                            });
+                            
+                            // Show ellipsis sooner: if adding ellipsis space would make it tight, show ellipsis
+                            let threshold_width = available_width - ellipsis_width;
+                            
+                            if full_text_width <= threshold_width {
+                                // Text fits comfortably even with ellipsis space reserved, show full title
+                                node.title.clone()
+                            } else {
+                                // Text would be tight, show truncated version with ellipsis
+                                let available_for_text = available_width - ellipsis_width;
+                                
+                                // Binary search to find the maximum characters that fit with ellipsis
+                                let mut low = 0;
+                                let mut high = node.title.len();
+                                let mut best_fit = 0;
+                                
+                                while low <= high && low < node.title.len() {
+                                    let mid = (low + high) / 2;
+                                    let test_text = &node.title[..mid];
+                                    let test_width = painter.fonts(|fonts| {
+                                        fonts.layout_no_wrap(test_text.to_string(), font_id.clone(), egui::Color32::WHITE).size().x
+                                    });
+                                    
+                                    if test_width <= available_for_text {
+                                        best_fit = mid;
+                                        low = mid + 1;
+                                    } else {
+                                        if mid == 0 { break; }
+                                        high = mid - 1;
+                                    }
+                                }
+                                
+                                if best_fit > 0 {
+                                    let truncated = &node.title[..best_fit];
+                                    format!("{}{}", truncated, ellipsis)
+                                } else {
+                                    ellipsis.to_string()
+                                }
+                            }
+                        };
+                        
+                        // Node titles (CPU-rendered text)
+                        painter.text(
+                            transform_pos(node.position + Vec2::new(node.size.x / 2.0, 15.0)),
+                            egui::Align2::CENTER_CENTER,
+                            &display_text,
+                            font_id,
+                            Color32::WHITE,
+                        );
                     
                     // Port names on hover (CPU-rendered text)
                     if let Some(mouse_world_pos) = self.input_state.mouse_world_pos {
@@ -1530,7 +1627,7 @@ impl eframe::App for NodeEditor {
                                     transform_pos(input.position - Vec2::new(0.0, 15.0)),
                                     egui::Align2::CENTER_BOTTOM,
                                     &input.name,
-                                    egui::FontId::proportional(10.0 * self.viewport.zoom),
+                                    egui::FontId::proportional(10.0 * self.canvas.zoom),
                                     Color32::WHITE,
                                 );
                             }
@@ -1543,7 +1640,7 @@ impl eframe::App for NodeEditor {
                                     transform_pos(output.position + Vec2::new(0.0, 15.0)),
                                     egui::Align2::CENTER_TOP,
                                     &output.name,
-                                    egui::FontId::proportional(10.0 * self.viewport.zoom),
+                                    egui::FontId::proportional(10.0 * self.canvas.zoom),
                                     Color32::WHITE,
                                 );
                             }
@@ -1557,20 +1654,7 @@ impl eframe::App for NodeEditor {
                 // CPU rendering path - fallback mode using MeshRenderer
                 
                 // Get current graph for box selection preview
-                let current_graph = match self.current_view {
-                    GraphView::Root => &self.graph,
-                    GraphView::WorkspaceNode(node_id) => {
-                        if let Some(node) = self.graph.nodes.get(&node_id) {
-                            if let Some(internal_graph) = node.get_internal_graph() {
-                                internal_graph
-                            } else {
-                                &self.graph
-                            }
-                        } else {
-                            &self.graph
-                        }
-                    }
-                };
+                let current_graph = self.navigation.get_active_graph(&self.graph);
                 
                 // Get box selection preview nodes for immediate highlighting
                 let box_preview_nodes = self.interaction.get_box_selection_preview(current_graph);
@@ -1764,13 +1848,9 @@ impl eframe::App for NodeEditor {
                         let transformed_from = transform_pos(from_pos);
                         let transformed_to = transform_pos(to_pos);
 
-                        // Draw bezier curve (vertical flow: top to bottom)
-                        let vertical_distance = (transformed_to.y - transformed_from.y).abs();
-                        let control_offset = if vertical_distance > 10.0 {
-                            vertical_distance * 0.4
-                        } else {
-                            60.0 * zoom // Minimum offset for short connections
-                        };
+                        // Draw bezier curve with handle length proportional to total distance
+                        let total_distance = (transformed_to - transformed_from).length();
+                        let control_offset = total_distance.sqrt() * 4.0;
 
                         let points = [
                             transformed_from,
@@ -1810,9 +1890,9 @@ impl eframe::App for NodeEditor {
                         let transformed_from = transform_pos(from_pos);
                         let transformed_to = mouse_pos;
 
-                        // Draw bezier curve for connection preview (vertical flow)
-                        // Use fixed control offset to prevent popping when curve goes horizontal
-                        let control_offset = 60.0 * zoom;
+                        // Draw bezier curve for connection preview with proportional handle length
+                        let total_distance = (transformed_to - transformed_from).length();
+                        let control_offset = total_distance.sqrt() * 4.0;
 
                         // Control points should aim in the correct direction based on port type
                         let from_control = if from_is_input {
@@ -1888,33 +1968,26 @@ impl eframe::App for NodeEditor {
                     transformed_rect,
                     0.0,
                     Stroke::new(1.0 * zoom, Color32::from_rgb(100, 150, 255)),
+                    egui::StrokeKind::Middle,
                 );
             }
 
+            // Interface panel rendering - render panels for nodes that have them
+            // Rendering interface panels
+            self.render_interface_panels(ui, &viewed_nodes, menu_bar_height);
+            // Interface panels rendered
+
+            // Connection-based execution - check for USD LoadStage to Viewport connections
+            // Checking and executing connections
+            self.check_and_execute_connections(&viewed_nodes);
+            // Connections checked
+
             // Performance info overlay
-            if self.show_performance_info && !self.frame_times.is_empty() {
-                let avg_frame_time = self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32;
-                let fps = 1.0 / avg_frame_time;
-                let rendering_mode = if self.use_gpu_rendering { "GPU" } else { "CPU" };
-                
-                egui::Window::new("Performance")
-                    .default_pos([10.0, 10.0])
-                    .default_size([200.0, 100.0])
-                    .resizable(false)
-                    .show(ui.ctx(), |ui| {
-                        ui.label(format!("FPS: {:.1}", fps));
-                        ui.label(format!("Frame time: {:.2}ms", avg_frame_time * 1000.0));
-                        ui.label(format!("Rendering: {}", rendering_mode));
-                        ui.label(format!("Nodes: {}", self.graph.nodes.len()));
-                        ui.separator();
-                        ui.label("F1: Toggle performance info");
-                        ui.label("F2: Add 10 nodes");
-                        ui.label("F3: Add 25 nodes");
-                        ui.label("F4: Stress test (5000 nodes + connections)");
-                        ui.label("F5: Clear all nodes");
-                        ui.label("F6: Toggle GPU/CPU rendering");
-                    });
-            }
+            // Rendering performance info
+            self.debug_tools.render_performance_info(ui, self.use_gpu_rendering, self.graph.nodes.len(), self.current_menu_bar_height);
+            // Performance info rendered
         });
+        // Frame update completed
     }
+
 }

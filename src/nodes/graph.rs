@@ -52,6 +52,17 @@ impl NodeGraph {
         self.next_node_id += 1;
         id
     }
+    
+    /// Adds a node to the graph with a specific ID (for testing)
+    pub fn add_node_with_id(&mut self, id: NodeId, mut node: Node) -> NodeId {
+        node.id = id;
+        self.nodes.insert(id, node);
+        // Update next_node_id to avoid conflicts
+        if id >= self.next_node_id {
+            self.next_node_id = id + 1;
+        }
+        id
+    }
 
     /// Removes a node and all its connections
     pub fn remove_node(&mut self, node_id: NodeId) -> Option<Node> {
@@ -82,6 +93,12 @@ impl NodeGraph {
 
         self.connections.push(connection);
         Ok(())
+    }
+    
+    /// Helper method to add connection by node IDs and port indices (for testing)
+    pub fn add_connection_by_ids(&mut self, from_node: NodeId, from_port: PortId, to_node: NodeId, to_port: PortId) -> Result<(), &'static str> {
+        let connection = Connection::new(from_node, from_port, to_node, to_port);
+        self.add_connection(connection)
     }
 
     /// Removes a connection by index

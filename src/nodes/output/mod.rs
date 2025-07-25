@@ -1,11 +1,13 @@
 //! Output nodes for displaying results
 
-mod print;
-mod print_enhanced;
-mod debug;
-mod debug_enhanced;
+// Modular structure
+pub mod debug;           // Modular directory structure
+pub mod print;           // Modular directory structure
+pub mod console;         // Console output node
+// scenegraph module moved to nodes::three_d::ui::scenegraph
 
-pub use print::PrintNode;
-pub use print_enhanced::PrintNodeEnhanced;
-pub use debug::DebugNode;
-pub use debug_enhanced::DebugNodeEnhanced;
+// Export all modular node factories
+pub use debug::DebugNodeFactory;
+pub use print::PrintNodeFactory;
+pub use console::{ConsoleLogic, ConsoleNodeFactory};
+// scenegraph exports now available through nodes::three_d::ui::scenegraph

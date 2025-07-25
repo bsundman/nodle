@@ -7,7 +7,8 @@ struct Uniforms {
     zoom: f32,
     time: f32,
     screen_size: vec2<f32>,
-    _padding: vec2<f32>,
+    menu_bar_height: f32,
+    _padding: f32,
 }
 
 struct VertexInput {
@@ -47,9 +48,12 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     // Apply pan and zoom transforms
     let transformed_pos = world_pos * uniforms.zoom + uniforms.pan_offset;
     
+    // Offset Y coordinate to account for menu bar at top
+    let screen_pos = vec2<f32>(transformed_pos.x, transformed_pos.y + uniforms.menu_bar_height);
+    
     // Convert to normalized device coordinates (NDC)
-    let ndc_x = (transformed_pos.x / uniforms.screen_size.x) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (transformed_pos.y / uniforms.screen_size.y) * 2.0;
+    let ndc_x = (screen_pos.x / uniforms.screen_size.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (screen_pos.y / uniforms.screen_size.y) * 2.0;
     
     var out: VertexOutput;
     out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.1, 1.0); // Slightly forward to render on top

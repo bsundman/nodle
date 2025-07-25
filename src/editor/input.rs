@@ -325,20 +325,33 @@ impl InputState {
     /// Find which port (if any) is being clicked, returns (node_id, port_idx, is_input)
     pub fn find_clicked_port(&self, graph: &NodeGraph, click_radius: f32) -> Option<(NodeId, usize, bool)> {
         if let Some(pos) = self.mouse_world_pos {
+            // Checking for port clicks
+            
             for (node_id, node) in &graph.nodes {
+                // Checking node
+                
                 // Check output ports
                 for (port_idx, port) in node.outputs.iter().enumerate() {
-                    if (port.position - pos).length() < click_radius {
+                    let distance = (port.position - pos).length();
+                    // Checking output port distance
+                    if distance < click_radius {
+                        // Found output port
                         return Some((*node_id, port_idx, false));
                     }
                 }
                 // Check input ports
                 for (port_idx, port) in node.inputs.iter().enumerate() {
-                    if (port.position - pos).length() < click_radius {
+                    let distance = (port.position - pos).length();
+                    // Checking input port distance
+                    if distance < click_radius {
+                        // Found input port
                         return Some((*node_id, port_idx, true));
                     }
                 }
             }
+            // No port found within radius
+        } else {
+            // No mouse position available
         }
         None
     }
@@ -374,12 +387,8 @@ impl InputState {
                         let to_pos = to_port.position;
 
                         // Calculate bezier curve control points (same logic as in rendering)
-                        let vertical_distance = (to_pos.y - from_pos.y).abs();
-                        let control_offset = if vertical_distance > 10.0 {
-                            vertical_distance * 0.4
-                        } else {
-                            60.0 * zoom
-                        };
+                        let total_distance = (to_pos - from_pos).length();
+                        let control_offset = total_distance.sqrt() * 4.0;
 
                         let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
                         let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);
@@ -553,12 +562,8 @@ impl InputState {
         }
         
         // Calculate bezier curve control points (same logic as rendering)
-        let vertical_distance = (to_pos.y - from_pos.y).abs();
-        let control_offset = if vertical_distance > 10.0 {
-            vertical_distance * 0.4
-        } else {
-            60.0 * zoom
-        };
+        let total_distance = (to_pos - from_pos).length();
+        let control_offset = total_distance.sqrt() * 4.0;
         
         let control_point1 = egui::Pos2::new(from_pos.x, from_pos.y + control_offset);
         let control_point2 = egui::Pos2::new(to_pos.x, to_pos.y - control_offset);

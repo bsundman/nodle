@@ -1,9 +1,10 @@
 //! Enhanced node factory system with self-registration and rich metadata
 
-use egui::{Color32, Pos2};
+use egui::{Color32, Pos2, Vec2};
 use crate::nodes::{Node, NodeId, NodeGraph};
-use crate::NodeFactory as OldNodeFactory; // Import the old trait
-use std::collections::HashMap;
+use crate::nodes::interface::PanelType;
+use std::collections::{HashMap, BTreeMap};
+use log::{debug, info, warn, error};
 
 /// Data types that can flow through ports
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -18,6 +19,8 @@ pub enum DataType {
     String,
     /// Boolean value
     Boolean,
+    /// USD scene data
+    USDScene,
     /// Any type (for generic ports)
     Any,
 }
@@ -36,6 +39,7 @@ impl DataType {
             DataType::Color => "Color",
             DataType::String => "String",
             DataType::Boolean => "Boolean",
+            DataType::USDScene => "USDScene",
             DataType::Any => "Any",
         }
     }
@@ -48,6 +52,7 @@ impl DataType {
             DataType::Color => Color32::from_rgb(255, 200, 100), // Orange
             DataType::String => Color32::from_rgb(100, 255, 100), // Green
             DataType::Boolean => Color32::from_rgb(255, 100, 255), // Magenta
+            DataType::USDScene => Color32::from_rgb(255, 165, 0), // Orange
             DataType::Any => Color32::from_rgb(150, 150, 150), // Gray
         }
     }
@@ -158,16 +163,247 @@ impl PortDefinition {
     }
 }
 
-/// Rich metadata for nodes
+/// Panel positioning preferences
+#[derive(Debug, Clone, PartialEq)]
+pub enum PanelPosition {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Center,
+    Custom(Vec2), // Custom offset from top-left
+}
+
+/// Stacking behavior for panels
+#[derive(Debug, Clone, PartialEq)]
+pub enum StackingMode {
+    Floating,      // Individual windows
+    VerticalStack, // Stacked vertically (parameter style)
+    TabbedStack,   // Stacked with tabs (viewport style)
+    Docked,        // Docked to window edges
+}
+
+/// Node execution behavior
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutionMode {
+    Realtime,     // Executes continuously
+    OnDemand,     // Executes when inputs change
+    Manual,       // Executes only when triggered
+    Background,   // Executes in background thread
+}
+
+/// Processing cost hint for scheduling
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProcessingCost {
+    Minimal,      // < 1ms
+    Low,          // 1-10ms
+    Medium,       // 10-100ms
+    High,         // 100ms-1s
+    VeryHigh,     // > 1s
+}
+
+/// Rich metadata for nodes - the single source of truth for all node behavior
 #[derive(Debug, Clone)]
 pub struct NodeMetadata {
+    // Core identity
     pub node_type: &'static str,
     pub display_name: &'static str,
-    pub category: NodeCategory,
     pub description: &'static str,
+    pub version: &'static str,
+    
+    // Visual appearance
     pub color: Color32,
+    pub icon: &'static str,
+    pub size_hint: Vec2,
+    
+    // Organization & categorization
+    pub category: NodeCategory,
+    pub workspace_compatibility: Vec<&'static str>,
+    pub tags: Vec<&'static str>,
+    
+    // Interface behavior
+    pub panel_type: crate::nodes::interface::PanelType,
+    pub default_panel_position: PanelPosition,
+    pub default_stacking_mode: StackingMode,
+    pub resizable: bool,
+    
+    // Connectivity
     pub inputs: Vec<PortDefinition>,
     pub outputs: Vec<PortDefinition>,
+    pub allow_multiple_connections: bool,
+    
+    // Execution behavior
+    pub execution_mode: ExecutionMode,
+    pub processing_cost: ProcessingCost,
+    pub requires_gpu: bool,
+    
+    // Advanced properties
+    pub is_workspace_node: bool,
+    pub supports_preview: bool,
+}
+
+impl NodeMetadata {
+    /// Create node metadata with sensible defaults
+    pub fn new(
+        node_type: &'static str,
+        display_name: &'static str,
+        category: NodeCategory,
+        description: &'static str,
+    ) -> Self {
+        Self {
+            // Core identity
+            node_type,
+            display_name,
+            description,
+            version: "1.0",
+            
+            // Visual appearance - defaults
+            color: Color32::from_rgb(100, 100, 100),
+            icon: "⚡",
+            size_hint: Vec2::new(120.0, 80.0),
+            
+            // Organization & categorization
+            category,
+            workspace_compatibility: vec![], // Compatible with all workspaces
+            tags: vec![],
+            
+            // Interface behavior - parameter panel by default
+            panel_type: crate::nodes::interface::PanelType::Parameter,
+            default_panel_position: PanelPosition::TopRight,
+            default_stacking_mode: StackingMode::VerticalStack,
+            resizable: true,
+            
+            // Connectivity - defaults
+            inputs: vec![],
+            outputs: vec![],
+            allow_multiple_connections: true,
+            
+            // Execution behavior - sensible defaults
+            execution_mode: ExecutionMode::OnDemand,
+            processing_cost: ProcessingCost::Low,
+            requires_gpu: false,
+            
+            // Advanced properties - defaults
+            is_workspace_node: false,
+            supports_preview: false,
+        }
+    }
+    
+    /// Create viewport node metadata with viewport-specific defaults
+    pub fn viewport(
+        node_type: &'static str,
+        display_name: &'static str,
+        category: NodeCategory,
+        description: &'static str,
+    ) -> Self {
+        Self::new(node_type, display_name, category, description)
+            .with_color(Color32::from_rgb(50, 150, 255))
+            .with_icon("🖼️")
+            .with_panel_type(crate::nodes::interface::PanelType::Viewport)
+            .with_default_position(PanelPosition::TopLeft)
+            .with_stacking_mode(StackingMode::TabbedStack)
+            .with_execution_mode(ExecutionMode::Realtime)
+            .with_gpu_requirement(true)
+            .with_preview_support(true)
+    }
+    
+    /// Create workspace node metadata with workspace-specific defaults
+    pub fn workspace(
+        node_type: &'static str,
+        display_name: &'static str,
+        category: NodeCategory,
+        description: &'static str,
+    ) -> Self {
+        Self::new(node_type, display_name, category, description)
+            .with_color(Color32::from_rgb(150, 100, 255))
+            .with_icon("📂")
+            .with_size_hint(Vec2::new(160.0, 100.0))
+            .with_workspace_node(true)
+            .with_panel_type(crate::nodes::interface::PanelType::Editor)
+            .with_default_position(PanelPosition::Center)
+            .with_stacking_mode(StackingMode::Floating)
+    }
+    
+    /// Builder pattern methods for fluent configuration
+    pub fn with_color(mut self, color: Color32) -> Self {
+        self.color = color;
+        self
+    }
+    
+    pub fn with_icon(mut self, icon: &'static str) -> Self {
+        self.icon = icon;
+        self
+    }
+    
+    pub fn with_size_hint(mut self, size: Vec2) -> Self {
+        self.size_hint = size;
+        self
+    }
+    
+    pub fn with_panel_type(mut self, panel_type: crate::nodes::interface::PanelType) -> Self {
+        self.panel_type = panel_type;
+        self
+    }
+    
+    pub fn with_default_position(mut self, position: PanelPosition) -> Self {
+        self.default_panel_position = position;
+        self
+    }
+    
+    pub fn with_stacking_mode(mut self, mode: StackingMode) -> Self {
+        self.default_stacking_mode = mode;
+        self
+    }
+    
+    pub fn with_execution_mode(mut self, mode: ExecutionMode) -> Self {
+        self.execution_mode = mode;
+        self
+    }
+    
+    pub fn with_gpu_requirement(mut self, requires_gpu: bool) -> Self {
+        self.requires_gpu = requires_gpu;
+        self
+    }
+    
+    pub fn with_preview_support(mut self, supports_preview: bool) -> Self {
+        self.supports_preview = supports_preview;
+        self
+    }
+    
+    pub fn with_workspace_node(mut self, is_workspace_node: bool) -> Self {
+        self.is_workspace_node = is_workspace_node;
+        self
+    }
+    
+    pub fn with_inputs(mut self, inputs: Vec<PortDefinition>) -> Self {
+        self.inputs = inputs;
+        self
+    }
+    
+    pub fn with_outputs(mut self, outputs: Vec<PortDefinition>) -> Self {
+        self.outputs = outputs;
+        self
+    }
+    
+    pub fn with_workspace_compatibility(mut self, workspaces: Vec<&'static str>) -> Self {
+        self.workspace_compatibility = workspaces;
+        self
+    }
+    
+    pub fn with_tags(mut self, tags: Vec<&'static str>) -> Self {
+        self.tags = tags;
+        self
+    }
+    
+    pub fn with_processing_cost(mut self, cost: ProcessingCost) -> Self {
+        self.processing_cost = cost;
+        self
+    }
+    
+    pub fn with_version(mut self, version: &'static str) -> Self {
+        self.version = version;
+        self
+    }
 }
 
 /// Enhanced node factory trait with rich metadata
@@ -178,7 +414,8 @@ pub trait NodeFactory: Send + Sync {
     /// Create a node instance at the given position
     fn create(position: Pos2) -> Node where Self: Sized {
         let meta = Self::metadata();
-        let mut node = Node::new(0, meta.node_type, position);
+        let mut node = Node::new(0, meta.display_name, position);
+        node.set_type_id(meta.node_type);
         node.color = meta.color;
         
         // Add inputs
@@ -190,6 +427,9 @@ pub trait NodeFactory: Send + Sync {
         for output in &meta.outputs {
             node.add_output(&output.name);
         }
+        
+        // Set panel type from metadata
+        node.set_panel_type(meta.panel_type);
         
         // CRITICAL: Update port positions after adding ports
         node.update_port_positions();
@@ -209,18 +449,24 @@ type MetadataProvider = fn() -> NodeMetadata;
 
 /// Registry for managing node factories
 pub struct NodeRegistry {
-    creators: HashMap<String, NodeCreator>,
-    metadata_providers: HashMap<String, MetadataProvider>,
+    creators: BTreeMap<String, NodeCreator>,
+    metadata_providers: BTreeMap<String, MetadataProvider>,
     categories: HashMap<NodeCategory, Vec<String>>,
+    // Plugin support  
+    plugin_factories: BTreeMap<String, Box<dyn nodle_plugin_sdk::NodeFactory>>,
+    // Cached plugin metadata to avoid repeated calls
+    plugin_metadata_cache: HashMap<String, nodle_plugin_sdk::NodeMetadata>,
 }
 
 impl NodeRegistry {
     /// Create a new empty registry
     pub fn new() -> Self {
         Self {
-            creators: HashMap::new(),
-            metadata_providers: HashMap::new(),
+            creators: BTreeMap::new(),
+            metadata_providers: BTreeMap::new(),
             categories: HashMap::new(),
+            plugin_factories: BTreeMap::new(),
+            plugin_metadata_cache: HashMap::new(),
         }
     }
     
@@ -242,46 +488,438 @@ impl NodeRegistry {
     
     /// Create a node by type name
     pub fn create_node(&self, node_type: &str, position: Pos2) -> Option<Node> {
-        // Try dynamic factory first
+        // Try core nodes first
         if let Some(creator) = self.creators.get(node_type) {
-            return Some(creator(position));
+            let mut node = creator(position);
+            
+            // Set the panel type from metadata
+            if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
+                let metadata = metadata_provider();
+                node.set_panel_type(metadata.panel_type);
+            }
+            
+            return Some(node);
         }
         
-        // Fall back to legacy system for nodes not yet migrated
-        self.create_node_legacy(node_type, position)
+        // Try plugin nodes - create adapter between PluginNode and core Node
+        debug!("Looking for plugin factory for node type: {}", node_type);
+        debug!("Available plugin factories: {:?}", self.plugin_factories.keys().collect::<Vec<_>>());
+        if let Some(factory) = self.plugin_factories.get(node_type) {
+            info!("Found plugin factory for: {}", node_type);
+            debug!("Creating plugin node: {}", node_type);
+            
+            // Convert egui::Pos2 to nodle_plugin_sdk::Pos2
+            let plugin_pos = nodle_plugin_sdk::Pos2::new(position.x, position.y);
+            
+            // Safety check: Verify the factory vtable is valid
+            debug!("Verifying plugin factory safety...");
+            let factory_ptr = factory.as_ref() as *const dyn nodle_plugin_sdk::NodeFactory;
+            debug!("Factory pointer: {:p}", factory_ptr);
+            
+            // Use cached metadata instead of calling factory.metadata() again
+            let metadata_test = match self.plugin_metadata_cache.get(node_type) {
+                Some(cached_metadata) => {
+                    debug!("Using cached metadata: {}", cached_metadata.display_name);
+                    cached_metadata.clone()
+                }
+                None => {
+                    error!("Missing cached metadata for plugin node type: {}", node_type);
+                    return None;
+                }
+            };
+            
+            // Add error handling for plugin node creation
+            let plugin_node = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                factory.create_node(plugin_pos)
+            })) {
+                Ok(node_handle) => {
+                    // Safely convert the handle to a boxed trait object
+                    let node = unsafe { node_handle.into_node() };
+                    debug!("Created plugin node instance with ID: {}", node.id());
+                    node
+                }
+                Err(_) => {
+                    error!("Panic occurred while creating plugin node for type: {}", node_type);
+                    return None;
+                }
+            };
+            
+            // Convert PluginNode to core Node (this is the adapter layer)
+            // Plugin nodes use UUID strings, but core nodes need numeric IDs
+            // Use a unique temporary ID - the actual ID will be assigned when added to the graph
+            // Use very large numbers to ensure they don't conflict with real IDs
+            static TEMP_ID_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(crate::constants::node::TEMP_ID_START);
+            let node_id = TEMP_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            debug!("Plugin node ID: {}", plugin_node.id());
+            debug!("Using temporary core node ID: {}", node_id);
+            
+            // Add error handling for core node creation
+            let mut core_node = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                {
+                    let mut node = Node::new(node_id, metadata_test.display_name.clone(), position);
+                    node.set_type_id(node_type.to_string());
+                    node
+                }
+            })) {
+                Ok(node) => {
+                    debug!("Created core node successfully");
+                    node
+                }
+                Err(_) => {
+                    error!("Panic occurred while creating core node");
+                    return None;
+                }
+            };
+            
+            // Set the panel type from plugin metadata (use already tested metadata)
+            debug!("Plugin metadata panel type: {:?}", metadata_test.panel_type);
+            
+            let panel_type = match metadata_test.panel_type {
+                nodle_plugin_sdk::PanelType::Parameter => crate::nodes::interface::PanelType::Parameter,
+                nodle_plugin_sdk::PanelType::Viewport => crate::nodes::interface::PanelType::Viewport,
+                nodle_plugin_sdk::PanelType::Combined => crate::nodes::interface::PanelType::Parameter, // Fallback
+                nodle_plugin_sdk::PanelType::Viewer => crate::nodes::interface::PanelType::Viewport, // Map to viewport
+                nodle_plugin_sdk::PanelType::Editor => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Inspector => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Tree => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Spreadsheet => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+            };
+            debug!("Converted to core panel type: {:?}", panel_type);
+            
+            // Add error handling for panel type setting
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                core_node.set_panel_type(panel_type);
+            })) {
+                Ok(_) => {
+                    debug!("Set panel type on core node: {:?}", core_node.get_panel_type());
+                }
+                Err(_) => {
+                    error!("Panic occurred while setting panel type");
+                    return None;
+                }
+            }
+            
+            // Check if plugin node supports viewport
+            debug!("Plugin node supports viewport: {}", plugin_node.supports_viewport());
+            
+            // Add ports from plugin metadata to core node
+            debug!("Adding ports from plugin metadata to core node");
+            for input_def in &metadata_test.inputs {
+                core_node.add_input(&input_def.name);
+            }
+            for output_def in &metadata_test.outputs {
+                core_node.add_output(&output_def.name);
+            }
+            debug!("Added {} input ports and {} output ports", 
+                   metadata_test.inputs.len(), metadata_test.outputs.len());
+            
+            // Update port positions after adding ports
+            core_node.update_port_positions();
+            debug!("Updated port positions for plugin node");
+            
+            // Handle storage based on panel type
+            debug!("Plugin node '{}' panel_type: {:?}", metadata_test.display_name, panel_type);
+            println!("🔧 FACTORY: Plugin node '{}' panel_type: {:?}", metadata_test.display_name, panel_type);
+            
+            if panel_type == crate::nodes::interface::PanelType::Viewport {
+                debug!("Node has viewport panel type - storing in global plugin manager");
+                println!("🔧 FACTORY: {} has viewport panel type - storing in global plugin manager", metadata_test.display_name);
+                
+                // For viewport nodes, store in global plugin manager for viewport rendering
+                if let Some(plugin_manager) = crate::workspace::get_global_plugin_manager() {
+                    if let Ok(mut manager) = plugin_manager.lock() {
+                        debug!("Storing viewport plugin node {} in global manager", node_id);
+                        println!("🔧 FACTORY: Storing viewport plugin node {} in global manager", node_id);
+                        manager.store_plugin_node_instance(node_id, plugin_node);
+                    } else {
+                        warn!("Failed to lock plugin manager for viewport node storage");
+                        println!("🔧 FACTORY: Failed to lock plugin manager for viewport node storage");
+                    }
+                } else {
+                    warn!("No global plugin manager available for viewport node storage");
+                    println!("🔧 FACTORY: No global plugin manager available for viewport node storage");
+                }
+                
+                debug!("Viewport node stored in plugin manager only");
+                println!("🔧 FACTORY: Viewport node stored in plugin manager only");
+            } else {
+                // For non-viewport nodes, store in core node for parameter rendering
+                debug!("Storing plugin node instance in core node for parameter rendering");
+                println!("🔧 FACTORY: {} has non-viewport panel type - storing in core node for parameter rendering", metadata_test.display_name);
+                println!("🔧 FACTORY: Setting core_node.plugin_node = Some(plugin_node) for node {}", node_id);
+                core_node.plugin_node = Some(plugin_node);
+                println!("🔧 FACTORY: Successfully set plugin_node field. Is Some: {}", core_node.plugin_node.is_some());
+            }
+            
+            debug!("Plugin node creation process completed successfully");
+            return Some(core_node);
+        } else {
+            warn!("No plugin factory found for node type: {}", node_type);
+        }
+        
+        None
+    }
+
+    /// Get metadata for a node type without creating the node
+    pub fn get_node_metadata(&self, node_type: &str) -> Option<NodeMetadata> {
+        // Try core nodes first
+        if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
+            return Some(metadata_provider());
+        }
+        
+        // Try plugin nodes - convert from SDK metadata to core metadata  
+        if let Some(_factory) = self.plugin_factories.get(node_type) {
+            // Use cached metadata instead of calling factory.metadata()
+            let plugin_meta = match self.plugin_metadata_cache.get(node_type) {
+                Some(cached_metadata) => cached_metadata,
+                None => {
+                    error!("Missing cached metadata for plugin node type: {}", node_type);
+                    return None;
+                }
+            };
+            // Convert from plugin SDK metadata to core metadata
+            return Some(NodeMetadata {
+                node_type: plugin_meta.node_type.clone().leak(),
+                display_name: plugin_meta.display_name.clone().leak(),
+                description: plugin_meta.description.clone().leak(),
+                version: plugin_meta.version.clone().leak(),
+                color: egui::Color32::from_rgba_premultiplied(
+                    plugin_meta.color.r(), 
+                    plugin_meta.color.g(), 
+                    plugin_meta.color.b(), 
+                    plugin_meta.color.a()
+                ),
+                icon: plugin_meta.icon.clone().leak(),
+                size_hint: egui::Vec2::new(plugin_meta.size_hint.x, plugin_meta.size_hint.y),
+                category: NodeCategory::new(&plugin_meta.category.path().iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                workspace_compatibility: plugin_meta.workspace_compatibility.iter().map(|s| s.clone().leak() as &str).collect(),
+                tags: plugin_meta.tags.iter().map(|s| s.clone().leak() as &str).collect(),
+                panel_type: match plugin_meta.panel_type {
+                    nodle_plugin_sdk::PanelType::Parameter => crate::nodes::interface::PanelType::Parameter,
+                    nodle_plugin_sdk::PanelType::Viewport => crate::nodes::interface::PanelType::Viewport,
+                    nodle_plugin_sdk::PanelType::Combined => crate::nodes::interface::PanelType::Parameter, // Fallback to Parameter
+                    nodle_plugin_sdk::PanelType::Viewer => crate::nodes::interface::PanelType::Viewport, // Map to viewport
+                    nodle_plugin_sdk::PanelType::Editor => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                    nodle_plugin_sdk::PanelType::Inspector => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                    nodle_plugin_sdk::PanelType::Tree => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                    nodle_plugin_sdk::PanelType::Spreadsheet => crate::nodes::interface::PanelType::Parameter, // Map to parameter
+                },
+                default_panel_position: match plugin_meta.default_panel_position {
+                    nodle_plugin_sdk::PanelPosition::TopLeft => PanelPosition::TopLeft,
+                    nodle_plugin_sdk::PanelPosition::TopRight => PanelPosition::TopRight,
+                    nodle_plugin_sdk::PanelPosition::BottomLeft => PanelPosition::BottomLeft,
+                    nodle_plugin_sdk::PanelPosition::BottomRight => PanelPosition::BottomRight,
+                    nodle_plugin_sdk::PanelPosition::Center => PanelPosition::Center,
+                    nodle_plugin_sdk::PanelPosition::Custom(v) => PanelPosition::Custom(egui::Vec2::new(v.x, v.y)),
+                },
+                default_stacking_mode: match plugin_meta.default_stacking_mode {
+                    nodle_plugin_sdk::StackingMode::Floating => StackingMode::Floating,
+                    nodle_plugin_sdk::StackingMode::VerticalStack => StackingMode::VerticalStack,
+                    nodle_plugin_sdk::StackingMode::TabbedStack => StackingMode::TabbedStack,
+                    nodle_plugin_sdk::StackingMode::Docked => StackingMode::Docked,
+                },
+                resizable: plugin_meta.resizable,
+                inputs: plugin_meta.inputs.iter().map(|p| PortDefinition {
+                    name: p.name.clone(),
+                    data_type: match p.data_type {
+                        nodle_plugin_sdk::DataType::Float => DataType::Float,
+                        nodle_plugin_sdk::DataType::Vector3 => DataType::Vector3,
+                        nodle_plugin_sdk::DataType::Color => DataType::Color,
+                        nodle_plugin_sdk::DataType::String => DataType::String,
+                        nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+                        nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
+                        nodle_plugin_sdk::DataType::Any => DataType::Any,
+                        // Map new rich types to appropriate core types
+                        nodle_plugin_sdk::DataType::Integer => DataType::Float, // Map integers to floats
+                        nodle_plugin_sdk::DataType::Scene => DataType::USDScene, // Map scene to USD
+                        nodle_plugin_sdk::DataType::Geometry => DataType::USDScene, // Map geometry to USD
+                        nodle_plugin_sdk::DataType::Material => DataType::USDScene, // Map material to USD
+                        nodle_plugin_sdk::DataType::Stage => DataType::USDScene, // Map stage to USD
+                        nodle_plugin_sdk::DataType::USDScenegraph => DataType::USDScene, // Map USD scenegraph to USD
+                        nodle_plugin_sdk::DataType::Light => DataType::USDScene, // Map light to USD
+                        nodle_plugin_sdk::DataType::Image => DataType::String, // Map image to string for now
+                    },
+                    optional: p.optional,
+                    description: p.description.clone(),
+                }).collect(),
+                outputs: plugin_meta.outputs.iter().map(|p| PortDefinition {
+                    name: p.name.clone(),
+                    data_type: match p.data_type {
+                        nodle_plugin_sdk::DataType::Float => DataType::Float,
+                        nodle_plugin_sdk::DataType::Vector3 => DataType::Vector3,
+                        nodle_plugin_sdk::DataType::Color => DataType::Color,
+                        nodle_plugin_sdk::DataType::String => DataType::String,
+                        nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+                        nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
+                        nodle_plugin_sdk::DataType::Any => DataType::Any,
+                        // Map new rich types to appropriate core types
+                        nodle_plugin_sdk::DataType::Integer => DataType::Float, // Map integers to floats
+                        nodle_plugin_sdk::DataType::Scene => DataType::USDScene, // Map scene to USD
+                        nodle_plugin_sdk::DataType::Geometry => DataType::USDScene, // Map geometry to USD
+                        nodle_plugin_sdk::DataType::Material => DataType::USDScene, // Map material to USD
+                        nodle_plugin_sdk::DataType::Stage => DataType::USDScene, // Map stage to USD
+                        nodle_plugin_sdk::DataType::USDScenegraph => DataType::USDScene, // Map USD scenegraph to USD
+                        nodle_plugin_sdk::DataType::Light => DataType::USDScene, // Map light to USD
+                        nodle_plugin_sdk::DataType::Image => DataType::String, // Map image to string for now
+                    },
+                    optional: p.optional,
+                    description: p.description.clone(),
+                }).collect(),
+                allow_multiple_connections: plugin_meta.allow_multiple_connections,
+                execution_mode: match plugin_meta.execution_mode {
+                    nodle_plugin_sdk::ExecutionMode::Realtime => ExecutionMode::Realtime,
+                    nodle_plugin_sdk::ExecutionMode::OnDemand => ExecutionMode::OnDemand,
+                    nodle_plugin_sdk::ExecutionMode::Manual => ExecutionMode::Manual,
+                    nodle_plugin_sdk::ExecutionMode::Background => ExecutionMode::Background,
+                },
+                processing_cost: match plugin_meta.processing_cost {
+                    nodle_plugin_sdk::ProcessingCost::Minimal => ProcessingCost::Minimal,
+                    nodle_plugin_sdk::ProcessingCost::Low => ProcessingCost::Low,
+                    nodle_plugin_sdk::ProcessingCost::Medium => ProcessingCost::Medium,
+                    nodle_plugin_sdk::ProcessingCost::High => ProcessingCost::High,
+                    nodle_plugin_sdk::ProcessingCost::VeryHigh => ProcessingCost::VeryHigh,
+                },
+                requires_gpu: plugin_meta.requires_gpu,
+                is_workspace_node: plugin_meta.is_workspace_node,
+                supports_preview: plugin_meta.supports_preview,
+            });
+        }
+        
+        None
+    }
+
+    /// Create a node by type name and return both node and metadata
+    pub fn create_node_with_metadata(&self, node_type: &str, position: Pos2) -> Option<(Node, NodeMetadata)> {
+        // Try core nodes first
+        if let Some(metadata_provider) = self.metadata_providers.get(node_type) {
+            let metadata = metadata_provider();
+            if let Some(node) = self.create_node(node_type, position) {
+                return Some((node, metadata));
+            }
+        }
+        
+        // Try plugin nodes
+        if let Some(plugin_factory) = self.plugin_factories.get(node_type) {
+            if let Some(metadata) = self.get_node_metadata(node_type) {
+                // Create the plugin node instance
+                if let Some(node) = self.create_node(node_type, position) {
+                    return Some((node, metadata));
+                }
+            }
+        }
+        
+        None
     }
     
-    /// Legacy node creation (temporary during migration)
-    fn create_node_legacy(&self, node_type: &str, position: Pos2) -> Option<Node> {
-        match node_type {
-            "Add" => Some(<crate::nodes::math::AddNode as OldNodeFactory>::create(position)),
-            "Subtract" => Some(<crate::nodes::math::SubtractNode as OldNodeFactory>::create(position)),
-            "Multiply" => Some(<crate::nodes::math::MultiplyNode as OldNodeFactory>::create(position)),
-            "Divide" => Some(<crate::nodes::math::DivideNode as OldNodeFactory>::create(position)),
-            "AND" => Some(<crate::nodes::logic::AndNode as OldNodeFactory>::create(position)),
-            "OR" => Some(<crate::nodes::logic::OrNode as OldNodeFactory>::create(position)),
-            "NOT" => Some(<crate::nodes::logic::NotNode as OldNodeFactory>::create(position)),
-            "Constant" => Some(<crate::nodes::data::ConstantNode as OldNodeFactory>::create(position)),
-            "Variable" => Some(<crate::nodes::data::VariableNode as OldNodeFactory>::create(position)),
-            "Print" => Some(<crate::nodes::output::PrintNode as OldNodeFactory>::create(position)),
-            "Debug" => Some(<crate::nodes::output::DebugNode as OldNodeFactory>::create(position)),
-            _ => None,
+    /// Convert plugin SDK metadata to core Nodle metadata
+    fn convert_plugin_metadata_to_core(&self, plugin_meta: &nodle_plugin_sdk::NodeMetadata) -> NodeMetadata {
+        NodeMetadata {
+            // Core identity
+            node_type: plugin_meta.node_type.clone().leak(),
+            display_name: plugin_meta.display_name.clone().leak(),
+            description: plugin_meta.description.clone().leak(),
+            version: plugin_meta.version.clone().leak(),
+            
+            // Visual appearance
+            color: plugin_meta.color,
+            icon: plugin_meta.icon.clone().leak(),
+            size_hint: plugin_meta.size_hint,
+            
+            // Organization & categorization
+            category: NodeCategory::new(&plugin_meta.category.path().iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+            workspace_compatibility: plugin_meta.workspace_compatibility.iter().map(|s| s.clone().leak() as &str).collect(),
+            tags: plugin_meta.tags.iter().map(|s| s.clone().leak() as &str).collect(),
+            
+            // Interface behavior
+            panel_type: match plugin_meta.panel_type {
+                nodle_plugin_sdk::PanelType::Parameter => PanelType::Parameter,
+                nodle_plugin_sdk::PanelType::Viewport => PanelType::Viewport,
+                nodle_plugin_sdk::PanelType::Combined => PanelType::Parameter, // Fallback to Parameter
+                nodle_plugin_sdk::PanelType::Viewer => PanelType::Viewport, // Map to viewport
+                nodle_plugin_sdk::PanelType::Editor => PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Inspector => PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Tree => PanelType::Parameter, // Map to parameter
+                nodle_plugin_sdk::PanelType::Spreadsheet => PanelType::Parameter, // Map to parameter
+            },
+            default_panel_position: match plugin_meta.default_panel_position {
+                nodle_plugin_sdk::PanelPosition::TopLeft => PanelPosition::TopLeft,
+                nodle_plugin_sdk::PanelPosition::TopRight => PanelPosition::TopRight,
+                nodle_plugin_sdk::PanelPosition::BottomLeft => PanelPosition::BottomLeft,
+                nodle_plugin_sdk::PanelPosition::BottomRight => PanelPosition::BottomRight,
+                nodle_plugin_sdk::PanelPosition::Center => PanelPosition::Center,
+                nodle_plugin_sdk::PanelPosition::Custom(pos) => PanelPosition::Custom(pos),
+            },
+            default_stacking_mode: match plugin_meta.default_stacking_mode {
+                nodle_plugin_sdk::StackingMode::Floating => StackingMode::Floating,
+                nodle_plugin_sdk::StackingMode::VerticalStack => StackingMode::VerticalStack,
+                nodle_plugin_sdk::StackingMode::TabbedStack => StackingMode::TabbedStack,
+                nodle_plugin_sdk::StackingMode::Docked => StackingMode::Docked,
+            },
+            resizable: plugin_meta.resizable,
+            
+            // Connectivity
+            inputs: plugin_meta.inputs.iter().map(|input| PortDefinition {
+                name: input.name.clone(),
+                data_type: self.convert_plugin_data_type(&input.data_type),
+                optional: input.optional,
+                description: input.description.clone(),
+            }).collect(),
+            outputs: plugin_meta.outputs.iter().map(|output| PortDefinition {
+                name: output.name.clone(),
+                data_type: self.convert_plugin_data_type(&output.data_type),
+                optional: output.optional,
+                description: output.description.clone(),
+            }).collect(),
+            allow_multiple_connections: plugin_meta.allow_multiple_connections,
+            
+            // Execution behavior
+            execution_mode: match plugin_meta.execution_mode {
+                nodle_plugin_sdk::ExecutionMode::Realtime => ExecutionMode::Realtime,
+                nodle_plugin_sdk::ExecutionMode::OnDemand => ExecutionMode::OnDemand,
+                nodle_plugin_sdk::ExecutionMode::Manual => ExecutionMode::Manual,
+                nodle_plugin_sdk::ExecutionMode::Background => ExecutionMode::Background,
+            },
+            processing_cost: match plugin_meta.processing_cost {
+                nodle_plugin_sdk::ProcessingCost::Minimal => ProcessingCost::Minimal,
+                nodle_plugin_sdk::ProcessingCost::Low => ProcessingCost::Low,
+                nodle_plugin_sdk::ProcessingCost::Medium => ProcessingCost::Medium,
+                nodle_plugin_sdk::ProcessingCost::High => ProcessingCost::High,
+                nodle_plugin_sdk::ProcessingCost::VeryHigh => ProcessingCost::VeryHigh,
+            },
+            requires_gpu: plugin_meta.requires_gpu,
+            
+            // Advanced properties
+            is_workspace_node: plugin_meta.is_workspace_node,
+            supports_preview: plugin_meta.supports_preview,
+        }
+    }
+    
+    /// Convert plugin SDK DataType to core DataType
+    fn convert_plugin_data_type(&self, plugin_type: &nodle_plugin_sdk::DataType) -> DataType {
+        match plugin_type {
+            nodle_plugin_sdk::DataType::Float => DataType::Float,
+            nodle_plugin_sdk::DataType::Vector3 => DataType::Vector3,
+            nodle_plugin_sdk::DataType::Color => DataType::Color,
+            nodle_plugin_sdk::DataType::String => DataType::String,
+            nodle_plugin_sdk::DataType::Boolean => DataType::Boolean,
+            nodle_plugin_sdk::DataType::USDScene => DataType::USDScene,
+            nodle_plugin_sdk::DataType::Any => DataType::Any,
+            // Map new rich types to appropriate core types
+            nodle_plugin_sdk::DataType::Integer => DataType::Float, // Map integers to floats
+            nodle_plugin_sdk::DataType::Scene => DataType::USDScene, // Map scene to USD
+            nodle_plugin_sdk::DataType::Geometry => DataType::USDScene, // Map geometry to USD
+            nodle_plugin_sdk::DataType::Material => DataType::USDScene, // Map material to USD
+            nodle_plugin_sdk::DataType::Stage => DataType::USDScene, // Map stage to USD
+            nodle_plugin_sdk::DataType::USDScenegraph => DataType::USDScene, // Map USD scenegraph to USD
+            nodle_plugin_sdk::DataType::Light => DataType::USDScene, // Map light to USD
+            nodle_plugin_sdk::DataType::Image => DataType::String, // Map image to string for now
         }
     }
     
     /// Get all available node types
     pub fn node_types(&self) -> Vec<&str> {
-        // Include both dynamic and legacy node types
         let mut types: Vec<&str> = self.creators.keys().map(|s| s.as_str()).collect();
-        
-        // Add legacy types that aren't in dynamic registry
-        let legacy_types = ["Add", "Subtract", "Multiply", "Divide", "AND", "OR", "NOT", "Constant", "Variable", "Print", "Debug"];
-        for legacy_type in &legacy_types {
-            if !self.creators.contains_key(*legacy_type) {
-                types.push(legacy_type);
-            }
-        }
-        
+        types.extend(self.plugin_factories.keys().map(|s| s.as_str()));
         types.sort();
         types
     }
@@ -301,22 +939,42 @@ impl NodeRegistry {
     
     /// Get metadata for a node type
     pub fn get_metadata(&self, node_type: &str) -> Option<NodeMetadata> {
-        self.metadata_providers.get(node_type).map(|provider| provider())
+        // Try core nodes first
+        if let Some(provider) = self.metadata_providers.get(node_type) {
+            return Some(provider());
+        }
+        
+        // Try plugin nodes
+        self.get_node_metadata(node_type)
     }
     
     /// Generate menu structure from registered node categories
     pub fn generate_menu_structure(&self, workspace_filter: &[&str]) -> Vec<crate::workspace::WorkspaceMenuItem> {
         use crate::workspace::WorkspaceMenuItem;
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
         
-        // Group nodes by their category paths
-        let mut category_groups: HashMap<Vec<String>, Vec<(String, String)>> = HashMap::new();
+        // Group nodes by their category paths - use BTreeMap for deterministic ordering
+        let mut category_groups: BTreeMap<Vec<String>, Vec<(String, String)>> = BTreeMap::new();
         
+        // Process core nodes
         for (node_type, provider) in &self.metadata_providers {
             let metadata = provider();
             
-            // Only include nodes that match the workspace filter
-            if workspace_filter.is_empty() || metadata.category.path().iter().any(|segment| workspace_filter.contains(&segment.as_str())) {
+            // NODE-CENTRIC: Only include nodes that declare compatibility with this workspace
+            let is_compatible = if workspace_filter.is_empty() {
+                // If no workspace filter, include all nodes
+                true
+            } else if metadata.workspace_compatibility.is_empty() {
+                // If node declares no specific compatibility, include in all workspaces (legacy behavior)
+                true
+            } else {
+                // Check if node explicitly declares compatibility with this workspace
+                workspace_filter.iter().any(|workspace| 
+                    metadata.workspace_compatibility.iter().any(|compat| compat == workspace)
+                )
+            };
+            
+            if is_compatible {
                 let category_path = metadata.category.path();
                 
                 // Skip the first segment if it matches the workspace (e.g., "3D")
@@ -339,15 +997,64 @@ impl NodeRegistry {
             }
         }
         
-        // Convert category groups to menu items
-        let mut menu_items = Vec::new();
-        for (category_path, nodes) in category_groups {
-            if !nodes.is_empty() {
-                let category_name = if category_path.is_empty() {
-                    "General".to_string()
+        // Process plugin nodes
+        for (node_type, _factory) in &self.plugin_factories {
+            // Use cached metadata instead of calling factory.metadata() repeatedly
+            let metadata = match self.plugin_metadata_cache.get(node_type) {
+                Some(cached_metadata) => cached_metadata,
+                None => {
+                    error!("Missing cached metadata for plugin node type: {}", node_type);
+                    continue;
+                }
+            };
+            
+            // NODE-CENTRIC: Only include nodes that declare compatibility with this workspace
+            let is_compatible = if workspace_filter.is_empty() {
+                // If no workspace filter, include all nodes
+                true
+            } else if metadata.workspace_compatibility.is_empty() {
+                // If node declares no specific compatibility, include in all workspaces (legacy behavior)
+                true
+            } else {
+                // Check if node explicitly declares compatibility with this workspace
+                workspace_filter.iter().any(|workspace| 
+                    metadata.workspace_compatibility.iter().any(|compat| compat == workspace)
+                )
+            };
+            
+            if is_compatible {
+                let category_path = metadata.category.path();
+                
+                // Skip the first segment if it matches the workspace (e.g., "3D")
+                let menu_path = if !workspace_filter.is_empty() && 
+                                 !category_path.is_empty() && 
+                                 workspace_filter.contains(&category_path[0].as_str()) {
+                    if category_path.len() > 1 {
+                        category_path[1..].to_vec()
+                    } else {
+                        vec!["General".to_string()]
+                    }
                 } else {
-                    category_path.last().unwrap_or(&"General".to_string()).clone()
+                    category_path.to_vec()
                 };
+                
+                category_groups
+                    .entry(menu_path)
+                    .or_insert_with(Vec::new)
+                    .push((metadata.display_name.clone(), node_type.clone()));
+            }
+        }
+        
+        // Convert category groups to hierarchical menu items
+        let mut menu_items = Vec::new();
+        
+        // Build hierarchical menu structure - use BTreeMap for deterministic ordering
+        let mut hierarchy: BTreeMap<String, Vec<WorkspaceMenuItem>> = BTreeMap::new();
+        
+        for (category_path, mut nodes) in category_groups {
+            if !nodes.is_empty() {
+                // Sort nodes alphabetically by display name for consistent ordering
+                nodes.sort_by(|a, b| a.0.cmp(&b.0));
                 
                 let mut node_items = Vec::new();
                 for (display_name, node_type) in nodes {
@@ -357,32 +1064,95 @@ impl NodeRegistry {
                     });
                 }
                 
-                // Sort nodes alphabetically within each category
-                node_items.sort_by(|a, b| {
-                    if let (WorkspaceMenuItem::Node { name: name_a, .. }, WorkspaceMenuItem::Node { name: name_b, .. }) = (a, b) {
-                        name_a.cmp(name_b)
-                    } else {
-                        std::cmp::Ordering::Equal
-                    }
-                });
+                // Note: node_items are already sorted due to nodes being sorted above
                 
-                menu_items.push(WorkspaceMenuItem::Category {
-                    name: category_name,
-                    items: node_items,
-                });
+                if category_path.is_empty() {
+                    // Root level items
+                    for node_item in node_items {
+                        menu_items.push(node_item);
+                    }
+                } else if category_path.len() == 1 {
+                    // Top-level category
+                    let category_name = &category_path[0];
+                    hierarchy.entry(category_name.clone())
+                        .or_insert_with(Vec::new)
+                        .extend(node_items);
+                } else {
+                    // Multi-level category - create hierarchical structure
+                    let top_level = &category_path[0];
+                    let sub_path = &category_path[1..];
+                    
+                    // Create subcategory
+                    let subcategory = WorkspaceMenuItem::Category {
+                        name: sub_path.join(" > "),
+                        items: node_items,
+                    };
+                    
+                    hierarchy.entry(top_level.clone())
+                        .or_insert_with(Vec::new)
+                        .push(subcategory);
+                }
             }
         }
         
-        // Sort categories alphabetically
-        menu_items.sort_by(|a, b| {
-            if let (WorkspaceMenuItem::Category { name: name_a, .. }, WorkspaceMenuItem::Category { name: name_b, .. }) = (a, b) {
-                name_a.cmp(name_b)
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        });
+        // Convert hierarchy to menu items - BTreeMap iteration is already sorted
+        for (category_name, mut items) in hierarchy {
+            // Sort items within each category for consistent ordering
+            items.sort_by(|a, b| {
+                match (a, b) {
+                    (WorkspaceMenuItem::Node { name: name_a, .. }, WorkspaceMenuItem::Node { name: name_b, .. }) => name_a.cmp(name_b),
+                    (WorkspaceMenuItem::Category { name: name_a, .. }, WorkspaceMenuItem::Category { name: name_b, .. }) => name_a.cmp(name_b),
+                    (WorkspaceMenuItem::Node { .. }, WorkspaceMenuItem::Category { .. }) => std::cmp::Ordering::Less,
+                    (WorkspaceMenuItem::Category { .. }, WorkspaceMenuItem::Node { .. }) => std::cmp::Ordering::Greater,
+                    _ => std::cmp::Ordering::Equal,
+                }
+            });
+            
+            menu_items.push(WorkspaceMenuItem::Category {
+                name: category_name,
+                items,
+            });
+        }
+        
+        // Note: Categories are already sorted due to BTreeMap iteration order
         
         menu_items
+    }
+}
+
+/// Plugin support for NodeRegistry
+impl nodle_plugin_sdk::NodeRegistryTrait for NodeRegistry {
+    /// Register a node factory from a plugin
+    fn register_node_factory(&mut self, factory: Box<dyn nodle_plugin_sdk::NodeFactory>) -> Result<(), nodle_plugin_sdk::PluginError> {
+        let metadata = factory.metadata();
+        let node_type = metadata.node_type.clone();
+        
+        // Cache the metadata to avoid repeated calls
+        self.plugin_metadata_cache.insert(node_type.clone(), metadata.clone());
+        
+        // Store the plugin factory
+        self.plugin_factories.insert(node_type.clone(), factory);
+        
+        // Add to categories for menu generation
+        self.categories
+            .entry(NodeCategory::new(&metadata.category.path().iter().map(|s| s.as_str()).collect::<Vec<_>>()))
+            .or_insert_with(Vec::new)
+            .push(node_type);
+            
+        Ok(())
+    }
+    
+    /// Get list of registered node types
+    fn get_node_types(&self) -> Vec<String> {
+        let mut types: Vec<String> = self.creators.keys().cloned().collect();
+        types.extend(self.plugin_factories.keys().cloned());
+        types.sort();
+        types
+    }
+    
+    /// Check if a node type is registered
+    fn has_node_type(&self, node_type: &str) -> bool {
+        self.creators.contains_key(node_type) || self.plugin_factories.contains_key(node_type)
     }
 }
 
@@ -390,36 +1160,45 @@ impl Default for NodeRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
         
-        // Register enhanced math nodes
-        registry.register::<crate::nodes::math::AddNodeEnhanced>();
-        registry.register::<crate::nodes::math::SubtractNodeEnhanced>();
-        registry.register::<crate::nodes::math::MultiplyNodeEnhanced>();
-        registry.register::<crate::nodes::math::DivideNodeEnhanced>();
+        // Register modular math nodes
+        registry.register::<crate::nodes::math::add::AddNodeFactory>();
+        registry.register::<crate::nodes::math::subtract::SubtractNodeFactory>();
+        registry.register::<crate::nodes::math::multiply::MultiplyNodeFactory>();
+        registry.register::<crate::nodes::math::divide::DivideNodeFactory>();
         
-        // Register enhanced logic nodes
-        registry.register::<crate::nodes::logic::AndNodeEnhanced>();
-        registry.register::<crate::nodes::logic::OrNodeEnhanced>();
-        registry.register::<crate::nodes::logic::NotNodeEnhanced>();
+        // Register modular logic nodes
+        registry.register::<crate::nodes::logic::and::AndNodeFactory>();
+        registry.register::<crate::nodes::logic::or::OrNodeFactory>();
+        registry.register::<crate::nodes::logic::not::NotNodeFactory>();
         
-        // Register enhanced data nodes
-        registry.register::<crate::nodes::data::ConstantNodeEnhanced>();
-        registry.register::<crate::nodes::data::VariableNodeEnhanced>();
+        // Register modular data nodes
+        registry.register::<crate::nodes::data::constant::ConstantNodeFactory>();
+        registry.register::<crate::nodes::data::variable::VariableNodeFactory>();
+        registry.register::<crate::nodes::data::usd_file_reader::UsdFileReaderNodeFactory>();
         
-        // Register enhanced output nodes
-        registry.register::<crate::nodes::output::PrintNodeEnhanced>();
-        registry.register::<crate::nodes::output::DebugNodeEnhanced>();
+        // Register modular output nodes
+        registry.register::<crate::nodes::output::PrintNodeFactory>();
+        registry.register::<crate::nodes::output::DebugNodeFactory>();
+        registry.register::<crate::nodes::output::ConsoleNodeFactory>();
+        // ScenegraphNodeFactory is now only registered in 3D workspace
         
-        // Register 3D nodes
-        registry.register::<crate::nodes::three_d::TranslateNode3D>();
-        registry.register::<crate::nodes::three_d::RotateNode3D>();
-        registry.register::<crate::nodes::three_d::ScaleNode3D>();
-        registry.register::<crate::nodes::three_d::CubeNode3D>();
-        registry.register::<crate::nodes::three_d::SphereNode3D>();
-        registry.register::<crate::nodes::three_d::PlaneNode3D>();
-        registry.register::<crate::nodes::three_d::PointLightNode3D>();
-        registry.register::<crate::nodes::three_d::DirectionalLightNode3D>();
-        registry.register::<crate::nodes::three_d::SpotLightNode3D>();
-        registry.register::<crate::nodes::three_d::ViewportNode3D>();
+        // Register 3D nodes and their interface versions
+        registry.register::<crate::nodes::three_d::transform::TranslateNode>();
+        registry.register::<crate::nodes::three_d::transform::RotateNode>();
+        registry.register::<crate::nodes::three_d::transform::ScaleNode>();
+        // Register new USD-based geometry nodes
+        registry.register::<crate::nodes::three_d::geometry::CubeNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::SphereNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::CylinderNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::ConeNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::PlaneNodeFactory>();
+        registry.register::<crate::nodes::three_d::geometry::CapsuleNodeFactory>();
+        registry.register::<crate::nodes::three_d::lighting::PointLightNode>();
+        registry.register::<crate::nodes::three_d::lighting::DirectionalLightNode>();
+        registry.register::<crate::nodes::three_d::lighting::SpotLightNode>();
+        registry.register::<crate::nodes::three_d::ui::viewport::ViewportNode>();
+        
+        // USD nodes now loaded via comprehensive USD plugin
         
         registry
     }

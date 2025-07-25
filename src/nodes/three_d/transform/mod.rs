@@ -1,9 +1,10 @@
-//! 3D Transform nodes
+//! 3D Transform nodes - modular structure
 
-pub mod translate;
-pub mod rotate;
-pub mod scale;
+pub mod translate;   // Modular directory structure
+pub mod rotate;      // Modular directory structure
+pub mod scale;       // Modular directory structure
 
-pub use translate::TranslateNode3D;
-pub use rotate::RotateNode3D;
-pub use scale::ScaleNode3D;
+// Export all modular nodes
+pub use translate::TranslateNode;
+pub use rotate::RotateNode;
+pub use scale::ScaleNode;

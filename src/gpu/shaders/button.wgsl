@@ -18,6 +18,8 @@ struct Uniforms {
     zoom: f32,
     time: f32,
     screen_size: vec2<f32>,
+    menu_bar_height: f32,
+    _padding: f32,
 }
 
 @group(0) @binding(0)
@@ -38,8 +40,11 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     let world_pos = instance.instance_position + vertex.position * zoomed_radius;
     let panned_pos = world_pos + uniforms.pan_offset;
     
-    let ndc_x = (panned_pos.x / uniforms.screen_size.x) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (panned_pos.y / uniforms.screen_size.y) * 2.0;
+    // Offset Y coordinate to account for menu bar at top
+    let screen_pos = vec2<f32>(panned_pos.x, panned_pos.y + uniforms.menu_bar_height);
+    
+    let ndc_x = (screen_pos.x / uniforms.screen_size.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (screen_pos.y / uniforms.screen_size.y) * 2.0;
     
     var out: VertexOutput;
     out.clip_position = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);

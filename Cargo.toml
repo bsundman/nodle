@@ -7,18 +7,40 @@ license = "MIT"
 description = "Node-based visual programming editor"
 repository = "https://github.com/bsundman/nodle"
 
+[lib]
+name = "nodle"
+path = "src/lib.rs"
+
 [[bin]]
 name = "nodle"
 path = "src/main.rs"
 
 [dependencies]
-egui = "0.29"
-eframe = { version = "0.29", features = ["wgpu"] }
-egui-wgpu = "0.29"
-wgpu = "22"
-bytemuck = { version = "1.14", features = ["derive"] }
+egui = "0.31"
+eframe = { version = "0.31", features = ["wgpu"] }
+egui-wgpu = "0.31"
+egui_extras = "0.31"
+wgpu = "25"
+bytemuck = { version = "1.18", features = ["derive"] }
+glam = { version = "0.30", features = ["bytemuck", "serde"] }
+libloading = "0.8"
+nodle-plugin-sdk = { path = "../nodle-plugin-sdk" }
+dirs = "6.0"
 once_cell = "1.19"
+lazy_static = "1.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rfd = "0.14"
+rfd = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+log = "0.4"
+env_logger = "0.11"
+rand = "0.9"
+# USD integration using Python bindings
+pyo3 = { version = "0.25", features = ["auto-initialize"], optional = true }
+numpy = { version = "0.25", optional = true }
+tracing = "0.1.41"
+
+[features]
+default = ["usd"]
+usd = ["pyo3", "numpy"]

@@ -5,6 +5,6 @@ pub mod workspace_2d;
 pub mod workspace_3d;
 pub mod materialx;
 pub mod registry;
-pub mod test_phase4;
+pub mod three_d;
 
 pub use registry::WorkspaceRegistry;

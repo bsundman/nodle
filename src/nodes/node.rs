@@ -2,8 +2,11 @@
 
 use super::port::{Port, PortType};
 use super::graph::NodeGraph;
+use super::interface::{PanelType, NodeData};
 use egui::{Color32, Pos2, Rect, Vec2};
+use crate::theme;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Unique identifier for a node
 pub type NodeId = usize;
@@ -38,9 +41,11 @@ pub enum NodeType {
 }
 
 /// Core node structure representing a visual node in the graph
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Node {
     pub id: NodeId,
+    /// Immutable type identifier (e.g., "Data_UsdFileReader")
+    pub type_id: String,
     pub title: String,
     #[serde(with = "pos2_serde")]
     pub position: Pos2,
@@ -55,33 +60,95 @@ pub struct Node {
     pub button_states: [bool; 2],
     /// Whether the node is visible (true) or hidden (false)
     pub visible: bool,
+    /// The type of panel this node should display in (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub panel_type: Option<PanelType>,
+    /// Node parameters for interface panels
+    #[serde(default)]
+    pub parameters: HashMap<String, NodeData>,
+    /// Plugin node instance (if this is a plugin node)
+    #[serde(skip)]
+    pub plugin_node: Option<Box<dyn nodle_plugin_sdk::PluginNode>>,
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("id", &self.id)
+            .field("type_id", &self.type_id)
+            .field("title", &self.title)
+            .field("position", &self.position)
+            .field("size", &self.size)
+            .field("inputs", &self.inputs)
+            .field("outputs", &self.outputs)
+            .field("color", &self.color)
+            .field("node_type", &self.node_type)
+            .field("button_states", &self.button_states)
+            .field("visible", &self.visible)
+            .field("panel_type", &self.panel_type)
+            .field("parameters", &self.parameters)
+            .field("plugin_node", &if self.plugin_node.is_some() { "Some(PluginNode)" } else { "None" })
+            .finish()
+    }
+}
+
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            type_id: self.type_id.clone(),
+            title: self.title.clone(),
+            position: self.position,
+            size: self.size,
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+            color: self.color,
+            node_type: self.node_type.clone(),
+            button_states: self.button_states,
+            visible: self.visible,
+            panel_type: self.panel_type,
+            parameters: self.parameters.clone(),
+            plugin_node: None, // Plugin nodes cannot be cloned, so we set to None
+        }
+    }
 }
 
 impl Node {
     /// Creates a new node with the specified properties
     pub fn new(id: NodeId, title: impl Into<String>, position: Pos2) -> Self {
-        Self {
+        let title_str = title.into();
+        let new_node = Self {
             id,
-            title: title.into(),
+            type_id: "Unknown".to_string(), // Default type_id, will be set by factory
+            title: title_str,
             position,
-            size: Vec2::new(150.0, 30.0),
+            size: theme::dimensions().default_node_size,
             inputs: vec![],
             outputs: vec![],
             color: Color32::from_rgb(60, 60, 60),
             node_type: NodeType::Regular,
             button_states: [false, false],
             visible: true,
-        }
+            panel_type: None, // Will be set by factory or with_panel_type()
+            parameters: HashMap::new(),
+            plugin_node: None, // Initialize plugin node as None
+        };
+        
+        
+        new_node
     }
     
     /// Creates a new workspace node
     pub fn new_workspace(id: NodeId, workspace_type: impl Into<String>, position: Pos2) -> Self {
         let workspace_type_str = workspace_type.into();
-        Self {
+        let title = format!("{} Workspace", workspace_type_str);
+        let type_id = format!("Workspace_{}", workspace_type_str);
+        let new_node = Self {
             id,
-            title: format!("{} Workspace", workspace_type_str),
+            type_id,
+            title,
             position,
-            size: Vec2::new(180.0, 50.0), // Slightly larger
+            size: theme::dimensions().workspace_node_size,
             inputs: vec![],
             outputs: vec![],
             color: Color32::from_rgb(80, 100, 120), // Different color for workspace nodes
@@ -92,7 +159,13 @@ impl Node {
             },
             button_states: [false, false],
             visible: true,
-        }
+            panel_type: None, // Workspace nodes typically don't have panels
+            parameters: HashMap::new(),
+            plugin_node: None, // Initialize plugin node as None
+        };
+        
+        
+        new_node
     }
 
     /// Adds an input port to the node
@@ -111,7 +184,7 @@ impl Node {
 
     /// Updates the positions of all ports based on the node's position and size
     pub fn update_port_positions(&mut self) {
-        let port_spacing = 30.0;
+        let port_spacing = theme::dimensions().port_spacing;
 
         // Input ports on TOP of node
         let input_start_x = if self.inputs.len() > 1 {
@@ -147,6 +220,27 @@ impl Node {
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = color;
         self
+    }
+    
+    /// Sets the panel type for this node
+    pub fn with_panel_type(mut self, panel_type: PanelType) -> Self {
+        self.panel_type = Some(panel_type);
+        self
+    }
+    
+    /// Gets the panel type for this node
+    pub fn get_panel_type(&self) -> Option<PanelType> {
+        self.panel_type
+    }
+    
+    /// Sets the panel type for this node (mutable reference)
+    pub fn set_panel_type(&mut self, panel_type: PanelType) {
+        self.panel_type = Some(panel_type);
+    }
+    
+    /// Sets the type identifier for this node
+    pub fn set_type_id(&mut self, type_id: impl Into<String>) {
+        self.type_id = type_id.into();
     }
 
     /// Sets the size of the node

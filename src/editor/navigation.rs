@@ -1,6 +1,17 @@
 //! Workspace navigation and breadcrumb UI components
 
 use egui::Color32;
+use std::collections::HashMap;
+use crate::nodes::{NodeGraph, Node, NodeId, Connection};
+
+/// Tracks which graph we're currently viewing
+#[derive(Debug, Clone)]
+pub enum GraphView {
+    /// Viewing the root graph
+    Root,
+    /// Viewing a workspace node's internal graph
+    WorkspaceNode(NodeId),
+}
 
 /// Represents a navigation path through workspace hierarchy
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +90,8 @@ pub struct NavigationManager {
     pub current_path: WorkspacePath,
     /// Stack of workspace nodes we've entered (node IDs)
     pub workspace_stack: Vec<crate::nodes::NodeId>,
+    /// Current view state - which graph we're looking at
+    current_view: GraphView,
 }
 
 impl NavigationManager {
@@ -87,12 +100,15 @@ impl NavigationManager {
         Self {
             current_path: WorkspacePath::root(),
             workspace_stack: Vec::new(),
+            current_view: GraphView::Root,
         }
     }
     
     /// Navigate to a specific path
     pub fn navigate_to(&mut self, path: WorkspacePath) {
         self.current_path = path;
+        // Reset view to root when navigating via path
+        self.current_view = GraphView::Root;
     }
     
     /// Navigate to a child workspace
@@ -100,19 +116,18 @@ impl NavigationManager {
         self.current_path = self.current_path.navigate_to(workspace_name);
     }
     
-    /// Navigate to a specific workspace (alias for enter_workspace)
-    pub fn navigate_to_workspace(&mut self, workspace_name: &str) {
-        self.enter_workspace(workspace_name);
-    }
     
     /// Navigate to parent workspace
     pub fn go_up(&mut self) {
         self.current_path = self.current_path.parent();
+        self.current_view = GraphView::Root;
     }
     
     /// Navigate to root
     pub fn go_to_root(&mut self) {
         self.current_path = WorkspacePath::root();
+        self.current_view = GraphView::Root;
+        self.workspace_stack.clear();
     }
     
     /// Check if we can go up (not at root)
@@ -121,33 +136,28 @@ impl NavigationManager {
     }
     
     /// Enter a workspace node (dive into its internal graph)
-    pub fn enter_workspace_node(&mut self, node_id: crate::nodes::NodeId, workspace_type: &str) {
+    pub fn enter_workspace_node(&mut self, node_id: NodeId, workspace_type: &str) {
         self.workspace_stack.push(node_id);
         self.enter_workspace(workspace_type);
+        self.current_view = GraphView::WorkspaceNode(node_id);
     }
     
     /// Exit the current workspace node (go back to parent graph)
-    pub fn exit_workspace_node(&mut self) -> Option<crate::nodes::NodeId> {
+    pub fn exit_workspace_node(&mut self) -> Option<NodeId> {
         if let Some(node_id) = self.workspace_stack.pop() {
             if self.workspace_stack.is_empty() {
                 self.go_to_root();
             } else {
                 self.go_up();
+                // If there's still a workspace node on the stack, set view to it
+                if let Some(&parent_node_id) = self.workspace_stack.last() {
+                    self.current_view = GraphView::WorkspaceNode(parent_node_id);
+                }
             }
             Some(node_id)
         } else {
             None
         }
-    }
-    
-    /// Check if we're currently inside a workspace node
-    pub fn is_inside_workspace_node(&self) -> bool {
-        !self.workspace_stack.is_empty()
-    }
-    
-    /// Get the current workspace node ID if we're inside one
-    pub fn current_workspace_node(&self) -> Option<crate::nodes::NodeId> {
-        self.workspace_stack.last().copied()
     }
     
     /// Render the navigation breadcrumb bar
@@ -187,6 +197,132 @@ impl NavigationManager {
         
         action
     }
+
+    // === VIEW MANAGEMENT METHODS (formerly from ViewManager) ===
+
+    /// Get the current view
+    pub fn current_view(&self) -> &GraphView {
+        &self.current_view
+    }
+
+    /// Set the current view to root
+    pub fn set_root_view(&mut self) {
+        self.current_view = GraphView::Root;
+    }
+
+    /// Set the current view to a workspace node
+    pub fn set_workspace_view(&mut self, node_id: NodeId) {
+        self.current_view = GraphView::WorkspaceNode(node_id);
+    }
+
+    /// Check if currently viewing root graph
+    pub fn is_root_view(&self) -> bool {
+        matches!(self.current_view, GraphView::Root)
+    }
+
+    /// Check if currently viewing a workspace node
+    pub fn is_workspace_view(&self) -> bool {
+        matches!(self.current_view, GraphView::WorkspaceNode(_))
+    }
+
+    /// Get the workspace node ID if currently viewing a workspace
+    pub fn get_workspace_node_id(&self) -> Option<NodeId> {
+        match self.current_view {
+            GraphView::WorkspaceNode(node_id) => Some(node_id),
+            GraphView::Root => None,
+        }
+    }
+
+    /// Get the nodes that should be visible in the current view
+    pub fn get_viewed_nodes(&self, graph: &NodeGraph) -> HashMap<NodeId, Node> {
+        match &self.current_view {
+            GraphView::Root => graph.nodes.clone(),
+            GraphView::WorkspaceNode(node_id) => {
+                if let Some(workspace_node) = graph.nodes.get(node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                        internal_graph.nodes.clone()
+                    } else {
+                        HashMap::new()
+                    }
+                } else {
+                    HashMap::new()
+                }
+            }
+        }
+    }
+
+    /// Get the connections that should be visible in the current view
+    pub fn get_viewed_connections(&self, graph: &NodeGraph) -> Vec<Connection> {
+        match &self.current_view {
+            GraphView::Root => graph.connections.clone(),
+            GraphView::WorkspaceNode(node_id) => {
+                if let Some(workspace_node) = graph.nodes.get(node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                        internal_graph.connections.clone()
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                }
+            }
+        }
+    }
+
+    /// Get the active graph for the current view
+    pub fn get_active_graph<'a>(&self, graph: &'a NodeGraph) -> &'a NodeGraph {
+        match self.current_view {
+            GraphView::Root => graph,
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = graph.nodes.get(&workspace_node_id) {
+                    if let Some(internal_graph) = workspace_node.get_internal_graph() {
+                        internal_graph
+                    } else {
+                        graph // Fallback to root if no internal graph
+                    }
+                } else {
+                    graph // Fallback to root if workspace node doesn't exist
+                }
+            }
+        }
+    }
+
+    /// Build a temporary graph for the current view
+    pub fn build_temp_graph(&self, viewed_nodes: &HashMap<NodeId, Node>, graph: &NodeGraph) -> NodeGraph {
+        let mut temp_graph = NodeGraph::new();
+        temp_graph.nodes = viewed_nodes.clone();
+        temp_graph.connections = self.get_viewed_connections(graph);
+        temp_graph
+    }
+
+    /// Exit current workspace and return to root
+    pub fn exit_to_root(&mut self) {
+        self.current_view = GraphView::Root;
+        self.current_path = WorkspacePath::root();
+        self.workspace_stack.clear();
+    }
+
+    /// Get workspace type string if currently in a workspace
+    pub fn get_workspace_type(&self, graph: &NodeGraph) -> Option<String> {
+        match self.current_view {
+            GraphView::Root => None,
+            GraphView::WorkspaceNode(workspace_node_id) => {
+                if let Some(workspace_node) = graph.nodes.get(&workspace_node_id) {
+                    workspace_node.get_workspace_type().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Check if currently in a specific workspace type
+    pub fn is_in_workspace_type(&self, graph: &NodeGraph, workspace_type: &str) -> bool {
+        match self.get_workspace_type(graph) {
+            Some(current_type) => current_type == workspace_type,
+            None => false,
+        }
+    }
 }
 
 /// Actions that can result from navigation UI interactions
@@ -194,9 +330,6 @@ impl NavigationManager {
 pub enum NavigationAction {
     None,
     NavigateTo(WorkspacePath),
-    EnterWorkspace(String),
-    GoUp,
-    GoToRoot,
 }
 
 impl Default for NavigationManager {

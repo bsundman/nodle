@@ -3,6 +3,8 @@
 use egui::Color32;
 use crate::nodes::NodeId;
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::sync::OnceLock;
 
 /// Represents a workspace for node editing (e.g., MaterialX, 3D, etc.)
 pub trait Workspace {
@@ -124,20 +126,34 @@ impl WorkspaceManager {
     
     /// Get menu structure based on current navigation path
     pub fn get_menu_for_path(&self, path: &crate::editor::navigation::WorkspacePath) -> Vec<WorkspaceMenuItem> {
-        // Use centralized menu hierarchy instead of fragmented logic
-        let workspace_id = if path.is_root() {
-            None
+        // Get the workspace for this path
+        if let Some(workspace) = self.get_workspace_for_path(path) {
+            let mut menu_items = Vec::new();
+            
+            // Use the workspace's dynamic menu generation
+            let workspace_menu = workspace.get_menu_structure();
+            menu_items.extend(workspace_menu);
+            
+            // Plugin nodes are already included in workspace.get_menu_structure() 
+            // via the global plugin manager integration in workspace_3d.rs
+            
+            menu_items
         } else {
-            path.current_workspace().map(|name| match name {
-                "3D" => "3d",
-                "MaterialX" => "materialx",
-                _ => name,
-            })
-        };
-        
-        crate::menu_hierarchy::GlobalMenuHierarchy::get_menu_for_workspace(workspace_id)
+            // At root level, use the hardcoded root menu for workspace selection
+            crate::menu_hierarchy::GlobalMenuHierarchy::get_menu_for_workspace(None)
+        }
     }
     
+    /// Get plugin menu items using global plugin manager
+    fn get_plugin_menu_items(&self) -> Result<Vec<WorkspaceMenuItem>, String> {
+        // Use the global plugin manager instance
+        if let Some(plugin_manager) = get_global_plugin_manager() {
+            let manager = plugin_manager.lock().map_err(|e| format!("Plugin manager lock error: {}", e))?;
+            Ok(manager.get_workspace_menu_items())
+        } else {
+            Ok(Vec::new()) // No plugins loaded
+        }
+    }
     
     /// Check if a node is compatible with the current workspace
     pub fn is_node_compatible(&self, node_type: &str) -> bool {
@@ -171,4 +187,28 @@ impl WorkspaceManager {
             Color32::from_rgb(200, 50, 50)
         }
     }
+}
+
+// Global plugin manager singleton
+static GLOBAL_PLUGIN_MANAGER: OnceLock<Arc<Mutex<crate::plugins::PluginManager>>> = OnceLock::new();
+
+/// Initialize the global plugin manager
+pub fn initialize_global_plugin_manager() -> Result<(), String> {
+    let mut plugin_manager = crate::plugins::PluginManager::new();
+    
+    // Load plugins once at startup
+    if let Err(e) = plugin_manager.discover_and_load_plugins() {
+        return Err(format!("Failed to initialize plugins: {}", e));
+    }
+    
+    // Store in global singleton
+    GLOBAL_PLUGIN_MANAGER.set(Arc::new(Mutex::new(plugin_manager)))
+        .map_err(|_| "Failed to initialize global plugin manager".to_string())?;
+    
+    Ok(())
+}
+
+/// Get the global plugin manager instance
+pub fn get_global_plugin_manager() -> Option<Arc<Mutex<crate::plugins::PluginManager>>> {
+    GLOBAL_PLUGIN_MANAGER.get().cloned()
 }
