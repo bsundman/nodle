@@ -691,6 +691,9 @@ impl USDEngine {
             let scene_data = Python::with_gil(|py| -> Result<USDSceneData, String> {
                 println!("🎬 USDEngine: Opening USD stage with Python...");
                 
+                // Add our custom USD Python bindings to sys.path
+                py.run(c"import sys; sys.path.insert(0, '/Users/brian/nodle/nodle/vendor/usd/lib/python')", None, None)
+                    .map_err(|e| format!("Failed to set Python path: {}", e))?;
                 
                 // Execute the Python function with optimized pure Python
                 py.run(c"def extract_all_meshes(stage_path):

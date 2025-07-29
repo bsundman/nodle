@@ -45,8 +45,21 @@ export PATH="${SCRIPT_DIR}/python-runtime/python/bin:${PATH}"
 cd "${USD_DIR}"
 
 # Build USD
-echo "Building USD with monolithic libraries..."
+echo "Building USD with custom TBB..."
 echo "Build output will be in: ${BUILD_DIR}"
+
+# Set environment variables for custom TBB
+export TBB_ROOT="${SCRIPT_DIR}/tbb/tbb_install"
+export CMAKE_PREFIX_PATH="${TBB_ROOT}:${CMAKE_PREFIX_PATH}"
+
+# Check if custom TBB exists
+if [ ! -d "${TBB_ROOT}" ]; then
+    echo "Error: Custom TBB not found at ${TBB_ROOT}"
+    echo "Please run ./build_tbb.sh first to build TBB from source"
+    exit 1
+fi
+
+echo "Using custom TBB from: ${TBB_ROOT}"
 
 # Check for build options
 BUILD_ARGS="--build-monolithic"
@@ -60,8 +73,10 @@ else
     echo "PySide found - building with usdview support"
 fi
 
-# Run the build script
-"${PYTHON_BIN}" build_scripts/build_usd.py ${BUILD_ARGS} "${BUILD_DIR}"
+# Run the build script (without monolithic for Cycles compatibility)
+# Use --onetbb to build with oneTBB 2021.12.0 instead of legacy TBB
+# Use --force-all to ensure it uses our custom TBB
+"${PYTHON_BIN}" build_scripts/build_usd.py --onetbb --force-all "${BUILD_DIR}"
 
 echo "USD build complete!"
 echo "USD installation path: ${BUILD_DIR}"

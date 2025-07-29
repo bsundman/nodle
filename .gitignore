@@ -39,6 +39,12 @@ usd_cache/
 vendor/USD/
 vendor/usd/
 
+# Cycles source and build directories  
+vendor/cycles/
+
+# TBB source and build directories
+vendor/tbb/
+
 # Logs and temporary files
 *.log
 *.tmp
