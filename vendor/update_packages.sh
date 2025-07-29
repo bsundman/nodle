@@ -65,8 +65,11 @@ log_info "Updating wheel..."
 log_info "Updating numpy..."
 "$PYTHON_BIN" -m pip install --upgrade numpy
 
-log_info "Updating usd-core..."
-"$PYTHON_BIN" -m pip install --upgrade usd-core
+log_info "Installing PySide6 for USD UI tools..."
+"$PYTHON_BIN" -m pip install --upgrade PySide6
+
+log_info "Installing PyOpenGL for USD viewer..."
+"$PYTHON_BIN" -m pip install --upgrade PyOpenGL
 
 echo ""
 log_info "Final package versions:"
@@ -78,8 +81,12 @@ log_info "Testing installations..."
 # Test numpy
 "$PYTHON_BIN" -c "import numpy; print(f'✅ NumPy {numpy.__version__} working')"
 
-# Test USD
-"$PYTHON_BIN" -c "import pxr.Usd; print(f'✅ USD {pxr.Usd.GetVersion()} working')"
+# Test PySide6
+"$PYTHON_BIN" -c "import PySide6; print(f'✅ PySide6 {PySide6.__version__} working')"
+
+# Test USD from local build
+export PYTHONPATH="$SCRIPT_DIR/usd/lib/python:$PYTHONPATH"
+"$PYTHON_BIN" -c "import pxr.Usd; print(f'✅ USD {pxr.Usd.GetVersion()} working (from local build)')" || echo "⚠️  USD not built yet - run ./build_usd.sh"
 
 echo ""
 log_success "🎉 All packages updated successfully!"

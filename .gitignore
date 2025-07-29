@@ -35,6 +35,10 @@ dist/
 *.usdc
 usd_cache/
 
+# USD source and build directories
+vendor/USD/
+vendor/usd/
+
 # Logs and temporary files
 *.log
 *.tmp

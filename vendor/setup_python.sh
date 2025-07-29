@@ -7,7 +7,6 @@ set -e  # Exit on any error
 
 # Configuration
 PYTHON_VERSION="3.9.23"  # Use latest available 3.9.x version
-USD_VERSION="25.5.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENDOR_DIR="$SCRIPT_DIR"
 RUNTIME_DIR="$VENDOR_DIR/python-runtime"
@@ -235,13 +234,16 @@ install_packages() {
     log_info "Installing numpy..."
     "$python_cmd" -m pip install numpy
     
-    log_info "Installing USD core..."
-    "$python_cmd" -m pip install usd-core==$USD_VERSION
+    log_info "Installing PySide6 for USD UI tools..."
+    "$python_cmd" -m pip install PySide6
+    
+    log_info "Installing PyOpenGL for USD viewer..."
+    "$python_cmd" -m pip install PyOpenGL
     
     # Verify installations
     log_info "Verifying package installations..."
     "$python_cmd" -c "import numpy; print(f'✅ NumPy {numpy.__version__} working')"
-    "$python_cmd" -c "import pxr.Usd; print(f'✅ USD {pxr.Usd.GetVersion()} working')"
+    "$python_cmd" -c "import PySide6; print(f'✅ PySide6 {PySide6.__version__} working')"
     
     log_success "All packages installed successfully"
 }
@@ -349,7 +351,7 @@ OPTIONS:
     --check         Check current installation status
 
 DESCRIPTION:
-    This script sets up Python ${PYTHON_VERSION} with USD ${USD_VERSION}
+    This script sets up Python ${PYTHON_VERSION} with dependencies
     for the Nōdle project using embedded Python for all platforms.
     
     Platform support:
@@ -390,7 +392,6 @@ EOF
     echo "🐍 Nōdle Python Setup"
     echo "======================"
     echo "Python Version: $PYTHON_VERSION"
-    echo "USD Version: $USD_VERSION"
     echo "Platform: $PLATFORM"
     echo "Target Directory: $RUNTIME_DIR"
     echo ""
