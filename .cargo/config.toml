@@ -10,15 +10,17 @@ NODLE_USD_ROOT = "/Users/brian/nodle/nodle/vendor/usd"
 USD_INSTALL_ROOT = "/Users/brian/nodle/nodle/vendor/usd"
 PATH = "/Users/brian/nodle/nodle/vendor/usd/bin:/usr/bin:/bin"
 
-# Library path for embedded Python and USD
-DYLD_LIBRARY_PATH = "/Users/brian/nodle/nodle/vendor/usd/lib:/Users/brian/nodle/nodle/vendor/python-runtime/python/lib"
-LD_LIBRARY_PATH = "/Users/brian/nodle/nodle/vendor/usd/lib:/Users/brian/nodle/nodle/vendor/python-runtime/python/lib"
+# Library path for embedded Python, USD, and Cycles (includes OSL libraries)
+DYLD_LIBRARY_PATH = "/Users/brian/nodle/nodle/vendor/usd/lib:/Users/brian/nodle/nodle/vendor/python-runtime/python/lib:/Users/brian/nodle/nodle/vendor/cycles/install/lib"
+LD_LIBRARY_PATH = "/Users/brian/nodle/nodle/vendor/usd/lib:/Users/brian/nodle/nodle/vendor/python-runtime/python/lib:/Users/brian/nodle/nodle/vendor/cycles/install/lib"
 
 [build]
-# Link against our embedded Python library and USD
+# Link against our embedded Python library, USD, and Cycles
 rustflags = [
     "-L", "/Users/brian/nodle/nodle/vendor/python-runtime/python/lib",
     "-L", "/Users/brian/nodle/nodle/vendor/usd/lib",
+    "-L", "/Users/brian/nodle/nodle/vendor/cycles/install/lib",
     "-Wl,-rpath,/Users/brian/nodle/nodle/vendor/python-runtime/python/lib",
-    "-Wl,-rpath,/Users/brian/nodle/nodle/vendor/usd/lib"
+    "-Wl,-rpath,/Users/brian/nodle/nodle/vendor/usd/lib",
+    "-Wl,-rpath,/Users/brian/nodle/nodle/vendor/cycles/install/lib"
 ]

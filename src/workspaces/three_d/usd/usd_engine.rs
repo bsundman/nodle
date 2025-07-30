@@ -228,6 +228,134 @@ impl USDEngine {
         self.persistent_usd_file_data.clear();
         println!("🌍 USD Engine: CLEARED {} persistent USD file data entries", count);
     }
+
+    /// Save USD scene data to a file using USD core
+    pub fn save_usd_scene_to_file(&mut self, scene_data: &USDSceneData, output_path: &str) -> Result<(), String> {
+        #[cfg(feature = "usd")]
+        {
+            use pyo3::prelude::*;
+            
+            println!("🎬 USDEngine: Starting USD save operation to: {}", output_path);
+            println!("🎬 USDEngine: Scene data contains {} meshes", scene_data.meshes.len());
+            
+            Python::with_gil(|py| -> Result<(), String> {
+                // Import USD modules
+                println!("🎬 USDEngine: Importing USD Python modules...");
+                let usd = py.import("pxr.Usd")
+                    .map_err(|e| format!("Failed to import pxr.Usd: {}", e))?;
+                let usd_geom = py.import("pxr.UsdGeom")
+                    .map_err(|e| format!("Failed to import pxr.UsdGeom: {}", e))?;
+                
+                println!("🎬 USDEngine: Successfully imported USD modules");
+                
+                // Create a new USD stage using the Stage class
+                println!("🎬 USDEngine: Creating new USD stage...");
+                let stage_class = usd.getattr("Stage")
+                    .map_err(|e| format!("Failed to get Stage class: {}", e))?;
+                let stage = stage_class.call_method1("CreateNew", (output_path,))
+                    .map_err(|e| format!("Failed to create USD stage: {}", e))?;
+                
+                println!("🎬 USDEngine: Created USD stage successfully");
+                
+                // Set up axis using SetStageUpAxis
+                let tokens = usd_geom.getattr("Tokens")
+                    .map_err(|e| format!("Failed to get Tokens: {}", e))?;
+                let y_token = tokens.getattr("y")
+                    .map_err(|e| format!("Failed to get y token: {}", e))?;
+                
+                usd_geom.call_method1("SetStageUpAxis", (&stage, y_token))
+                    .map_err(|e| format!("Failed to set stage up axis: {}", e))?;
+                println!("🎬 USDEngine: Set stage up axis to Y");
+
+                // Create root xform
+                let root_path = "/Root";
+                let xform_class = usd_geom.getattr("Xform")
+                    .map_err(|e| format!("Failed to get Xform class: {}", e))?;
+                let _root_xform = xform_class.call_method1("Define", (&stage, root_path))
+                    .map_err(|e| format!("Failed to create root xform: {}", e))?;
+                println!("🎬 USDEngine: Created root xform");
+
+                // Add meshes to the stage
+                println!("🎬 USDEngine: Adding {} meshes to stage...", scene_data.meshes.len());
+                let mesh_class = usd_geom.getattr("Mesh")
+                    .map_err(|e| format!("Failed to get Mesh class: {}", e))?;
+                
+                for (mesh_idx, mesh) in scene_data.meshes.iter().enumerate() {
+                    println!("🎬 USDEngine: Processing mesh {} with {} vertices, {} indices", 
+                             mesh_idx, mesh.vertices.len(), mesh.indices.len());
+                    
+                    let mesh_path = format!("{}/Mesh_{}", root_path, mesh_idx);
+                    
+                    // Create mesh using Mesh.Define
+                    let usd_mesh = mesh_class.call_method1("Define", (&stage, &mesh_path))
+                        .map_err(|e| format!("Failed to create mesh at {}: {}", mesh_path, e))?;
+                    
+                    println!("🎬 USDEngine: Created mesh at path: {}", mesh_path);
+                    
+                    // Only set attributes if we have valid data
+                    if !mesh.vertices.is_empty() {
+                        // Set vertices - convert to tuples as Python expects
+                        let vertices: Vec<(f32, f32, f32)> = mesh.vertices.iter()
+                            .map(|v| (v.x, v.y, v.z))
+                            .collect();
+                        
+                        let points_attr = usd_mesh.call_method0("CreatePointsAttr")
+                            .map_err(|e| format!("Failed to create points attr: {}", e))?;
+                        points_attr.call_method1("Set", (vertices,))
+                            .map_err(|e| format!("Failed to set vertices: {}", e))?;
+                        
+                        println!("🎬 USDEngine: Set {} vertices for mesh {}", mesh.vertices.len(), mesh_idx);
+                    }
+                    
+                    if !mesh.indices.is_empty() && mesh.indices.len() % 3 == 0 {
+                        // Set face vertex counts (triangles = all 3s)
+                        let face_counts: Vec<i32> = vec![3; mesh.indices.len() / 3];
+                        let face_counts_attr = usd_mesh.call_method0("CreateFaceVertexCountsAttr")
+                            .map_err(|e| format!("Failed to create face counts attr: {}", e))?;
+                        face_counts_attr.call_method1("Set", (face_counts,))
+                            .map_err(|e| format!("Failed to set face counts: {}", e))?;
+                        
+                        println!("🎬 USDEngine: Set face counts for mesh {}", mesh_idx);
+                        
+                        // Set face vertex indices
+                        let indices: Vec<i32> = mesh.indices.iter().map(|&i| i as i32).collect();
+                        let indices_attr = usd_mesh.call_method0("CreateFaceVertexIndicesAttr")
+                            .map_err(|e| format!("Failed to create indices attr: {}", e))?;
+                        indices_attr.call_method1("Set", (indices,))
+                            .map_err(|e| format!("Failed to set indices: {}", e))?;
+                        
+                        println!("🎬 USDEngine: Set {} indices for mesh {}", mesh.indices.len(), mesh_idx);
+                    }
+                    
+                    // Set normals if available
+                    if !mesh.normals.is_empty() {
+                        let normals: Vec<(f32, f32, f32)> = mesh.normals.iter()
+                            .map(|n| (n.x, n.y, n.z))
+                            .collect();
+                        let normals_attr = usd_mesh.call_method0("CreateNormalsAttr")
+                            .map_err(|e| format!("Failed to create normals attr: {}", e))?;
+                        normals_attr.call_method1("Set", (normals,))
+                            .map_err(|e| format!("Failed to set normals: {}", e))?;
+                        
+                        println!("🎬 USDEngine: Set {} normals for mesh {}", mesh.normals.len(), mesh_idx);
+                    }
+                }
+                
+                // Save the stage
+                println!("🎬 USDEngine: Saving USD stage to disk...");
+                stage.call_method0("Save")
+                    .map_err(|e| format!("Failed to save USD stage: {}", e))?;
+                
+                println!("🎬 Successfully saved USD scene with {} meshes to: {}", scene_data.meshes.len(), output_path);
+                Ok(())
+            })
+        }
+        
+        #[cfg(not(feature = "usd"))]
+        {
+            Err("USD support not enabled. Build with --features usd to save USD files.".to_string())
+        }
+    }
 }
 
 /// Helper function to extract AttributeValue from Python object

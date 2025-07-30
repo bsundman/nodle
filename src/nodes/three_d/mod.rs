@@ -5,6 +5,7 @@ pub mod geometry;
 pub mod lighting;
 pub mod modify;
 pub mod ui;
+pub mod output;
 
 // Re-exports removed - these were unused wildcard imports
 

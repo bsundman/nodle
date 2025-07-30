@@ -56,6 +56,9 @@ impl Workspace3D {
         // Register Console node for debugging
         node_registry.register::<crate::nodes::output::ConsoleNodeFactory>();
         
+        // Register 3D output nodes
+        node_registry.register::<crate::nodes::three_d::output::RenderNodeFactory>();
+        
         // USD nodes now provided by USD plugin
         
         // Try to register plugin nodes using the global plugin manager

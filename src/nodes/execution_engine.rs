@@ -603,6 +603,30 @@ impl NodeGraphEngine {
                 Ok(crate::nodes::three_d::modify::reverse::parameters::ReverseNode::process_node(node, inputs))
             }
             
+            // 3D Output nodes
+            "3D_Render" => {
+                // Render node only executes when render button is clicked (trigger_render = true)
+                let should_render = node.parameters.get("trigger_render")
+                    .and_then(|v| if let NodeData::Boolean(b) = v { Some(*b) } else { None })
+                    .unwrap_or(false);
+                
+                if should_render {
+                    println!("🎬 Executing Render node '{}' with {} inputs", node.title, inputs.len());
+                    let result = crate::nodes::three_d::output::render::RenderNode::process_node(node, inputs);
+                    
+                    // The render logic will have already executed and completed
+                    // The execution system will need to reset the trigger_render parameter
+                    // This is handled by the parameter system when changes are applied
+                    Ok(result)
+                } else {
+                    // Return status without executing render
+                    let status = node.parameters.get("last_render_status")
+                        .and_then(|v| if let NodeData::String(s) = v { Some(s.clone()) } else { None })
+                        .unwrap_or_else(|| "Ready".to_string());
+                    Ok(vec![NodeData::String(status)])
+                }
+            }
+            
             // Data nodes
             "Constant" => {
                 // Executing Constant node

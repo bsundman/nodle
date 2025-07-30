@@ -4,6 +4,7 @@
 
 use egui::{Context, Color32, Pos2};
 use crate::nodes::{Node, NodeId, InterfacePanelManager};
+use crate::nodes::interface::NodeData;
 use crate::editor::panels::PanelAction;
 use std::collections::HashMap;
 use log::info;
@@ -625,6 +626,11 @@ impl ParameterPanel {
                     crate::nodes::three_d::modify::reverse::parameters::ReverseNode::build_interface(node, ui)
                 },
                 
+                // 3D Output nodes
+                "3D_Render" => {
+                    // Using Render interface
+                    crate::nodes::three_d::output::render::parameters::RenderParameters::build_interface(node, ui)
+                },
                 
                 // Other node types - check if it's a plugin node first, otherwise use generic interface
                 _ => {
@@ -646,7 +652,17 @@ impl ParameterPanel {
                 info!("Applied {} parameter changes for {} node {}", changes.len(), title, node_id);
                 // Applying parameter changes
                 for change in changes {
-                    node.parameters.insert(change.parameter, change.value);
+                    node.parameters.insert(change.parameter.clone(), change.value.clone());
+                    
+                    // Special handling for render node trigger_render parameter
+                    if node.type_id == "3D_Render" && change.parameter == "trigger_render" {
+                        if let NodeData::Boolean(true) = change.value {
+                            // If trigger_render was set to true, we need to schedule it to be reset
+                            // after the execution completes. For now, we'll rely on the execution
+                            // engine logic to only execute when this flag is true.
+                            println!("🎬 Render trigger activated for node {}", node_id);
+                        }
+                    }
                 }
                 changes_applied = true;
                 
@@ -666,6 +682,18 @@ impl ParameterPanel {
         if changes_applied {
             // Notifying execution engine about parameter changes
             execution_engine.on_node_parameter_changed(node_id, graph);
+            
+            // Special handling for render node: reset trigger_render after execution
+            if let Some(node) = graph.nodes.get_mut(&node_id) {
+                if node.type_id == "3D_Render" {
+                    if let Some(NodeData::Boolean(true)) = node.parameters.get("trigger_render") {
+                        // Reset trigger_render to false after the execution engine has processed it
+                        // This ensures the render only happens once per button click
+                        node.parameters.insert("trigger_render".to_string(), NodeData::Boolean(false));
+                        println!("🔧 Parameter Panel: Reset trigger_render to false after execution");
+                    }
+                }
+            }
         }
         
         // If not handled by the main match statement, check for plugin nodes
