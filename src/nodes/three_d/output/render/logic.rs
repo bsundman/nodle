@@ -118,67 +118,38 @@ impl RenderLogic {
         outputs
     }
     
-    /// Detect available Hydra render delegates by querying usdrecord
+    /// Detect available Hydra render delegates by querying our Hydra script
     fn detect_available_renderers(&self) -> Result<Vec<String>, String> {
-        // Get USD installation path from environment
-        let usd_bin = self.get_usd_bin_path()?;
-        let usdrecord_path = format!("{}/usdrecord", usd_bin);
+        // Get Python executable and Hydra script paths
+        let python_path = self.get_python_path()?;
+        let render_script_path = self.get_hydra_render_script_path()?;
         
-        // Run usdrecord --help to see available renderers
-        let output = Command::new(&usdrecord_path)
-            .arg("--help")
+        // Run Hydra script with --list-renderers to see available renderers
+        let output = Command::new(&python_path)
+            .arg(&render_script_path)
+            .arg("--list-renderers")
             .env("PYTHONPATH", self.get_usd_python_path())
             .env("DYLD_LIBRARY_PATH", self.get_usd_lib_path())
             .env("LD_LIBRARY_PATH", self.get_usd_lib_path())
+            .env("USD_INSTALL_ROOT", self.get_usd_install_root())
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("PYTHONUNBUFFERED", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
-            .map_err(|e| format!("Failed to run usdrecord: {}", e))?;
+            .map_err(|e| format!("Failed to run Hydra renderer detection: {}", e))?;
         
-        let help_text = String::from_utf8_lossy(&output.stdout);
+        let list_text = String::from_utf8_lossy(&output.stdout);
         let mut renderers = Vec::new();
         
-        // Parse the help text to find renderer options
-        // Look for patterns like "--renderer {Cycles,Storm,GL}" 
-        for line in help_text.lines() {
-            if line.contains("--renderer") {
-                println!("🎬 Found renderer line: {}", line);
-                // Look for the pattern {renderer1,renderer2,renderer3}
-                if let Some(start) = line.find('{') {
-                    if let Some(end) = line.find('}') {
-                        let renderer_list = &line[start+1..end];
-                        for renderer in renderer_list.split(',') {
-                            let renderer = renderer.trim();
-                            if !renderer.is_empty() {
-                                renderers.push(renderer.to_string());
-                                println!("🎬 Found renderer: {}", renderer);
-                            }
-                        }
-                    }
-                }
-                break; // Found the renderer line, no need to continue
-            }
-        }
-        
-        // If no renderers found in help, try a more direct approach
-        if renderers.is_empty() {
-            // Try to run usdrecord --list-renderers if it exists
-            let list_output = Command::new(&usdrecord_path)
-                .arg("--list-renderers")
-                .env("PYTHONPATH", self.get_usd_python_path())
-                .env("DYLD_LIBRARY_PATH", self.get_usd_lib_path())
-                .env("LD_LIBRARY_PATH", self.get_usd_lib_path())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output();
-                
-            if let Ok(output) = list_output {
-                let list_text = String::from_utf8_lossy(&output.stdout);
-                for line in list_text.lines() {
-                    let line = line.trim();
-                    if !line.is_empty() && !line.starts_with('#') {
-                        renderers.push(line.to_string());
-                    }
+        // Parse the output to find available renderers
+        for line in list_text.lines() {
+            let line = line.trim();
+            if line.starts_with("- ") {
+                let renderer = line.trim_start_matches("- ");
+                if !renderer.is_empty() {
+                    renderers.push(renderer.to_string());
+                    println!("🎬 Found Hydra renderer: {}", renderer);
                 }
             }
         }
@@ -191,46 +162,42 @@ impl RenderLogic {
         Ok(renderers)
     }
     
-    /// Execute the render using usdrecord
+    /// Execute the render using direct Hydra Python pipeline
     fn execute_render(&self, scene_data: &NodeData) -> Result<String, String> {
         // Create temporary USD file from scene data
         let temp_usd_path = self.create_temp_usd_file(scene_data)?;
         
-        // Get USD installation paths
-        let usd_bin = self.get_usd_bin_path()?;
-        let usdrecord_path = format!("{}/usdrecord", usd_bin);
+        // Get Python executable path
+        let python_path = self.get_python_path()?;
         
-        // Build usdrecord command
-        let mut cmd = Command::new(&usdrecord_path);
+        // Get Hydra render script path
+        let render_script_path = self.get_hydra_render_script_path()?;
+        
+        // Build Python command for Hydra rendering
+        let mut cmd = Command::new(&python_path);
+        cmd.arg(&render_script_path);
         
         // Basic arguments
+        cmd.arg(&temp_usd_path);  // input USD file
+        cmd.arg(&self.output_path);  // output image file
         cmd.arg("--renderer").arg(&self.renderer);
-        cmd.arg("--imageWidth").arg(self.image_width.to_string());
-        // Note: usdrecord doesn't support --imageHeight, it computes height from width and aspect ratio
+        cmd.arg("--width").arg(self.image_width.to_string());
+        
+        // Calculate height from 16:9 aspect ratio if not specified
+        let image_height = (self.image_width as f32 / 16.0 * 9.0) as i32;
+        cmd.arg("--height").arg(image_height.to_string());
         
         // Optional arguments based on parameters
         if !self.camera_path.is_empty() {
             cmd.arg("--camera").arg(&self.camera_path);
         }
         
-        // Complexity setting (applies to all renderers)
+        // Complexity setting
         if !self.complexity.is_empty() {
             cmd.arg("--complexity").arg(&self.complexity);
         }
         
-        // Note: usdrecord doesn't support --samples argument directly
-        // Samples would need to be configured via render settings in the USD file
-        
-        // Color correction
-        if !self.color_correction.is_empty() && self.color_correction != "disabled" {
-            cmd.arg("--colorCorrectionMode").arg(&self.color_correction);
-        }
-        
-        // Input and output files
-        cmd.arg(&temp_usd_path);
-        cmd.arg(&self.output_path);
-        
-        // Set environment variables
+        // Set environment variables for USD/Python
         cmd.env("PYTHONPATH", self.get_usd_python_path());
         cmd.env("DYLD_LIBRARY_PATH", self.get_usd_lib_path());
         cmd.env("LD_LIBRARY_PATH", self.get_usd_lib_path());
@@ -239,8 +206,6 @@ impl RenderLogic {
         // Force Python environment isolation and clean shutdown
         cmd.env("PYTHONDONTWRITEBYTECODE", "1");
         cmd.env("PYTHONUNBUFFERED", "1");
-        cmd.env("PYTHONEXIT", "1");
-        cmd.env("SIGTERM", "1");
         
         // Add Cycles plugin path if using Cycles, otherwise disable it entirely
         if self.renderer == "Cycles" {
@@ -253,17 +218,14 @@ impl RenderLogic {
             cmd.env("PXR_DISABLE_PLUGINS", "hdCycles");
         }
         
-        println!("🎬 Executing render command: {:?}", cmd);
+        println!("🎬 Executing Hydra render command: {:?}", cmd);
         
-        // Execute the command with live output streaming and proper process management
+        // Execute the command with live output streaming
         let mut child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Failed to execute usdrecord: {}", e))?;
-        
-        // Store the process ID for potential cleanup
-        let _process_id = child.id();
+            .map_err(|e| format!("Failed to execute Hydra render script: {}", e))?;
         
         // Stream stdout and stderr in real-time using separate threads
         let stdout_handle = if let Some(stdout) = child.stdout.take() {
@@ -272,7 +234,7 @@ impl RenderLogic {
                 let mut lines = Vec::new();
                 for line in reader.lines() {
                     if let Ok(line) = line {
-                        println!("🎬 [RENDER] {}", line);
+                        println!("🎬 [HYDRA] {}", line);
                         lines.push(line);
                     }
                 }
@@ -288,7 +250,7 @@ impl RenderLogic {
                 let mut lines = Vec::new();
                 for line in reader.lines() {
                     if let Ok(line) = line {
-                        println!("🎬 [ERROR] {}", line);
+                        println!("🎬 [HYDRA-ERROR] {}", line);
                         lines.push(line);
                     }
                 }
@@ -298,27 +260,11 @@ impl RenderLogic {
             None
         };
         
-        // Wait for the process to complete (this will block, but that's okay for rendering)
+        // Wait for the process to complete
         let status = child.wait()
-            .map_err(|e| format!("Failed to wait for usdrecord process: {}", e))?;
+            .map_err(|e| format!("Failed to wait for Hydra render process: {}", e))?;
         
-        // Ensure proper cleanup of Python processes
-        println!("🎬 [CLEANUP] Render process completed, ensuring Python cleanup...");
-        
-        #[cfg(unix)]
-        {
-            // Send SIGTERM to any remaining Python processes that might be hanging
-            let _ = Command::new("pkill")
-                .arg("-f")
-                .arg("usdrecord")
-                .output();
-                
-            // Also try to clean up any Python processes from our process group
-            let _ = Command::new("pkill")
-                .arg("-f")
-                .arg("python.*usd")
-                .output();
-        }
+        println!("🎬 [CLEANUP] Hydra render process completed");
         
         // Collect output from threads
         let _stdout_lines = if let Some(handle) = stdout_handle {
@@ -337,13 +283,13 @@ impl RenderLogic {
         let _ = fs::remove_file(&temp_usd_path);
         
         if status.success() {
-            println!("🎬 Render completed successfully!");
+            println!("🎬 Hydra render completed successfully!");
             
             // Check if output file was created
             if Path::new(&self.output_path).exists() {
-                Ok(format!("Rendered to {}", self.output_path))
+                Ok(format!("Hydra rendered to {}", self.output_path))
             } else {
-                Err("Render completed but output file not found".to_string())
+                Err("Hydra render completed but output file not found".to_string())
             }
         } else {
             let error_msg = if !stderr_lines.is_empty() {
@@ -351,7 +297,7 @@ impl RenderLogic {
             } else {
                 format!("Process exited with code: {:?}", status.code())
             };
-            Err(format!("usdrecord failed: {}", error_msg))
+            Err(format!("Hydra render failed: {}", error_msg))
         }
     }
     
@@ -477,5 +423,34 @@ impl RenderLogic {
     /// Get Cycles plugin path
     fn get_cycles_plugin_path(&self) -> String {
         "/Users/brian/nodle/nodle/vendor/cycles/install/hydra:/Users/brian/nodle/nodle/vendor/cycles/install/usd".to_string()
+    }
+    
+    /// Get Python executable path
+    fn get_python_path(&self) -> Result<String, String> {
+        // Use embedded Python from vendor directory
+        let vendor_python = "/Users/brian/nodle/nodle/vendor/python-runtime/python/bin/python3";
+        if Path::new(vendor_python).exists() {
+            return Ok(vendor_python.to_string());
+        }
+        
+        // Fallback to system Python if embedded not found
+        if let Ok(output) = Command::new("which").arg("python3").output() {
+            if output.status.success() {
+                let python_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return Ok(python_path);
+            }
+        }
+        
+        Err("Python executable not found. Ensure embedded Python is installed or Python 3 is available in PATH".to_string())
+    }
+    
+    /// Get Hydra render script path
+    fn get_hydra_render_script_path(&self) -> Result<String, String> {
+        let script_path = "/Users/brian/nodle/nodle/vendor/usd_hydra_render.py";
+        if Path::new(script_path).exists() {
+            Ok(script_path.to_string())
+        } else {
+            Err(format!("Hydra render script not found: {}", script_path))
+        }
     }
 }
